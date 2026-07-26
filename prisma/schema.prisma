@@ -1,0 +1,33 @@
+// Schéma de base — à étendre au fil des modules (M1..M7) décrits dans le dossier technique.
+// npx prisma migrate dev --name init  pour la première migration.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  STUDENT
+  SPONSOR
+  ADMIN
+  SUPER_ADMIN
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  firstName    String?
+  lastName     String?
+  role         Role     @default(STUDENT)
+  promotion    String?
+  refreshTokenHash String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("users")
+}

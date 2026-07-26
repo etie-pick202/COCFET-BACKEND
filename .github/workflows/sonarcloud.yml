@@ -1,0 +1,31 @@
+name: SonarCloud
+
+# Nécessite le secret SONAR_TOKEN (créé sur sonarcloud.io, voir CONTRIBUTING.md).
+# Sans ce secret, ce workflow échoue silencieusement — il ne bloque pas la CI principale (ci.yml).
+
+on:
+  pull_request:
+    branches: [main, develop, staging]
+  push:
+    branches: [main, develop]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run test -- --coverage
+        continue-on-error: true
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
