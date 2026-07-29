@@ -1,0 +1,7 @@
+# Depuis pnpm 11, ces réglages ne sont plus lus depuis package.json.
+# bcrypt et unrs-resolver sont des modules natifs : leur script de build est
+# nécessaire. @scarf/scarf n'est que de la télémétrie, on l'ignore.
+allowBuilds:
+  '@scarf/scarf': false
+  bcrypt: true
+  unrs-resolver: true
