@@ -12,14 +12,25 @@ export class User extends BaseEntity {
   @Column({ name: 'password_hash', type: 'varchar', nullable: true })
   passwordHash: string | null;
 
-  @Column({ name: 'first_name', type: 'varchar', nullable: true })
-  firstName: string | null;
+  @Column({ name: 'first_name' })
+  firstName: string;
 
-  @Column({ name: 'last_name', type: 'varchar', nullable: true })
-  lastName: string | null;
+  @Column({ name: 'last_name' })
+  lastName: string;
 
-  @Column({ type: 'enum', enum: Role, default: Role.ETUDIANT })
+  @Column({ type: 'enum', enum: Role, default: Role.VISITOR })
   role: Role;
+
+  @Column({ type: 'varchar', nullable: true })
+  avatar: string | null;
+
+  /** Promotion déduite de l'adresse email universitaire (ex. « 2027 »). */
+  @Column({ type: 'varchar', nullable: true })
+  promotion: string | null;
+
+  /** Vrai si l'étudiant appartient à la promotion finissante en cours. */
+  @Column({ name: 'is_finissant', default: false })
+  isFinissant: boolean;
 
   @Column({ name: 'refresh_token_hash', type: 'varchar', nullable: true })
   refreshTokenHash: string | null;
