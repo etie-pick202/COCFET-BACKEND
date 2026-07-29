@@ -94,6 +94,6 @@ Modèle de branches, conventions de commit et processus de PR : voir [CONTRIBUTI
 
 ## Configuration restante (manuelle)
 
-- **SonarCloud** : créer le projet sur [sonarcloud.io](https://sonarcloud.io), ajouter le secret `SONAR_TOKEN` et la variable `SONAR_ENABLED=true`, puis corriger `sonar.organization` dans `sonar-project.properties`.
+- ~~**SonarCloud**~~ — configuré : projet [`etie-pick202_COCFET-BACKEND`](https://sonarcloud.io/project/overview?id=etie-pick202_COCFET-BACKEND), secret `SONAR_TOKEN` et variable `SONAR_ENABLED=true` en place.
 - **Upstash** : créer une base Redis et renseigner `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (sans ça, le rate limiting reste désactivé).
 - **Cloudflare R2** et **Brevo/Mailtrap** : renseigner les variables correspondantes dans `.env`.
