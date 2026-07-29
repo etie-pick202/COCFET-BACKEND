@@ -92,8 +92,18 @@ Les guards `JwtAuthGuard`, `RolesGuard` et `RateLimitGuard` sont appliqués **gl
 
 Modèle de branches, conventions de commit et processus de PR : voir [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Configuration restante (manuelle)
+## Identifiants et secrets
 
-- ~~**SonarCloud**~~ — configuré : projet [`etie-pick202_COCFET-BACKEND`](https://sonarcloud.io/project/overview?id=etie-pick202_COCFET-BACKEND), secret `SONAR_TOKEN` et variable `SONAR_ENABLED=true` en place.
-- **Upstash** : créer une base Redis et renseigner `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (sans ça, le rate limiting reste désactivé).
-- **Cloudflare R2** et **Brevo/Mailtrap** : renseigner les variables correspondantes dans `.env`.
+La procédure d'obtention et de saisie de **chaque** secret (Upstash, Cloudflare R2, Brevo/Mailtrap, NotchPay, SSO UCAC-ICAM, Sentry…) est décrite dans [docs/SECRETS.md](docs/SECRETS.md).
+
+Saisie assistée, sans jamais afficher les valeurs à l'écran :
+
+```bash
+./scripts/setup-secrets.sh
+```
+
+État actuel :
+
+- ✅ **SonarCloud** — projet [`etie-pick202_COCFET-BACKEND`](https://sonarcloud.io/project/overview?id=etie-pick202_COCFET-BACKEND), secret et variable en place.
+- ⬜ **Upstash** — optionnel : sans lui, la limitation de débit se désactive avec un avertissement au démarrage.
+- ⬜ **Cloudflare R2**, **Brevo/Mailtrap**, **NotchPay**, **SSO UCAC-ICAM** — requis au moment d'implémenter les fonctionnalités correspondantes.
