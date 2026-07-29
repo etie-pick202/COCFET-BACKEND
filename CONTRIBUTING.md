@@ -80,7 +80,19 @@ Les commits sont validés par **commitlint** via un hook `commit-msg` (Husky) : 
 - Description remplie via `.github/PULL_REQUEST_TEMPLATE.md`, avec la référence Jira.
 - Toutes les vérifications CI doivent passer : **Lint, Type check, Unit tests, E2E tests, BDD (Cucumber), Security audit, Build** (+ SonarCloud une fois activé).
 - **Au moins 1 review approuvée** avant merge.
-- Stratégie de merge : **Squash and merge**. La branche est supprimée après merge.
+- La branche est supprimée après merge.
+
+### Stratégie de merge — à respecter impérativement
+
+| Type de PR | Stratégie | Pourquoi |
+|---|---|---|
+| `feat/*`, `fix/*`, `chore/*` → `develop` | **Squash and merge** | Un commit par sujet, historique lisible |
+| `promote/*` (`develop` → `staging` → `main`) | **Create a merge commit** | Préserve la filiation entre les branches |
+| `hotfix/*` → `main`, puis report sur `staging` et `develop` | **Create a merge commit** | Idem |
+
+⚠️ **Ne jamais merger une PR de promotion en squash.** Le squash écrase les parents du commit de merge : la filiation entre branches est alors perdue, l'ancêtre commun retombe sur le commit initial, et **toutes les promotions suivantes partent en conflit `add/add` sur l'intégralité du dépôt**. Le problème s'est produit sur les PR #4, #5, #7 et #8 ; il a fallu les PR #9 et #10 pour rétablir la filiation.
+
+La règle `required_linear_history` est volontairement **désactivée** sur les branches protégées : elle interdit les merge commits et est donc incompatible avec ce modèle de promotion.
 
 ## 5. Push
 
