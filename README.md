@@ -56,19 +56,24 @@ En développement, TypeORM synchronise le schéma automatiquement (`synchronize:
 src/
 ├── common/                 # Éléments transverses
 │   ├── entities/           # BaseEntity (id, timestamps)
-│   ├── enums/              # Role
+│   ├── enums/              # Role (VISITOR, STUDENT, SPONSOR, ADMIN)
 │   └── guards/             # RateLimitGuard (Upstash)
 ├── config/                 # Configuration TypeORM + validation des variables d'env
 └── modules/
     ├── auth/               # JWT, Passport, JwtAuthGuard, RolesGuard, décorateurs
     ├── user/               # Comptes utilisateurs
-    ├── etudiant/           # Profils finissants
-    ├── company/            # Entreprises partenaires
-    ├── experience/         # Expériences professionnelles
-    ├── formation/          # Parcours de formation
-    ├── skills/             # Compétences
-    ├── offre/              # Offres de stage / emploi
-    ├── promotion/          # Promotions (générations)
+    ├── generation/         # Générations du bureau, archivage multi-générationnel
+    ├── evenement/          # M1 — Événements
+    ├── billetterie/        # M1 — Inscriptions, billets QR code
+    ├── boutique/           # M2 — Produits (merchandising)
+    ├── commande/           # M2 — Commandes et lignes de commande
+    ├── paiement/           # Transactions Mobile Money (NotchPay)
+    ├── annuaire/           # M3 — Profils des finissants
+    ├── sponsor/            # M4 — Sponsors et paliers d'accréditation
+    ├── article/            # M5 — Actualités / blog
+    ├── sondage/            # M6 — Sondages, options, votes
+    ├── notification/       # M7 — Notifications et rappels
+    ├── activite/           # Journal d'activité (flux admin en direct)
     ├── mail/               # Envoi d'emails + templates Handlebars
     └── file/               # Stockage Cloudflare R2
 ```
