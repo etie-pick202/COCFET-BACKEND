@@ -13,7 +13,7 @@ Le front-end vit dans un dépôt séparé : [SOURCING-FRONTEND](https://github.c
 | Auth | JWT (`@nestjs/jwt`) + Passport (`passport-jwt`), guards par rôle |
 | Sécurité | bcrypt, helmet, rate limiting Upstash Redis |
 | Validation | class-validator / class-transformer |
-| Emails | `@nestjs-modules/mailer` + nodemailer + Handlebars — Mailtrap (dev), Brevo (prod) |
+| Emails | `@nestjs-modules/mailer` + nodemailer + Handlebars — Mailpit (dev), Brevo (staging/prod) |
 | Fichiers | Cloudflare R2 (S3-compatible) via `@aws-sdk/client-s3`, URLs signées |
 | Documentation | Swagger / OpenAPI (`@nestjs/swagger`) |
 | Tests | Jest (unitaires + e2e), Cucumber (BDD) |
@@ -26,10 +26,12 @@ Le front-end vit dans un dépôt séparé : [SOURCING-FRONTEND](https://github.c
 ```bash
 pnpm install
 cp .env.example .env    # puis renseigner DATABASE_URL et les secrets
+docker compose up -d    # Mailpit — capture les emails en local
 pnpm run start:dev
 ```
 
 - API : `http://localhost:3000/api/v1`
+- Emails capturés (Mailpit) : `http://localhost:8025`
 - Documentation Swagger : `http://localhost:3000/docs`
 - Healthcheck : `GET /api/v1/health`
 

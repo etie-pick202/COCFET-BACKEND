@@ -1,0 +1,50 @@
+# Services de développement local.
+#   docker compose up -d
+#
+# Mailpit capture tous les emails émis par l'API sans jamais les envoyer :
+# aucun compte, aucun quota, fonctionne hors ligne. Les messages se consultent
+# sur http://localhost:8025
+#
+# PostgreSQL est commenté : la plupart des postes ont déjà une instance locale.
+# Décommentez-le si vous préférez une base jetable et isolée.
+
+services:
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: cocfet-mailpit
+    restart: unless-stopped
+    ports:
+      - '1025:1025' # SMTP — c'est ce port que l'API utilise
+      - '8025:8025' # Interface web de consultation
+    environment:
+      MP_MAX_MESSAGES: 500
+      # Le SMTP local n'est ni authentifié ni chiffré : Mailpit n'envoie rien
+      # vers l'extérieur, et n'écoute que sur la machine de développement.
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # postgres:
+  #   image: postgres:15
+  #   container_name: cocfet-postgres
+  #   restart: unless-stopped
+  #   ports:
+  #     - '5432:5432'
+  #   environment:
+  #     POSTGRES_USER: postgres
+  #     POSTGRES_PASSWORD: postgres
+  #     POSTGRES_DB: cocfet_dev
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   healthcheck:
+  #     test: ['CMD-SHELL', 'pg_isready -U postgres']
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+
+# volumes:
+#   postgres-data:
