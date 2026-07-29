@@ -83,6 +83,18 @@ openssl rand -base64 48
 
 Mailpit capture localement tout ce que l'API envoie et n'expédie rien vers l'extérieur. Pas de compte, pas de quota, fonctionne hors ligne.
 
+**Docker n'est pas obligatoire** — Mailpit est un binaire autonome. Choisissez l'une des deux méthodes :
+
+*Option A — binaire autonome (aucune dépendance)*
+
+Télécharger l'exécutable correspondant à votre système depuis les [releases officielles](https://github.com/axllent/mailpit/releases) (`mailpit-windows-amd64.zip` sous Windows), le décompresser, puis :
+
+```bash
+./mailpit
+```
+
+*Option B — Docker*
+
 ```bash
 docker compose up -d
 ```

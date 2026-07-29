@@ -26,14 +26,14 @@ Le front-end vit dans un dépôt séparé : [SOURCING-FRONTEND](https://github.c
 ```bash
 pnpm install
 cp .env.example .env    # puis renseigner DATABASE_URL et les secrets
-docker compose up -d    # Mailpit — capture les emails en local
 pnpm run start:dev
 ```
 
 - API : `http://localhost:3000/api/v1`
-- Emails capturés (Mailpit) : `http://localhost:8025`
 - Documentation Swagger : `http://localhost:3000/docs`
 - Healthcheck : `GET /api/v1/health`
+
+Pour lire les emails émis en développement, lancer **Mailpit** — soit le [binaire autonome](https://github.com/axllent/mailpit/releases) (aucune dépendance), soit `docker compose up -d`. Interface sur `http://localhost:8025`. L'API démarre et fonctionne même sans Mailpit : seuls les envois d'emails échouent, et l'erreur est journalisée sans interrompre l'action métier en cours.
 
 En développement, TypeORM synchronise le schéma automatiquement (`synchronize: true`). En production, le schéma est appliqué par migrations.
 
