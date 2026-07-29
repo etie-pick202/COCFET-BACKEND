@@ -1,7 +1,10 @@
 name: SonarCloud
 
-# Nécessite le secret SONAR_TOKEN (créé sur sonarcloud.io, voir CONTRIBUTING.md).
-# Sans ce secret, ce workflow échoue silencieusement — il ne bloque pas la CI principale (ci.yml).
+# Prérequis pour activer ce workflow :
+#   1. Créer le projet sur https://sonarcloud.io et récupérer le token.
+#   2. Ajouter le secret SONAR_TOKEN     (Settings > Secrets and variables > Actions > Secrets).
+#   3. Ajouter la variable SONAR_ENABLED = true  (même page, onglet Variables).
+# Tant que SONAR_ENABLED n'est pas défini, le job est ignoré au lieu d'échouer.
 
 on:
   pull_request:
@@ -13,16 +16,18 @@ jobs:
   sonarcloud:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
+    if: ${{ vars.SONAR_ENABLED == 'true' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run test -- --coverage
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:cov
         continue-on-error: true
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v4

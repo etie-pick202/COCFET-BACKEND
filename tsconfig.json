@@ -16,10 +16,13 @@
     "baseUrl": "./",
     "incremental": true,
     "skipLibCheck": true,
-    "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
-    "noImplicitAny": false,
-    "strictBindCallApply": false,
-    "noFallthroughCasesInSwitch": false
+    "strict": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    // Les propriétés d'entités TypeORM et les injections Nest sont assignées
+    // hors constructeur : l'initialisation stricte est donc désactivée.
+    "strictPropertyInitialization": false
   }
 }
