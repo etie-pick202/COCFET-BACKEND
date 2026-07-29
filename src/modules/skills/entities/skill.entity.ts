@@ -8,7 +8,7 @@ export class Skill extends BaseEntity {
   @Column()
   libelle: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   categorie: string | null;
 
   @ManyToMany(() => Etudiant, (etudiant) => etudiant.skills)

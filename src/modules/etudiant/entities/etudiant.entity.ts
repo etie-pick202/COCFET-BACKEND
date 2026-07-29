@@ -22,19 +22,19 @@ export class Etudiant extends BaseEntity {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   filiere: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   telephone: string | null;
 
   @Column({ type: 'text', nullable: true })
   bio: string | null;
 
-  @Column({ name: 'cv_key', nullable: true })
+  @Column({ name: 'cv_key', type: 'varchar', nullable: true })
   cvKey: string | null;
 
-  @Column({ name: 'photo_key', nullable: true })
+  @Column({ name: 'photo_key', type: 'varchar', nullable: true })
   photoKey: string | null;
 
   @Column({ name: 'is_visible', default: true })

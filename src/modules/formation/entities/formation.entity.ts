@@ -10,7 +10,7 @@ export class Formation extends BaseEntity {
   @Column()
   etablissement: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   diplome: string | null;
 
   @Column({ name: 'annee_debut', type: 'int' })

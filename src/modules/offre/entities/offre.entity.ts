@@ -28,7 +28,7 @@ export class Offre extends BaseEntity {
   @Column({ type: 'enum', enum: StatutOffre, default: StatutOffre.BROUILLON })
   statut: StatutOffre;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   localisation: string | null;
 
   @Column({ name: 'date_expiration', type: 'date', nullable: true })

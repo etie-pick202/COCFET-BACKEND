@@ -13,16 +13,16 @@ export class Company extends BaseEntity {
   @Column()
   nom: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   secteur: string | null;
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
 
-  @Column({ name: 'site_web', nullable: true })
+  @Column({ name: 'site_web', type: 'varchar', nullable: true })
   siteWeb: string | null;
 
-  @Column({ name: 'logo_key', nullable: true })
+  @Column({ name: 'logo_key', type: 'varchar', nullable: true })
   logoKey: string | null;
 
   @Column({ name: 'is_verified', default: false })
