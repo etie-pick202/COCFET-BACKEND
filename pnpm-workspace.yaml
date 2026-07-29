@@ -1,0 +1,36 @@
+# Depuis pnpm 11, ces réglages ne sont plus lus depuis package.json.
+
+# bcrypt et unrs-resolver sont des modules natifs : leur script de build est
+# nécessaire. @scarf/scarf n'est que de la télémétrie, on l'ignore.
+allowBuilds:
+  '@scarf/scarf': false
+  bcrypt: true
+  unrs-resolver: true
+
+minimumReleaseAgeExclude:
+  - brace-expansion@1.1.17
+
+# CVE dans des dépendances transitives que nous ne contrôlons pas directement
+# (principalement via l'arbre mjml de @nestjs-modules/mailer). On force les
+# versions corrigées. À réévaluer quand les paquets parents auront été mis à
+# jour en amont.
+overrides:
+  nodemailer: '>=9.0.1'
+  tar: '>=7.5.19'
+  linkify-it: '>=5.0.2'
+  js-yaml: '>=5.2.2'
+  # Override scopé sur la plage demandée : forcer brace-expansion v5 partout
+  # casse minimatch@3, dont l'API attend la v1 (export par défaut). On corrige
+  # donc chaque branche majeure vers son correctif rétroporté.
+  brace-expansion@^1.1.7: '1.1.17'
+  brace-expansion@^2.0.1: '2.1.3'
+
+# GHSA-mh99-v99m-4gvg (CVE-2026-14257, brace-expansion) : l'avis déclare
+# « vulnérable <=5.0.7 », ce qui marque à tort les rétroportages 1.1.17 et
+# 2.1.3 comme vulnérables. Ces deux versions contiennent bien le correctif
+# (garde EXPANSION_MAX_LENGTH, vérifié dans leur code). Forcer la v5 partout
+# n'est pas une option : son API a changé et casse minimatch@3, dont dépend
+# ESLint. On ignore donc cet avis, les versions installées étant corrigées.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-mh99-v99m-4gvg

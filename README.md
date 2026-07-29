@@ -6,69 +6,89 @@ Le front-end vit dans un dépôt séparé : [SOURCING-FRONTEND](https://github.c
 
 ## Stack
 
-| Élément | Choix |
+| Domaine | Choix |
 |---|---|
-| Framework | NestJS 11 (TypeScript) |
-| ORM | Prisma |
-| Base de données | PostgreSQL (Supabase) |
+| Framework | NestJS 11 (TypeScript strict), Node.js ≥ 20 |
+| Base de données | PostgreSQL 15 + TypeORM |
+| Auth | JWT (`@nestjs/jwt`) + Passport (`passport-jwt`), guards par rôle |
+| Sécurité | bcrypt, helmet, rate limiting Upstash Redis |
 | Validation | class-validator / class-transformer |
-| Auth | JWT (access + refresh) + SSO UCAC-ICAM |
-| Paiement | NotchPay |
-| Emails / Push | Resend / Firebase FCM |
-| CI/CD | GitHub Actions + SonarCloud |
+| Emails | `@nestjs-modules/mailer` + nodemailer + Handlebars — Mailtrap (dev), Brevo (prod) |
+| Fichiers | Cloudflare R2 (S3-compatible) via `@aws-sdk/client-s3`, URLs signées |
+| Documentation | Swagger / OpenAPI (`@nestjs/swagger`) |
+| Tests | Jest (unitaires + e2e), Cucumber (BDD) |
+| Qualité | ESLint, Prettier, SonarCloud |
+| Outillage | pnpm, GitHub Actions |
+| Gestion de projet | Jira (tickets `KAN-*`) |
 
 ## Démarrage
 
 ```bash
-npm install
+pnpm install
 cp .env.example .env    # puis renseigner DATABASE_URL et les secrets
-npx prisma migrate dev
-npm run start:dev
+pnpm run start:dev
 ```
 
-L'API écoute par défaut sur `http://localhost:3000/api/v1`.
+- API : `http://localhost:3000/api/v1`
+- Documentation Swagger : `http://localhost:3000/docs`
+- Healthcheck : `GET /api/v1/health`
 
-## Scripts utiles
+En développement, TypeORM synchronise le schéma automatiquement (`synchronize: true`). En production, le schéma est appliqué par migrations.
+
+## Scripts
 
 | Commande | Description |
 |---|---|
-| `npm run start:dev` | Serveur en mode watch |
-| `npm run build` | Compilation TypeScript |
-| `npm run lint` | ESLint (avec `--fix`) |
-| `npm run test` | Tests unitaires (Jest) |
-| `npm run test:e2e` | Tests end-to-end |
-| `npm run prisma:migrate` | Créer/appliquer une migration en dev |
-| `npm run prisma:studio` | Explorer la base de données |
-| `npm run prisma:seed` | Injecter les données de seed |
+| `pnpm run start:dev` | Serveur en mode watch |
+| `pnpm run build` | Compilation TypeScript |
+| `pnpm run lint` | ESLint avec `--fix` |
+| `pnpm run lint:check` | ESLint sans correction (utilisé en CI) |
+| `pnpm run typecheck` | `tsc --noEmit` |
+| `pnpm run test` | Tests unitaires (Jest) |
+| `pnpm run test:cov` | Tests unitaires + couverture |
+| `pnpm run test:e2e` | Tests end-to-end (nécessite PostgreSQL) |
+| `pnpm run test:bdd` | Scénarios BDD (Cucumber) |
+| `pnpm run audit:security` | Audit des vulnérabilités (niveau `high`) |
 
-## Modules fonctionnels prévus
+## Architecture
 
-| Code | Module |
-|---|---|
-| M1 | Événements & Billetterie |
-| M2 | Boutique / Merchandising |
-| M3 | Annuaire des Finissants |
-| M4 | Espace Sponsors |
-| M5 | Actualités / Blog |
-| M6 | Sondages & Votes |
-| M7 | Notifications & Rappels |
+```
+src/
+├── common/                 # Éléments transverses
+│   ├── entities/           # BaseEntity (id, timestamps)
+│   ├── enums/              # Role
+│   └── guards/             # RateLimitGuard (Upstash)
+├── config/                 # Configuration TypeORM + validation des variables d'env
+└── modules/
+    ├── auth/               # JWT, Passport, JwtAuthGuard, RolesGuard, décorateurs
+    ├── user/               # Comptes utilisateurs
+    ├── etudiant/           # Profils finissants
+    ├── company/            # Entreprises partenaires
+    ├── experience/         # Expériences professionnelles
+    ├── formation/          # Parcours de formation
+    ├── skills/             # Compétences
+    ├── offre/              # Offres de stage / emploi
+    ├── promotion/          # Promotions (générations)
+    ├── mail/               # Envoi d'emails + templates Handlebars
+    └── file/               # Stockage Cloudflare R2
+```
 
-Modules transversaux : Authentification & comptes, Dashboard d'administration, système multi-générationnel.
+Les guards `JwtAuthGuard`, `RolesGuard` et `RateLimitGuard` sont appliqués **globalement**. Une route publique se déclare avec le décorateur `@Public()`, une route restreinte avec `@Roles(Role.ADMIN)`.
 
 ## Environnements
 
 | Env. | Branche | URL |
 |---|---|---|
-| Développement | `feature/*` | `localhost:3000` |
-| Preview | PR | déploiement éphémère |
+| Développement | `feat/*` | `localhost:3000` |
 | Staging | `staging` | `api-staging.cocfet.com` |
 | Production | `main` | `api.cocfet.com` |
 
 ## Contribuer
 
-Le modèle de branches, les conventions de commit (Conventional Commits) et le processus de Pull Request sont décrits dans [CONTRIBUTING.md](CONTRIBUTING.md).
+Modèle de branches, conventions de commit et processus de PR : voir [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Configuration restante (à faire manuellement)
+## Configuration restante (manuelle)
 
-- Créer le projet sur [SonarCloud](https://sonarcloud.io), puis ajouter le secret `SONAR_TOKEN` dans les secrets GitHub Actions et corriger `sonar.organization` dans `sonar-project.properties`.
-- Appliquer la protection des branches : `./scripts/setup-branch-protection.sh <owner>/<repo>`.
+- **SonarCloud** : créer le projet sur [sonarcloud.io](https://sonarcloud.io), ajouter le secret `SONAR_TOKEN` et la variable `SONAR_ENABLED=true`, puis corriger `sonar.organization` dans `sonar-project.properties`.
+- **Upstash** : créer une base Redis et renseigner `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (sans ça, le rate limiting reste désactivé).
+- **Cloudflare R2** et **Brevo/Mailtrap** : renseigner les variables correspondantes dans `.env`.
