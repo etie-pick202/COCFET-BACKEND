@@ -1,0 +1,792 @@
+Issue Type,Summary,Description,Epic Name,Epic Link,Priority,Story Points,Labels,Labels,Fix Version
+Epic,Socle technique et migrations,"Fondations transverses : migrations, configuration, conventions d'erreur et de pagination. Bloque la quasi-totalité des autres épopées.",Socle technique et migrations,,High,,socle,,
+Story,Remplacer synchronize par des migrations TypeORM versionnées,"Le schéma est actuellement généré par `synchronize`. En production, cette option peut supprimer des colonnes, et donc des données. Il faut passer à des migrations versionnées et désactiver `synchronize` en dehors du développement.
+
+Critères d'acceptation :
+- `synchronize` vaut false en staging et en production
+- Les scripts `migration:generate`, `migration:run` et `migration:revert` existent
+- La CI échoue si une entité est modifiée sans migration correspondante",,Socle technique et migrations,Highest,5,socle,mvp,MVP
+Story,Générer la migration initiale du schéma,"Produire la première migration couvrant les 18 entités existantes, tables de jointure incluses (`evenement_sponsors`, `vote_options`).
+
+Critères d'acceptation :
+- `migration:run` crée le schéma complet depuis une base vide
+- `migration:revert` le supprime proprement
+- Les index uniques sont présents : `users.email`, `inscriptions.code_billet`, `transactions.reference`, `articles.slug`, `generations.annee`, `votes(sondage, user)`",,Socle technique et migrations,Highest,3,socle,mvp,MVP
+Story,Ajouter PostgreSQL au docker-compose,"Le `docker-compose.yml` ne contient que Mailpit, PostgreSQL y est commenté. Un nouvel arrivant doit pouvoir démarrer la base sans installation locale.
+
+Critères d'acceptation :
+- `docker compose up -d` démarre PostgreSQL et Mailpit
+- Les identifiants correspondent à ceux du `.env.example`
+- Un volume nommé assure la persistance des données",,Socle technique et migrations,High,2,socle,mvp,MVP
+Story,Valider la configuration au démarrage,"Compléter `env.validation.ts` pour que l'API refuse de démarrer si une variable requise manque ou est mal typée, plutôt que d'échouer plus tard à l'exécution.
+
+Critères d'acceptation :
+- Toute variable absente ou invalide provoque un échec explicite au démarrage
+- Le message d'erreur nomme la variable fautive
+- Les valeurs par défaut de développement restent fonctionnelles",,Socle technique et migrations,High,3,socle,mvp,MVP
+Story,Unifier le format des erreurs,"Mettre en place un filtre d'exception global. Toutes les erreurs doivent sortir sous la même forme, sans jamais laisser fuiter de trace technique vers le client.
+
+Critères d'acceptation :
+- Réponse unifiée : code, message, horodatage, chemin
+- Les erreurs 500 sont journalisées intégralement mais renvoient un message générique
+- Les erreurs de validation listent les champs invalides",,Socle technique et migrations,High,3,socle,mvp,MVP
+Story,"Factoriser la pagination, le tri et le filtrage","Toutes les listes (événements, produits, articles, annuaire, utilisateurs) ont besoin de la même mécanique. La factoriser évite de la réécrire dans chaque module.
+
+Critères d'acceptation :
+- DTO de pagination commun, avec une borne maximale sur la taille de page
+- Réponse enveloppée : données, total, page, nombre de pages
+- Tri restreint à une liste blanche de champs, pour éviter l'injection dans la clause ORDER BY",,Socle technique et migrations,High,5,socle,mvp,MVP
+Story,Créer un jeu de données de développement,"Un script de seed permettant de disposer d'une base représentative sans saisie manuelle.
+
+Critères d'acceptation :
+- Crée une génération active, des utilisateurs de chaque rôle, des événements, des produits, des sondages et des articles
+- Idempotent : deux exécutions ne dupliquent rien
+- Jamais exécutable en production",,Socle technique et migrations,Medium,3,socle,v1,V1
+Story,Arbitrer la politique de suppression et de conservation,"Choisir entre suppression physique et suppression logique pour chaque entité, en cohérence avec les `onDelete` déjà posés (CASCADE, SET NULL, RESTRICT).
+
+Critères d'acceptation :
+- Chaque entité a une politique documentée
+- La suppression d'un utilisateur préserve la traçabilité comptable des transactions
+- Les règles sont couvertes par des tests",,Socle technique et migrations,Medium,5,socle,v1,V1
+Epic,Authentification et comptes,"Inscription, connexion, jetons, rôles et SSO universitaire. Prérequis de tous les endpoints protégés.",Authentification et comptes,,High,,auth,,
+Story,Inscrire un utilisateur par email et mot de passe,"Créer le DTO et l'endpoint d'inscription. `passwordHash` est nullable en base pour les comptes SSO, mais il est obligatoire sur ce parcours.
+
+Critères d'acceptation :
+- Mot de passe haché avec bcrypt, jamais stocké en clair
+- Email unique : un doublon renvoie une erreur explicite
+- La politique de robustesse du mot de passe est appliquée et documentée
+- L'email de bienvenue part via `MailService`",,Authentification et comptes,Highest,3,auth,mvp,MVP
+Story,Émettre les jetons à la connexion,"Endpoint de connexion renvoyant un access token de courte durée et un refresh token de longue durée.
+
+Critères d'acceptation :
+- Des identifiants invalides donnent un message indifférencié, pour ne pas révéler l'existence d'un compte
+- Un compte dont `isActive` vaut false ne peut pas se connecter
+- Les durées de validité sont configurables",,Authentification et comptes,Highest,5,auth,mvp,MVP
+Story,Faire tourner et révoquer le refresh token,"`User.refreshTokenHash` existe déjà. Il doit servir à invalider un refresh token dès qu'il est réutilisé, afin de limiter l'impact d'un vol de jeton.
+
+Critères d'acceptation :
+- Le refresh token est stocké haché, jamais en clair
+- Chaque rafraîchissement émet un nouveau couple et invalide le précédent
+- Rejouer un ancien refresh token échoue",,Authentification et comptes,Highest,5,auth,mvp,MVP
+Story,Déduire le rôle et la promotion depuis l'email universitaire,"Un email du domaine universitaire donne le rôle STUDENT et renseigne la promotion (par exemple 2027), ce qui conditionne le tarif campus. Tout autre domaine donne VISITOR.
+
+Critères d'acceptation :
+- Le domaine universitaire attribue STUDENT et renseigne `promotion`
+- Les autres domaines donnent VISITOR
+- La règle d'extraction est couverte par des tests, cas limites inclus
+- Le rôle ADMIN n'est jamais attribuable par ce mécanisme",,Authentification et comptes,High,5,auth,mvp,MVP
+Story,Déconnecter un utilisateur,"Invalider le refresh token côté serveur, pour que la déconnexion ne repose pas seulement sur l'oubli du jeton par le client.
+
+Critères d'acceptation :
+- `refreshTokenHash` est effacé
+- Le refresh token devient inutilisable
+- L'endpoint est idempotent",,Authentification et comptes,High,2,auth,mvp,MVP
+Story,Réinitialiser un mot de passe oublié,"Le template `password-reset.hbs` existe déjà. Il manque le parcours complet : demande, jeton à durée limitée, changement effectif.
+
+Critères d'acceptation :
+- Le lien expire au bout d'une heure, conformément au template
+- Le jeton est à usage unique
+- La demande renvoie la même réponse, que l'email existe ou non
+- Le changement invalide les sessions en cours",,Authentification et comptes,High,5,auth,mvp,MVP
+Story,Vérifier l'adresse email,"Confirmer la possession de l'adresse avant d'accorder les droits liés au statut étudiant.
+
+Critères d'acceptation :
+- Un email de vérification part à l'inscription
+- Le lien est à usage unique et expire
+- Les actions réservées aux comptes vérifiés sont documentées",,Authentification et comptes,Medium,3,auth,v1,V1
+Story,Brancher le SSO UCAC-ICAM,"Connexion via le fournisseur d'identité de l'école. C'est la raison pour laquelle `passwordHash` est nullable.
+
+Critères d'acceptation :
+- Un compte créé par SSO a un `passwordHash` nul et ne peut pas se connecter par mot de passe
+- Le rattachement à un compte existant de même email est traité explicitement
+- Le rôle et la promotion sont dérivés des attributs fournis par le fournisseur d'identité",,Authentification et comptes,Medium,8,auth,v1,V1
+Story,Durcir les endpoints d'authentification,"Le `rate-limit.guard.ts` existe. Il faut l'appliquer aux parcours sensibles et ajouter une temporisation après des échecs répétés.
+
+Critères d'acceptation :
+- Limitation par IP et par compte sur la connexion, l'inscription et le mot de passe oublié
+- Temporisation progressive après plusieurs échecs consécutifs
+- Les tentatives échouées sont journalisées",,Authentification et comptes,High,5,auth,mvp,MVP
+Story,Couvrir les guards de rôles par des tests,"`JwtAuthGuard`, `RolesGuard`, `@Roles` et `@Public` sont en place mais ne sont pas testés. Une régression ici ouvre l'accès à des données privées.
+
+Critères d'acceptation :
+- Chaque combinaison rôle / endpoint est testée
+- Un endpoint sans `@Public` est protégé par défaut
+- Un jeton expiré ou falsifié est rejeté",,Authentification et comptes,High,3,auth,mvp,MVP
+Epic,Utilisateurs et profils,"Gestion des comptes, par l'administration et par l'utilisateur lui-même.",Utilisateurs et profils,,High,,user,,
+Story,Administrer les utilisateurs,"Endpoints d'administration : lister, consulter, modifier le rôle, désactiver.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- La désactivation passe `isActive` à false sans supprimer l'historique
+- Un administrateur ne peut pas se retirer lui-même son rôle",,Utilisateurs et profils,High,5,user,mvp,MVP
+Story,Consulter et modifier son profil,"Endpoints de lecture et de mise à jour du profil de l'utilisateur connecté.
+
+Critères d'acceptation :
+- Ne renvoie jamais `passwordHash` ni `refreshTokenHash`
+- Les champs `role`, `promotion` et `isFinissant` ne sont pas modifiables par l'utilisateur
+- Changer d'email exige une nouvelle vérification",,Utilisateurs et profils,High,3,user,mvp,MVP
+Story,Changer son mot de passe,"Changement par un utilisateur déjà connecté, avec vérification du mot de passe actuel.
+
+Critères d'acceptation :
+- Le mot de passe actuel est exigé
+- Les autres sessions sont invalidées
+- Indisponible pour les comptes SSO dépourvus de mot de passe",,Utilisateurs et profils,Medium,3,user,mvp,MVP
+Story,Rechercher et filtrer les utilisateurs,"Permettre au bureau de retrouver un compte par rôle, promotion ou statut de finissant.
+
+Critères d'acceptation :
+- Filtres sur `role`, `promotion`, `isFinissant` et `isActive`
+- Recherche textuelle sur le nom et l'email
+- Pagination appliquée",,Utilisateurs et profils,Medium,3,user,v1,V1
+Story,Piloter le marquage des finissants,"`isFinissant` conditionne l'appartenance à l'annuaire. Ce marquage doit découler de la génération active, et non d'une saisie manuelle.
+
+Critères d'acceptation :
+- Le passage à une nouvelle génération met à jour les finissants
+- L'opération est tracée dans le journal d'activité
+- Une correction manuelle reste possible pour un administrateur",,Utilisateurs et profils,Medium,3,user,v1,V1
+Epic,Générations,Une génération correspond au mandat d'un Bureau des Finissants. L'archivage fige les statistiques et fait basculer la plateforme.,Générations,,High,,generation,,
+Story,Gérer les générations,"Création, modification et consultation des générations : année, nom, logo, couleurs.
+
+Critères d'acceptation :
+- `annee` est unique
+- Réservé au rôle ADMIN
+- Les couleurs sont validées comme codes hexadécimaux",,Générations,High,3,generation,mvp,MVP
+Story,Garantir l'unicité de la génération active,"`isActive` est un simple booléen : rien n'empêche aujourd'hui deux générations actives, ce qui rendrait le thème et les rattachements indéterminés.
+
+Critères d'acceptation :
+- Activer une génération désactive automatiquement la précédente
+- L'invariant est garanti en base par un index partiel unique, pas seulement en code
+- L'opération est transactionnelle",,Générations,Highest,3,generation,mvp,MVP
+Story,Archiver une génération et figer ses statistiques,"L'archivage calcule puis fige `stats` (totalEvents, totalRevenue, totalUsers, totalProducts) et renseigne `archivedAt`.
+
+Critères d'acceptation :
+- Les statistiques sont calculées à l'archivage et ne bougent plus ensuite
+- `archivedAt` est renseigné
+- Une génération archivée n'est plus modifiable",,Générations,High,5,generation,v1,V1
+Story,Exposer le thème de la génération active,"Le frontend a besoin du logo et des couleurs de la génération en cours.
+
+Critères d'acceptation :
+- Endpoint public renvoyant le logo et les couleurs de la génération active
+- La réponse est mise en cache
+- Le comportement est défini lorsqu'aucune génération n'est active",,Générations,Medium,2,generation,mvp,MVP
+Story,Basculer vers une nouvelle génération,"Séquencer les effets de bord d'un changement de mandat : finissants, annuaire, contenus rattachés.
+
+Critères d'acceptation :
+- La procédure est documentée et rejouable
+- Les événements et contenus de l'ancienne génération restent consultables
+- L'opération est tracée",,Générations,Medium,5,generation,v1,V1
+Epic,Événements,"Cœur du produit : catalogue, publication, tarification double et jauge de capacité.",Événements,,High,,evenement,,
+Story,Gérer les événements,"Création, modification et suppression par le bureau.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- `dateFin` doit être postérieure à `dateDebut`
+- Un événement ayant des inscriptions ne peut pas être supprimé, seulement archivé",,Événements,Highest,5,evenement,mvp,MVP
+Story,Lister publiquement les événements,"Liste paginée et filtrable, accessible sans authentification.
+
+Critères d'acceptation :
+- Seuls les événements PUBLIE sont visibles publiquement
+- Filtres par type, par période et par génération
+- Tri par date de début par défaut",,Événements,Highest,5,evenement,mvp,MVP
+Story,Afficher le détail d'un événement,"Fiche complète, avec les sponsors, les produits rattachés et les places restantes.
+
+Critères d'acceptation :
+- Renvoie la jauge : capacité et inscriptions actuelles
+- Un BROUILLON n'est accessible qu'à un administrateur
+- Inclut les sponsors et les produits associés",,Événements,Highest,3,evenement,mvp,MVP
+Story,Encadrer le workflow de publication,"Transitions de BROUILLON vers PUBLIE puis ARCHIVE, avec les règles associées.
+
+Critères d'acceptation :
+- Les transitions autorisées sont explicites, les autres sont refusées
+- La publication exige que les champs obligatoires soient renseignés
+- L'archivage ferme les inscriptions",,Événements,High,3,evenement,mvp,MVP
+Story,Résoudre le tarif selon le profil,"`prixCampus` et `prixExterne` doivent être arbitrés selon le rôle : STUDENT paie le tarif campus, VISITOR le tarif externe. Les montants sont en FCFA, stockés en entier, la devise n'ayant pas de sous-unité.
+
+Critères d'acceptation :
+- Le tarif appliqué découle du rôle, jamais d'un paramètre envoyé par le client
+- Le prix retenu est figé dans `Inscription.prix`
+- Un événement GRATUIT ignore les deux tarifs
+- La règle est couverte par des tests pour chaque rôle",,Événements,Highest,5,evenement,mvp,MVP
+Story,Fiabiliser le compteur d'inscriptions,"`inscriptionsActuelles` est dénormalisé pour afficher la jauge sans recompter les inscriptions. Il peut donc s'écarter du réel : il faut un mécanisme de cohérence et de réconciliation.
+
+Critères d'acceptation :
+- Le compteur est mis à jour dans la même transaction que l'inscription
+- Une annulation le décrémente
+- Une commande de réconciliation permet de le recalculer
+- Un test vérifie la cohérence sous accès concurrents",,Événements,High,5,evenement,mvp,MVP
+Story,Alimenter la galerie et le compte rendu,"Renseigner `galerie` et `recap` une fois l'événement passé.
+
+Critères d'acceptation :
+- Ajout et suppression d'images dans la galerie
+- Le compte rendu accepte du texte enrichi, assaini avant stockage
+- Visible publiquement une fois l'événement terminé",,Événements,Low,3,evenement,v2,V2
+Story,Rattacher des sponsors à un événement,"Gérer la relation plusieurs-à-plusieurs `evenement_sponsors`.
+
+Critères d'acceptation :
+- Ajout et retrait de sponsors sur un événement
+- Affichage ordonné par palier
+- Réservé au rôle ADMIN",,Événements,Medium,3,evenement,v1,V1
+Story,Gérer les événements sur invitation,"Le type SUR_INVITATION existe, mais aucun mécanisme d'invitation n'est défini.
+
+Critères d'acceptation :
+- Génération et envoi d'invitations nominatives
+- L'inscription est refusée sans invitation valide
+- Une invitation est à usage unique",,Événements,Medium,5,evenement,v2,V2
+Epic,Billetterie et contrôle d'accès,"Inscription aux événements, billet à QR code et scan à l'entrée. Les règles de concurrence y sont critiques.",Billetterie et contrôle d'accès,,High,,billetterie,,
+Story,Créer une inscription et son code de billet,"`codeBillet` porte un index unique. Il doit être imprévisible : un code devinable permettrait de fabriquer un faux billet.
+
+Critères d'acceptation :
+- Le code est généré de façon cryptographiquement aléatoire
+- L'unicité est garantie, avec gestion du cas de collision
+- Le statut initial est EN_ATTENTE
+- Le prix est figé selon le rôle de l'utilisateur",,Billetterie et contrôle d'accès,Highest,5,billetterie,mvp,MVP
+Story,Générer le QR code du billet,"Alimenter `qrCode` à partir de `codeBillet`.
+
+Critères d'acceptation :
+- Le QR encode une référence vérifiable, pas des données personnelles
+- Généré après confirmation du paiement
+- Lisible par les lecteurs courants",,Billetterie et contrôle d'accès,Highest,5,billetterie,mvp,MVP
+Story,Empêcher la double inscription,"Aucune contrainte n'empêche aujourd'hui un utilisateur de s'inscrire deux fois au même événement.
+
+Critères d'acceptation :
+- Contrainte d'unicité en base sur le couple (user, evenement)
+- L'erreur renvoyée est explicite
+- Une inscription ANNULEE n'empêche pas une nouvelle inscription",,Billetterie et contrôle d'accès,Highest,3,billetterie,mvp,MVP
+Story,Contrôler la capacité sans surréservation,"Sous inscriptions simultanées, une simple lecture suivie d'une écriture laisse dépasser `capaciteMax`. Il faut un verrouillage ou une contrainte en base.
+
+Critères d'acceptation :
+- La capacité n'est jamais dépassée, même sous accès concurrents
+- Un test concurrent valide l'invariant
+- Le refus renvoie une erreur métier claire
+- `capaciteMax` à zéro signifie illimité, et c'est documenté",,Billetterie et contrôle d'accès,Highest,8,billetterie,mvp,MVP
+Story,Scanner un billet à l'entrée,"Endpoint de contrôle d'accès passant le billet en UTILISEE et renseignant `scannedAt`.
+
+Critères d'acceptation :
+- Un billet déjà UTILISEE est refusé, avec la date du premier scan
+- Un billet ANNULEE ou non payé est refusé
+- Réservé aux rôles habilités
+- Le résultat reste correct si deux lecteurs scannent simultanément",,Billetterie et contrôle d'accès,Highest,5,billetterie,mvp,MVP
+Story,Annuler une inscription,"Annulation par l'utilisateur ou par le bureau, avec libération de la place.
+
+Critères d'acceptation :
+- Le statut passe à ANNULEE et la place est libérée
+- Un billet déjà scanné ne peut pas être annulé
+- Les règles de remboursement sont documentées",,Billetterie et contrôle d'accès,High,5,billetterie,mvp,MVP
+Story,Lister ses billets,"Liste des inscriptions de l'utilisateur connecté.
+
+Critères d'acceptation :
+- Filtrable par statut et par période
+- Inclut le QR code des billets confirmés
+- Un utilisateur ne voit que ses propres billets",,Billetterie et contrôle d'accès,High,3,billetterie,mvp,MVP
+Story,Envoyer le billet par email,"Envoi du billet une fois le paiement confirmé.
+
+Critères d'acceptation :
+- Le QR code est présent dans l'email
+- Un échec d'envoi n'annule pas l'inscription
+- Un nouvel envoi est possible à la demande",,Billetterie et contrôle d'accès,High,3,billetterie,mvp,MVP
+Story,Exporter la liste des participants,"Export destiné à l'accueil, le jour de l'événement.
+
+Critères d'acceptation :
+- Export CSV incluant le statut de paiement et celui de scan
+- Réservé au rôle ADMIN
+- L'export est journalisé, car il contient des données personnelles",,Billetterie et contrôle d'accès,Medium,3,billetterie,v1,V1
+Story,Calculer les statistiques de fréquentation,"Taux de présence par événement, à partir des billets scannés.
+
+Critères d'acceptation :
+- Nombre d'inscrits, nombre de présents et taux de présence
+- Répartition entre campus et externes
+- Disponible après l'événement",,Billetterie et contrôle d'accès,Low,3,billetterie,v2,V2
+Epic,Paiement Mobile Money,"Intégration NotchPay (Orange Money, MTN MoMo). L'idempotence et la vérification de signature sont ici des sujets de sécurité, pas de confort.",Paiement Mobile Money,,High,,paiement,,
+Story,Initier un paiement,"Intégrer NotchPay pour lancer un paiement Mobile Money et créer la `Transaction` associée.
+
+Critères d'acceptation :
+- La transaction est créée avant l'appel au prestataire
+- `reference` est renseignée et unique
+- `origine` distingue EVENEMENT et BOUTIQUE
+- Les erreurs du prestataire sont tracées sans exposer de secret",,Paiement Mobile Money,Highest,8,paiement,mvp,MVP
+Story,Vérifier la signature des webhooks,"Sans vérification, n'importe qui peut appeler l'endpoint et faire passer une commande en payée. Le risque est déjà signalé dans `docs/SECRETS.md`.
+
+Critères d'acceptation :
+- La signature est vérifiée avec `NOTCHPAY_WEBHOOK_SECRET`
+- Une signature absente ou invalide renvoie 401 sans aucun traitement
+- La comparaison résiste aux attaques temporelles
+- Les rejets sont journalisés",,Paiement Mobile Money,Highest,5,paiement,mvp,MVP
+Story,Rendre les webhooks idempotents,"Un prestataire de paiement rejoue ses webhooks. Sans idempotence, un même paiement peut confirmer deux fois une commande ou décrémenter deux fois le stock.
+
+Critères d'acceptation :
+- `Transaction.reference` sert de clé d'idempotence
+- Un webhook rejoué ne produit aucun effet supplémentaire
+- Le traitement est transactionnel
+- Un test rejoue le même webhook et vérifie l'absence de doublon",,Paiement Mobile Money,Highest,5,paiement,mvp,MVP
+Story,Formaliser la machine à états des paiements,"Expliciter les transitions de `StatutPaiement` (EN_ATTENTE, COMPLETE, ECHOUE) et leur propagation vers l'inscription ou la commande.
+
+Critères d'acceptation :
+- Les transitions autorisées sont explicites, les autres sont refusées
+- Aucune transition n'est possible depuis COMPLETE
+- La propagation vers `Inscription` et `Commande` est couverte par des tests",,Paiement Mobile Money,Highest,5,paiement,mvp,MVP
+Story,Réconcilier les paiements,"Un webhook peut ne jamais arriver. Il faut pouvoir interroger activement le prestataire pour trancher.
+
+Critères d'acceptation :
+- Vérification à la demande du statut réel d'une transaction
+- Tâche planifiée sur les transactions en attente depuis trop longtemps
+- Les écarts constatés sont signalés",,Paiement Mobile Money,High,5,paiement,v1,V1
+Story,Consulter le journal des transactions,"Endpoints de consultation pour le bureau, toutes origines confondues.
+
+Critères d'acceptation :
+- Filtres par origine, statut, méthode et période
+- Réservé au rôle ADMIN
+- Pagination appliquée",,Paiement Mobile Money,High,3,paiement,mvp,MVP
+Story,Gérer les échecs et permettre la relance,"Un paiement échoué doit pouvoir être relancé sans recréer l'inscription ou la commande.
+
+Critères d'acceptation :
+- Un échec laisse l'inscription ou la commande en attente, sans la détruire
+- La relance réutilise le même panier
+- L'utilisateur est informé de la cause lorsqu'elle est connue",,Paiement Mobile Money,High,5,paiement,mvp,MVP
+Story,Expirer les paiements en attente,"Sans expiration, les places et le stock restent bloqués indéfiniment par des paniers abandonnés.
+
+Critères d'acceptation :
+- Le délai d'expiration est configurable
+- L'expiration libère la place et le stock
+- L'utilisateur est notifié",,Paiement Mobile Money,Medium,3,paiement,v1,V1
+Story,Tracer les remboursements,"Permettre à un administrateur d'enregistrer un remboursement, même réalisé hors plateforme.
+
+Critères d'acceptation :
+- Un remboursement est tracé comme une transaction liée à l'originale
+- Réservé au rôle ADMIN et tracé dans le journal d'activité
+- Le statut de l'inscription ou de la commande est mis à jour",,Paiement Mobile Money,Low,5,paiement,v2,V2
+Epic,Boutique,"Catalogue de produits dérivés, avec variantes, stock et précommandes.",Boutique,,High,,boutique,,
+Story,Gérer les produits,"Gestion du catalogue par le bureau.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- Les tarifs campus et externe sont validés
+- Les variantes de tailles et de couleurs sont gérées",,Boutique,High,5,boutique,mvp,MVP
+Story,Exposer le catalogue public,"Liste paginée et filtrable des produits.
+
+Critères d'acceptation :
+- Les produits RETIRE ne sont pas visibles publiquement
+- Filtres par catégorie, par statut et par événement rattaché
+- Pagination appliquée",,Boutique,High,3,boutique,mvp,MVP
+Story,Afficher le détail d'un produit,"Fiche produit avec images, variantes et disponibilité.
+
+Critères d'acceptation :
+- Renvoie les tailles et couleurs disponibles
+- Indique la disponibilité réelle à partir du stock
+- Renvoie le tarif applicable au profil du visiteur",,Boutique,High,3,boutique,mvp,MVP
+Story,Gérer le stock et le passage en rupture,"Le champ `stock` doit piloter automatiquement le statut RUPTURE.
+
+Critères d'acceptation :
+- Le statut passe à RUPTURE lorsque le stock atteint zéro
+- Le réapprovisionnement remet le produit en DISPONIBLE
+- Le stock ne peut jamais devenir négatif",,Boutique,High,5,boutique,mvp,MVP
+Story,Gérer les précommandes,"Le statut PRECOMMANDE et le champ `datePrecommande` existent sans logique associée.
+
+Critères d'acceptation :
+- Une précommande est acceptée même sans stock disponible
+- La date de disponibilité prévue est affichée
+- Les clients sont notifiés à la mise à disposition",,Boutique,Medium,5,boutique,v1,V1
+Story,Appliquer la tarification double aux produits,"Appliquer la même règle campus / externe que pour les événements.
+
+Critères d'acceptation :
+- Le tarif découle du rôle, jamais d'un paramètre du client
+- Le prix retenu est figé dans la ligne de commande
+- La règle est couverte par des tests",,Boutique,High,3,boutique,mvp,MVP
+Epic,Commandes et retrait,"Panier, paiement, préparation et retrait sur le campus.",Commandes et retrait,,High,,commande,,
+Story,Créer une commande,"Transformer un panier en commande et en lignes de commande, au sein d'une seule transaction.
+
+Critères d'acceptation :
+- Le total est calculé côté serveur, jamais reçu du client
+- La disponibilité est vérifiée ligne par ligne
+- La commande et ses lignes sont créées de façon transactionnelle
+- Une commande vide est refusée",,Commandes et retrait,Highest,8,commande,mvp,MVP
+Story,Figer le prix unitaire à la commande,"`LigneCommande.prix` existe précisément pour que le tarif du produit puisse évoluer sans modifier les commandes déjà passées.
+
+Critères d'acceptation :
+- Le prix unitaire est copié à la création de la ligne
+- Modifier le produit ensuite ne change aucune commande existante
+- Le total de la commande reste cohérent avec ses lignes",,Commandes et retrait,Highest,3,commande,mvp,MVP
+Story,Décrémenter le stock sans survente,"Deux commandes simultanées portant sur le dernier article ne doivent pas aboutir toutes les deux.
+
+Critères d'acceptation :
+- Décrément atomique, protégé contre la concurrence
+- Le stock ne devient jamais négatif
+- Un test concurrent valide l'invariant
+- L'annulation restitue le stock",,Commandes et retrait,Highest,5,commande,mvp,MVP
+Story,Encadrer le workflow de la commande,"Transitions entre EN_ATTENTE, PAYEE, PRETE, RETIREE et ANNULEE.
+
+Critères d'acceptation :
+- Les transitions autorisées sont explicites
+- Le passage à PAYEE découle du paiement confirmé, jamais d'une action manuelle seule
+- Le passage à RETIREE est tracé avec son auteur",,Commandes et retrait,High,5,commande,mvp,MVP
+Story,Lister ses commandes,"Liste et détail des commandes de l'utilisateur connecté.
+
+Critères d'acceptation :
+- Un utilisateur ne voit que ses propres commandes
+- Le détail inclut les lignes et le statut de paiement
+- Filtrable par statut",,Commandes et retrait,High,3,commande,mvp,MVP
+Story,Générer la facture,"`Commande.factureUrl` attend un document généré et stocké.
+
+Critères d'acceptation :
+- Facture PDF générée à la confirmation du paiement
+- Stockée sur R2 et accessible par URL signée
+- Accessible au seul titulaire de la commande et aux administrateurs",,Commandes et retrait,Medium,5,commande,v1,V1
+Story,Notifier la mise à disposition,"Prévenir le client lorsque sa commande passe en PRETE.
+
+Critères d'acceptation :
+- Notification in-app et email au passage en PRETE
+- Le message précise le lieu et les horaires de retrait
+- Un échec d'envoi ne bloque pas le changement de statut",,Commandes et retrait,Medium,3,commande,v1,V1
+Epic,Sondages et votes,Consultations du bureau. L'anonymat et l'unicité du vote sont les points délicats.,Sondages et votes,,High,,sondage,,
+Story,Gérer les sondages et leurs options,"Création avec options en cascade, modification, clôture.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- Au moins deux options sont exigées
+- Un sondage ayant déjà reçu des votes n'est plus modifiable",,Sondages et votes,High,5,sondage,mvp,MVP
+Story,Lister les sondages,"Sondages accessibles à l'utilisateur, selon son profil.
+
+Critères d'acceptation :
+- Les BROUILLON ne sont visibles que des administrateurs
+- Indique si l'utilisateur a déjà voté
+- Respecte la restriction campus",,Sondages et votes,High,3,sondage,mvp,MVP
+Story,Enregistrer un vote,"Voter, en choix unique ou en choix multiple.
+
+Critères d'acceptation :
+- CHOIX_UNIQUE n'accepte qu'une seule option
+- CHOIX_MULTIPLE accepte plusieurs options du même sondage
+- Le vote est refusé après la date limite
+- Un sondage qui n'est pas ACTIF n'accepte aucun vote",,Sondages et votes,Highest,5,sondage,mvp,MVP
+Story,"Empêcher le double vote, anonymat inclus","L'index unique (sondage, user) ne protège pas les sondages anonymes, dont `user` est nul. Le contrôle doit alors être applicatif, sans casser l'anonymat.
+
+Critères d'acceptation :
+- Le double vote est impossible sur un sondage nominatif
+- Le double vote est empêché sur un sondage anonyme sans stocker le lien entre le vote et son auteur
+- Le mécanisme retenu est documenté
+- Les deux cas sont couverts par des tests",,Sondages et votes,Highest,5,sondage,mvp,MVP
+Story,Fiabiliser les compteurs de votes,"`Sondage.totalVotes` et `OptionSondage.votes` sont dénormalisés pour éviter les agrégations. Ils peuvent donc s'écarter du réel.
+
+Critères d'acceptation :
+- Les compteurs sont mis à jour dans la transaction du vote
+- La somme des votes par option reste cohérente avec le total
+- Une commande de recalcul existe
+- Un test concurrent valide la cohérence",,Sondages et votes,High,5,sondage,mvp,MVP
+Story,Appliquer la visibilité des résultats,"TOUJOURS, APRES_VOTE et APRES_DEADLINE doivent réellement conditionner l'accès aux résultats.
+
+Critères d'acceptation :
+- Chaque mode est respecté côté serveur
+- Les résultats masqués ne transitent pas dans la réponse
+- Un administrateur voit toujours les résultats
+- Les trois modes sont testés",,Sondages et votes,High,5,sondage,mvp,MVP
+Story,Restreindre aux étudiants du campus,"`campusUniquement` vaut vrai par défaut et doit filtrer l'accès.
+
+Critères d'acceptation :
+- Un VISITOR ne peut ni consulter ni voter un sondage réservé au campus
+- Le filtrage s'applique aussi aux listes
+- La règle est couverte par des tests",,Sondages et votes,High,3,sondage,mvp,MVP
+Story,Clôturer automatiquement à la date limite,"Passer les sondages en CLOS sans intervention manuelle.
+
+Critères d'acceptation :
+- Tâche planifiée clôturant les sondages arrivés à échéance
+- La clôture rend les résultats visibles si le mode le prévoit
+- L'opération est idempotente",,Sondages et votes,Medium,3,sondage,v1,V1
+Epic,Articles et actualités,"Publication éditoriale du bureau, avec slugs et publication programmée.",Articles et actualités,,High,,article,,
+Story,Gérer les articles,"Rédaction, modification et archivage.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- Le contenu enrichi est assaini avant stockage
+- L'auteur est rattaché au compte rédacteur",,Articles et actualités,High,5,article,mvp,MVP
+Story,Générer un slug unique,"`slug` porte un index unique et sert d'URL publique.
+
+Critères d'acceptation :
+- Le slug est dérivé du titre, sans accent ni caractère spécial
+- Les collisions sont résolues par un suffixe
+- Modifier le titre ne casse pas l'URL d'un article déjà publié",,Articles et actualités,High,3,article,mvp,MVP
+Story,Lister publiquement les articles,"Liste paginée, filtrable par catégorie.
+
+Critères d'acceptation :
+- Seuls les articles PUBLIE sont visibles publiquement
+- Tri par date de publication décroissante
+- L'extrait est renvoyé, pas le contenu complet",,Articles et actualités,High,3,article,mvp,MVP
+Story,Consulter un article par son slug,"Accès public par URL lisible.
+
+Critères d'acceptation :
+- La recherche se fait par slug, pas par identifiant
+- Un BROUILLON n'est accessible qu'à un administrateur
+- Inclut l'auteur et l'événement rattaché",,Articles et actualités,High,2,article,mvp,MVP
+Story,Programmer une publication,"`publishedAt` doit permettre de programmer une parution.
+
+Critères d'acceptation :
+- Un article dont la date est future reste invisible jusqu'à l'échéance
+- Une tâche planifiée effectue la publication
+- La date de publication est modifiable avant l'échéance",,Articles et actualités,Medium,5,article,v1,V1
+Story,Rattacher un article à un événement,"Annonce ou compte rendu lié à un événement.
+
+Critères d'acceptation :
+- Le rattachement à un événement est optionnel
+- La fiche événement liste les articles associés
+- Supprimer l'événement laisse l'article en place, sans rattachement",,Articles et actualités,Low,2,article,v1,V1
+Epic,Annuaire des finissants,"Vitrine des profils, consultable par les sponsors accrédités. C'est la zone la plus sensible : données personnelles et CV.",Annuaire des finissants,,High,,annuaire,,
+Story,Gérer son profil de finissant,"Création et mise à jour de la fiche par l'étudiant.
+
+Critères d'acceptation :
+- Réservé aux comptes dont `isFinissant` vaut vrai
+- Les URL externes sont validées
+- Les compétences sont normalisées",,Annuaire des finissants,High,5,annuaire,mvp,MVP
+Story,Contrôler sa visibilité,"`isVisible` doit rester sous le contrôle exclusif de l'étudiant.
+
+Critères d'acceptation :
+- L'étudiant peut se retirer de l'annuaire à tout moment
+- Un profil masqué n'apparaît dans aucune recherche de sponsor
+- Un administrateur ne peut pas forcer la visibilité",,Annuaire des finissants,High,3,annuaire,mvp,MVP
+Story,Réserver l'annuaire aux sponsors accrédités,"L'accès dépend de `accesAnnuaire` sur le palier. Une erreur ici expose des données personnelles à des tiers non autorisés.
+
+Critères d'acceptation :
+- Seuls les sponsors dont le palier autorise l'annuaire y accèdent
+- Un sponsor sans palier est refusé
+- Les administrateurs conservent l'accès
+- Tous les cas de refus sont couverts par des tests",,Annuaire des finissants,Highest,5,annuaire,mvp,MVP
+Story,Rechercher dans l'annuaire,"Recherche par filière, par promotion et par compétences.
+
+Critères d'acceptation :
+- Filtres sur la filière, la promotion et les compétences
+- Seuls les profils visibles sont renvoyés
+- Chaque consultation incrémente le compteur du sponsor
+- Pagination appliquée",,Annuaire des finissants,High,5,annuaire,mvp,MVP
+Story,Télécharger un CV en décomptant le quota,"Le téléchargement doit consommer le quota `maxTelechargementsCv` et être servi par une URL à durée limitée.
+
+Critères d'acceptation :
+- Le téléchargement est refusé lorsque le quota est épuisé
+- Le compteur `cvTelecharges` est incrémenté de façon fiable
+- Le CV est servi par une URL signée qui expire, jamais par une URL publique
+- Chaque téléchargement est tracé",,Annuaire des finissants,Highest,5,annuaire,mvp,MVP
+Story,Déposer son CV et sa photo,"Envoi des pièces du profil vers R2.
+
+Critères d'acceptation :
+- Les types et tailles de fichiers sont validés
+- Le CV n'est jamais accessible publiquement
+- Remplacer un fichier supprime le précédent",,Annuaire des finissants,High,3,annuaire,mvp,MVP
+Epic,Sponsors et accréditations,"Paliers, quotas et espace sponsor. Les quotas sont la contrepartie commerciale de l'accès à l'annuaire.",Sponsors et accréditations,,High,,sponsor,,
+Story,Gérer les paliers d'accréditation,"Les paliers sont configurables par le bureau : accès à l'annuaire, quotas, taille de logo, mise en avant.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- `ordre` détermine l'affichage et le prestige
+- Un palier utilisé par un sponsor ne peut pas être supprimé sans réaffectation",,Sponsors et accréditations,High,3,sponsor,mvp,MVP
+Story,Gérer les sponsors,"Gestion des entreprises partenaires et de leur rattachement à un palier.
+
+Critères d'acceptation :
+- Réservé au rôle ADMIN
+- Rattachement optionnel à un compte utilisateur de rôle SPONSOR
+- L'email est obligatoire et validé",,Sponsors et accréditations,High,5,sponsor,mvp,MVP
+Story,Résoudre les quotas effectifs,"`quotasPersonnalises` est prioritaire sur les valeurs du palier lorsqu'il est défini. Cette règle doit être centralisée, et non dispersée dans les appelants.
+
+Critères d'acceptation :
+- Une valeur personnalisée prime sur celle du palier
+- Une valeur absente retombe sur celle du palier
+- Un sponsor sans palier ni quota n'a aucun droit
+- La résolution est couverte par des tests, cas partiels inclus",,Sponsors et accréditations,Highest,5,sponsor,mvp,MVP
+Story,Bloquer au dépassement de quota,"Faire respecter `maxConsultationsProfils` et `maxTelechargementsCv`.
+
+Critères d'acceptation :
+- Le dépassement renvoie une erreur métier explicite
+- Les compteurs de `stats` sont fiables sous accès concurrents
+- Le sponsor voit sa consommation restante",,Sponsors et accréditations,Highest,5,sponsor,mvp,MVP
+Story,Réinitialiser les compteurs par période,"`StatistiquesSponsor` est décrit comme remis à zéro à chaque période de facturation, alors qu'aucune période n'est modélisée en base.
+
+Critères d'acceptation :
+- La période de facturation est modélisée
+- La remise à zéro est automatique et idempotente
+- L'historique des périodes écoulées est conservé",,Sponsors et accréditations,High,5,sponsor,v1,V1
+Story,Publier la page des sponsors,"Vitrine respectant l'ordre des paliers, la taille de logo et la mise en avant.
+
+Critères d'acceptation :
+- Tri par `ordre` de palier
+- `tailleLogo` et `isFeatured` sont exposés au frontend
+- Chaque vue incrémente `vuesPage`",,Sponsors et accréditations,Medium,3,sponsor,mvp,MVP
+Story,Ouvrir l'espace sponsor,"Le sponsor consulte sa consommation et ses statistiques.
+
+Critères d'acceptation :
+- Un sponsor ne voit que ses propres statistiques
+- Affiche les quotas consommés et restants
+- Réservé au rôle SPONSOR",,Sponsors et accréditations,Medium,5,sponsor,v1,V1
+Story,Réserver les statistiques détaillées selon le palier,"`statsDetaillees` conditionne l'accès à une vue enrichie.
+
+Critères d'acceptation :
+- Les statistiques enrichies sont réservées aux paliers concernés
+- Les autres paliers reçoivent la vue simple
+- La règle est couverte par des tests",,Sponsors et accréditations,Low,3,sponsor,v2,V2
+Story,Inviter un sponsor,"Créer le compte d'un sponsor et lui transmettre ses accès sans mot de passe en clair.
+
+Critères d'acceptation :
+- Invitation par email, avec un lien d'activation qui expire
+- Le sponsor définit lui-même son mot de passe
+- Le compte est créé avec le rôle SPONSOR et rattaché à la fiche",,Sponsors et accréditations,Medium,5,sponsor,v1,V1
+Epic,Notifications et rappels,"Notifications in-app, rappels programmés et déclencheurs métier.",Notifications et rappels,,High,,notification,,
+Story,Émettre des notifications in-app,"Service de création de notifications, appelé par les autres modules.
+
+Critères d'acceptation :
+- Création unitaire et diffusion groupée
+- Les types suivent l'énumération `TypeNotification`
+- `lien` pointe vers la ressource concernée",,Notifications et rappels,High,5,notification,mvp,MVP
+Story,Consulter et marquer ses notifications,"Liste paginée, marquage lu et non lu.
+
+Critères d'acceptation :
+- Un utilisateur ne voit que ses propres notifications
+- Marquage unitaire et marquage global
+- Le nombre de notifications non lues est exposé",,Notifications et rappels,High,3,notification,mvp,MVP
+Story,Programmer un rappel,"L'utilisateur choisit sa date et ses canaux avant un événement.
+
+Critères d'acceptation :
+- La date doit être future et antérieure à l'événement
+- Les canaux PUSH et EMAIL sont sélectionnables
+- Un rappel est modifiable et supprimable",,Notifications et rappels,Medium,5,notification,v1,V1
+Story,Envoyer les rappels programmés,"Tâche planifiée traitant les rappels échus, avec `isSent` comme garde-fou.
+
+Critères d'acceptation :
+- Un rappel n'est jamais envoyé deux fois
+- Un échec est réessayé sans créer de doublon
+- L'annulation de l'événement annule les rappels associés",,Notifications et rappels,Medium,5,notification,v1,V1
+Story,Acheminer les rappels par email,"Envoi des rappels via `MailService`.
+
+Critères d'acceptation :
+- Un template dédié existe
+- Un échec est journalisé sans interrompre les autres envois
+- Le contenu rappelle la date, le lieu et le billet",,Notifications et rappels,Medium,3,notification,v1,V1
+Story,Implémenter les notifications push,"Le canal PUSH est prévu dans l'énumération mais n'a aucune implémentation.
+
+Critères d'acceptation :
+- Enregistrement et révocation des abonnements navigateur
+- L'envoi Web Push fonctionne
+- Dégradation propre si l'abonnement a expiré",,Notifications et rappels,Low,8,notification,v2,V2
+Story,Gérer les préférences de notification,"Permettre à l'utilisateur de choisir ce qu'il reçoit.
+
+Critères d'acceptation :
+- Préférences par type et par canal
+- Les préférences sont respectées à l'émission
+- Les notifications critiques restent non désactivables",,Notifications et rappels,Low,5,notification,v2,V2
+Story,Brancher les déclencheurs métier,"Relier les événements métier aux notifications : paiement confirmé, billet émis, commande prête, sondage ouvert, article publié.
+
+Critères d'acceptation :
+- Chaque déclencheur est branché et testé
+- Un échec de notification n'interrompt jamais l'action métier
+- Aucun doublon en cas de rejeu",,Notifications et rappels,High,5,notification,mvp,MVP
+Epic,Fichiers et médias,"Stockage Cloudflare R2. La distinction entre public et privé y est structurante, les CV ne devant jamais être publics.",Fichiers et médias,,High,,file,,
+Story,Envoyer un fichier vers R2,"Compléter `file.service.ts` avec la validation et l'envoi.
+
+Critères d'acceptation :
+- Les types MIME et la taille sont validés côté serveur
+- Les noms de fichiers sont assainis, aucune traversée de chemin n'est possible
+- Les erreurs de stockage sont explicites",,Fichiers et médias,High,5,file,mvp,MVP
+Story,Servir les fichiers privés par URL signée,"Les CV et les factures ne doivent pas être accessibles par une URL devinable.
+
+Critères d'acceptation :
+- Les objets privés ne sont pas lisibles publiquement
+- Les URL signées expirent, avec une durée configurable
+- La génération d'URL vérifie les droits de l'appelant
+- Des tests couvrent la tentative d'accès non autorisé",,Fichiers et médias,Highest,5,file,mvp,MVP
+Story,Supprimer les fichiers et purger les orphelins,"Un profil ou un produit modifié laisse derrière lui des fichiers non référencés.
+
+Critères d'acceptation :
+- Supprimer une entité supprime ses fichiers
+- Une tâche identifie et purge les orphelins
+- La purge est journalisée et réversible pendant une période de grâce",,Fichiers et médias,Medium,3,file,v1,V1
+Story,Traiter les images,"Réduire le poids des images de galerie et de catalogue.
+
+Critères d'acceptation :
+- Redimensionnement et conversion en WebP
+- Génération de vignettes
+- Traitement asynchrone, sans bloquer l'envoi",,Fichiers et médias,Low,5,file,v2,V2
+Epic,Tableau de bord administrateur,Pilotage du bureau : journal d'activité et indicateurs.,Tableau de bord administrateur,,High,,admin,,
+Story,Alimenter le journal d'activité,"`JournalActivite` est prévu pour alimenter le flux en direct du tableau de bord, mais rien ne l'écrit aujourd'hui.
+
+Critères d'acceptation :
+- Les événements métier écrivent dans le journal, selon `TypeActivite`
+- L'écriture ne fait jamais échouer l'action métier
+- `metadata` porte le contexte utile, en jsonb",,Tableau de bord administrateur,High,5,admin,mvp,MVP
+Story,Exposer le flux d'activité,"Rendre le journal consultable depuis le tableau de bord.
+
+Critères d'acceptation :
+- Liste paginée, filtrable par type et par période
+- Réservé au rôle ADMIN
+- Tri chronologique inverse",,Tableau de bord administrateur,Medium,3,admin,v1,V1
+Story,Calculer les indicateurs clés,"Chiffres de synthèse : revenus, inscriptions, utilisateurs, commandes.
+
+Critères d'acceptation :
+- Les indicateurs portent sur la génération active
+- Comparaison avec la période précédente
+- Requêtes indexées, temps de réponse maîtrisé",,Tableau de bord administrateur,High,5,admin,mvp,MVP
+Story,Ventiler les revenus,"Répartition par origine, par méthode de paiement et par période.
+
+Critères d'acceptation :
+- Ventilation entre billetterie et boutique
+- Ventilation entre Orange Money et MTN MoMo
+- Série temporelle exploitable par le frontend",,Tableau de bord administrateur,Medium,5,admin,v1,V1
+Story,Exporter les transactions,"Export destiné à la trésorerie du bureau.
+
+Critères d'acceptation :
+- Export CSV sur une période donnée
+- Montants en FCFA, sans décimale
+- L'export est journalisé",,Tableau de bord administrateur,Low,3,admin,v2,V2
+Story,Définir la conservation du journal d'activité,"Le journal croît indéfiniment et finira par peser sur les performances.
+
+Critères d'acceptation :
+- La durée de conservation est définie et configurable
+- Purge ou archivage automatique au-delà
+- Les entrées à valeur comptable sont préservées",,Tableau de bord administrateur,Low,3,admin,v2,V2
+Epic,"Qualité, sécurité et observabilité","Ce qui rend le backend livrable : documentation, tests, supervision et durcissement.","Qualité, sécurité et observabilité",,High,,qualite,,
+Story,Documenter l'API dans OpenAPI,"Swagger est installé. Chaque endpoint doit être décrit pour que le frontend puisse s'y appuyer.
+
+Critères d'acceptation :
+- Tous les endpoints sont annotés, avec leurs schémas de requête et de réponse
+- Les codes d'erreur sont documentés
+- L'authentification est déclarée dans la spécification
+- La spécification est publiée par la CI",,"Qualité, sécurité et observabilité",High,5,qualite,mvp,MVP
+Story,Couvrir les services critiques par des tests unitaires,"Priorité aux règles dont une erreur coûte de l'argent ou expose des données : tarification, quotas, paiement, capacité.
+
+Critères d'acceptation :
+- Couverture d'au moins 80 % sur les services critiques
+- Le seuil est vérifié par la CI
+- Les cas limites et les erreurs sont testés, pas seulement le chemin nominal",,"Qualité, sécurité et observabilité",High,8,qualite,mvp,MVP
+Story,Écrire les scénarios BDD des parcours critiques,"Cucumber est configuré. Les parcours à couvrir : inscription à un événement payant, paiement, scan du billet, commande en boutique, vote.
+
+Critères d'acceptation :
+- Un scénario par parcours critique
+- Les scénarios s'exécutent en CI sur une base dédiée
+- Les cas d'échec sont couverts, pas seulement les cas favorables",,"Qualité, sécurité et observabilité",High,8,qualite,mvp,MVP
+Story,Tester les endpoints de bout en bout,"Tests end-to-end sur les endpoints publics et sur les règles d'accès.
+
+Critères d'acceptation :
+- Les endpoints publics répondent sans authentification
+- Les endpoints protégés refusent un appel non authentifié
+- Le cloisonnement par rôle est vérifié",,"Qualité, sécurité et observabilité",High,5,qualite,mvp,MVP
+Story,Brancher Sentry,"Capture des erreurs en staging et en production.
+
+Critères d'acceptation :
+- Les erreurs non gérées sont remontées avec leur contexte
+- Aucune donnée personnelle ni secret ne figure dans les rapports
+- Les versions sont tracées, pour relier une erreur à un déploiement",,"Qualité, sécurité et observabilité",Medium,3,qualite,v1,V1
+Story,Structurer les journaux et les corréler,"Pouvoir suivre une requête de bout en bout, notamment sur les parcours de paiement.
+
+Critères d'acceptation :
+- Journaux structurés en JSON
+- Identifiant de corrélation propagé sur toute la requête
+- Aucun secret ni mot de passe n'est journalisé",,"Qualité, sécurité et observabilité",Medium,5,qualite,v1,V1
+Story,Enrichir le healthcheck,"Le healthcheck actuel ne vérifie aucune dépendance.
+
+Critères d'acceptation :
+- Vérifie la base de données, R2 et le SMTP
+- Distingue la vivacité de la disponibilité
+- Renvoie un code HTTP exploitable par l'hébergeur",,"Qualité, sécurité et observabilité",Medium,3,qualite,v1,V1
+Story,Durcir la configuration HTTP,"helmet et la limitation de débit sont installés, mais leur réglage n'est pas arbitré.
+
+Critères d'acceptation :
+- CORS restreint aux origines du frontend, par environnement
+- Limitation de débit globale active, avec des exceptions documentées
+- Les en-têtes de sécurité sont vérifiés par un test",,"Qualité, sécurité et observabilité",High,3,qualite,mvp,MVP
+Story,Automatiser le déploiement,"La CI valide sept contrôles mais ne déploie rien.
+
+Critères d'acceptation :
+- Déploiement automatique de `staging` après validation
+- Déploiement en production sur validation manuelle
+- Les migrations sont jouées avant le basculement
+- La procédure de retour arrière est documentée",,"Qualité, sécurité et observabilité",Medium,5,qualite,v1,V1
