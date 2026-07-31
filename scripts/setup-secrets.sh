@@ -67,9 +67,10 @@ ask R2_ACCESS_KEY_ID     "R2_ACCESS_KEY_ID"
 ask R2_SECRET_ACCESS_KEY "R2_SECRET_ACCESS_KEY"
 echo
 
-echo "── SMTP (Mailtrap en dev, Brevo en production) ──"
-echo "  Mailtrap : Inbox > Integrations > SMTP"
-echo "  Brevo    : SMTP & API > SMTP"
+echo "── SMTP (Brevo — staging et production uniquement) ──"
+echo "  En développement local, Mailpit ne demande aucun identifiant :"
+echo "  lancez « docker compose up -d » et laissez ces champs vides."
+echo "  Brevo : app.brevo.com > SMTP & API > onglet SMTP"
 ask MAIL_HOST     "MAIL_HOST" false
 ask MAIL_PORT     "MAIL_PORT" false
 ask MAIL_USER     "MAIL_USER" false
