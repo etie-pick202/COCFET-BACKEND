@@ -79,21 +79,58 @@ openssl rand -base64 48
 
 ### Emails — `MAIL_HOST`, `MAIL_PORT`, `MAIL_USER`, `MAIL_PASSWORD`
 
-**Développement — Mailtrap** (bac à sable : aucun email ne part réellement)
+**Développement — Mailpit : aucun identifiant à obtenir**
 
-1. [mailtrap.io](https://mailtrap.io) > **Email Testing** > **Inboxes** > votre inbox.
-2. Onglet **Integrations** > **SMTP**.
-3. Relever `Host`, `Port`, `Username`, `Password`.
+Mailpit capture localement tout ce que l'API envoie et n'expédie rien vers l'extérieur. Pas de compte, pas de quota, fonctionne hors ligne.
 
-**Production — Brevo**
+**Docker n'est pas obligatoire** — Mailpit est un binaire autonome. Choisissez l'une des deux méthodes :
+
+*Option A — binaire autonome (aucune dépendance)*
+
+Télécharger l'exécutable correspondant à votre système depuis les [releases officielles](https://github.com/axllent/mailpit/releases) (`mailpit-windows-amd64.zip` sous Windows), le décompresser, puis :
+
+```bash
+./mailpit
+```
+
+*Option B — Docker*
+
+```bash
+docker compose up -d
+```
+
+Les valeurs sont déjà celles de `.env.example`, il n'y a rien à saisir :
+
+| Variable | Valeur |
+|---|---|
+| `MAIL_HOST` | `localhost` |
+| `MAIL_PORT` | `1025` |
+| `MAIL_USER` | *(vide)* |
+| `MAIL_PASSWORD` | *(vide)* |
+
+Les emails capturés se consultent sur **http://localhost:8025**.
+
+> Le module mail omet le bloc `auth` lorsque `MAIL_USER` et `MAIL_PASSWORD` sont vides : envoyer des identifiants vides ferait échouer la négociation SMTP avec Mailpit.
+
+**Staging et production — Brevo**
 
 1. [app.brevo.com](https://app.brevo.com) > menu utilisateur > **SMTP & API** > onglet **SMTP**.
 2. Relever le serveur (`smtp-relay.brevo.com`), le port (`587`) et le login.
 3. **Generate a new SMTP key** — la clé sert de `MAIL_PASSWORD`.
-4. Valider le domaine d'envoi (**Senders, Domains & Dedicated IPs**), sinon les emails partent en spam.
+4. Valider le domaine d'envoi : **Senders, Domains & Dedicated IPs** > ajouter le domaine > publier les enregistrements DNS **SPF** et **DKIM** fournis.
 
-- **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation des emails (billets, confirmations, réinitialisation).
+- **Où** : variables d'environnement de l'hébergeur. Inutile de renseigner Brevo dans `.env` en local, Mailpit y suffit.
+- **Nécessaire** : au déploiement en staging.
+- ⚠️ **Sans SPF ni DKIM, les emails partent en spam**, quel que soit le fournisseur — Gmail et Outlook ont durci leurs règles. Cette étape n'est pas optionnelle.
+
+**Pourquoi Mailpit plutôt qu'un bac à sable hébergé**
+
+| | Mailpit | Mailtrap (gratuit) |
+|---|---|---|
+| Compte à créer | Non | Oui |
+| Quota | Illimité | 100 emails/mois |
+| Fonctionne hors ligne | Oui | Non |
+| Identifiants à partager dans l'équipe | Aucun | Oui |
 
 ### Paiement — `NOTCHPAY_PUBLIC_KEY`, `NOTCHPAY_SECRET_KEY`, `NOTCHPAY_WEBHOOK_SECRET`
 

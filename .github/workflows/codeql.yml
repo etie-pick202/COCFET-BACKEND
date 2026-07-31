@@ -1,0 +1,39 @@
+name: CodeQL
+
+# Analyse statique de sécurité (SAST) : détecte injections SQL, XSS, secrets
+# codés en dur, chemins non assainis. Gratuit sur les dépôts publics et ne
+# demande aucun compte externe — les résultats remontent dans l'onglet Security.
+
+on:
+  pull_request:
+    branches: [main, develop, staging]
+  push:
+    branches: [main, develop]
+  schedule:
+    # Une analyse hebdomadaire attrape les vulnérabilités publiées après le merge.
+    - cron: '0 6 * * 1'
+
+jobs:
+  analyze:
+    name: Analyse CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+      actions: read
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Initialiser CodeQL
+        uses: github/codeql-action/init@a2983b8bed1923f44751c5c43237f479442827b3 # v3
+        with:
+          languages: javascript-typescript
+          # security-extended ajoute les règles de sévérité moyenne aux règles
+          # par défaut, qui ne couvrent que les vulnérabilités à forte confiance.
+          queries: security-extended
+
+      - name: Analyser
+        uses: github/codeql-action/analyze@a2983b8bed1923f44751c5c43237f479442827b3 # v3
+        with:
+          category: '/language:javascript-typescript'
