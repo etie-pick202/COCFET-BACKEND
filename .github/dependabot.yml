@@ -1,0 +1,41 @@
+# Surveillance des mises à jour de sécurité.
+# Les correctifs de sécurité remontent quel que soit le regroupement ci-dessous.
+
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'chore(deps)'
+      prefix-development: 'chore(deps-dev)'
+    labels:
+      - infra
+    # Les montées de version majeures sont écartées : elles demandent un arbitrage
+    # manuel et noieraient les correctifs de sécurité dans le bruit.
+    ignore:
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+    # Regroupées en une seule PR par famille, pour éviter d'ouvrir dix PR par semaine.
+    groups:
+      nestjs:
+        patterns: ['@nestjs/*']
+      typeorm:
+        patterns: ['typeorm', '@nestjs/typeorm', 'pg']
+      tests:
+        patterns: ['jest', 'ts-jest', '@types/jest', 'supertest', '@cucumber/*']
+      lint:
+        patterns: ['eslint*', 'prettier', 'typescript-eslint', '@eslint/*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    commit-message:
+      prefix: 'ci(actions)'
+    labels:
+      - infra
