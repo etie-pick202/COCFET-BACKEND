@@ -5,6 +5,10 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    # Sans cette directive, Dependabot cible la branche par défaut (main) et
+    # court-circuite le flux develop -> staging -> main : une mise à jour
+    # arriverait en production sans passer par l'intégration ni la recette.
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
@@ -38,9 +42,20 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
+    # codeql-action expose plusieurs points d'entrée (init, analyze,
+    # upload-sarif) qui doivent impérativement rester à la même version : un
+    # écart entre init et analyze fait échouer l'analyse. Sans ce regroupement,
+    # Dependabot ouvre une PR par point d'entrée, dont chacune casse la CI
+    # isolément.
+    groups:
+      codeql:
+        patterns: ['github/codeql-action*']
+      actions-officielles:
+        patterns: ['actions/*']
     # Délai de carence : on n'adopte pas une version publiée il y a moins de
     # 7 jours. C'est la fenêtre pendant laquelle une compromission de paquet
     # (prise de contrôle d'un mainteneur, publication malveillante) est
