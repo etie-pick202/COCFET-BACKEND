@@ -16,7 +16,12 @@ jobs:
   sonarcloud:
     name: SonarCloud analysis
     runs-on: ubuntu-latest
-    if: ${{ vars.SONAR_ENABLED == 'true' }}
+    # Les PR de Dependabot sont exclues : GitHub leur refuse délibérément l'accès
+    # aux secrets Actions, pour qu'une mise à jour de dépendance malveillante ne
+    # puisse pas les exfiltrer. SONAR_TOKEN y est donc vide et l'analyse échoue
+    # systématiquement. Ces PR ne modifient que des versions de dépendances, et
+    # restent couvertes par les treize autres vérifications.
+    if: ${{ vars.SONAR_ENABLED == 'true' && github.actor != 'dependabot[bot]' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
