@@ -5,6 +5,10 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    # Sans cette directive, Dependabot cible la branche par défaut (main) et
+    # court-circuite le flux develop -> staging -> main : une mise à jour
+    # arriverait en production sans passer par l'intégration ni la recette.
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
@@ -38,6 +42,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
       day: monday
