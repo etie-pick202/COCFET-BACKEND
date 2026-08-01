@@ -1,0 +1,88 @@
+# Règles propres à COCFET.
+#
+# CodeQL et SonarCloud couvrent les vulnérabilités génériques. Ces règles-ci
+# encodent les invariants décrits dans SECURITY.md, que ces outils ne peuvent
+# pas connaître. Elles sont posées **avant** l'écriture des contrôleurs et des
+# DTO : un garde-fou sert surtout à empêcher l'erreur, pas à la constater après.
+
+rules:
+  - id: cocfet-montant-doit-etre-entier
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Un montant en FCFA se valide avec @IsInt(), jamais @IsNumber().
+      Le FCFA n'a pas de sous-unité : @IsNumber() accepte les décimales et
+      introduit des arrondis dans une transaction financière. Voir SECURITY.md 2.1.
+    patterns:
+      - pattern: '@IsNumber(...)'
+      - pattern-inside: |
+          class $DTO { ... }
+      - metavariable-regex:
+          metavariable: $DTO
+          regex: '.*(Prix|Montant|Total|Paiement|Transaction|Commande).*'
+
+  - id: cocfet-pas-de-sql-concatene
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Requête SQL construite par interpolation : risque d'injection.
+      Utiliser les paramètres liés du query builder, par exemple
+      .where('email = :email', { email }). Voir SECURITY.md 2.2.
+    patterns:
+      - pattern-either:
+          - pattern: $X.query(`...${$VAR}...`)
+          - pattern: $X.where(`...${$VAR}...`)
+          - pattern: $X.andWhere(`...${$VAR}...`)
+          - pattern: $X.orWhere(`...${$VAR}...`)
+
+  - id: cocfet-synchronize-en-dur
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      synchronize ne doit jamais valoir true en dur : en production, TypeORM
+      peut supprimer des colonnes, donc des données. Le conditionner à
+      NODE_ENV, comme dans database.config.ts. Voir SECURITY.md 2.2.
+    patterns:
+      - pattern: 'synchronize: true'
+
+  - id: cocfet-pas-de-journalisation-de-secret
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Journalisation d'une donnée potentiellement sensible. Ne jamais écrire
+      dans les logs un mot de passe, un jeton, un secret de webhook ou un
+      en-tête d'autorisation. Voir SECURITY.md 2.7.
+    patterns:
+      - pattern-either:
+          - pattern: console.log(..., $X, ...)
+          - pattern: console.error(..., $X, ...)
+          - pattern: $LOGGER.log(..., $X, ...)
+          - pattern: $LOGGER.error(..., $X, ...)
+          - pattern: $LOGGER.debug(..., $X, ...)
+      - metavariable-regex:
+          metavariable: $X
+          regex: '(?i).*(password|passwd|motdepasse|token|secret|authorization|apikey|api_key|credential).*'
+
+  - id: cocfet-preferer-le-logger-nest
+    languages: [typescript]
+    severity: WARNING
+    message: >-
+      console.log n'est pas journalisé de façon structurée et échappe à la
+      supervision. Utiliser le Logger de NestJS.
+    pattern-either:
+      - pattern: console.log(...)
+      - pattern: console.debug(...)
+
+  - id: cocfet-comparaison-de-signature-a-temps-constant
+    languages: [typescript]
+    severity: ERROR
+    message: >-
+      Comparaison de signature de webhook avec === : vulnérable aux attaques
+      temporelles. Utiliser crypto.timingSafeEqual. Voir SECURITY.md 2.10.
+    patterns:
+      - pattern-either:
+          - pattern: $SIG === $EXPECTED
+          - pattern: $SIG !== $EXPECTED
+      - metavariable-regex:
+          metavariable: $SIG
+          regex: '(?i).*(signature|hmac|digest).*'
