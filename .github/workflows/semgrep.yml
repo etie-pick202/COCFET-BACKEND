@@ -33,7 +33,9 @@ jobs:
         run: pip install semgrep==1.172.0
 
       - name: Analyser
-        # --error fait échouer le job sur toute règle de sévérité ERROR.
+        # Le scan ne fait pas échouer le job ici : le SARIF doit d'abord être
+        # produit, lu et publié. La décision d'échec revient à l'étape finale.
+        continue-on-error: true
         run: |
           semgrep scan \
             --config=p/typescript \
@@ -41,13 +43,55 @@ jobs:
             --config=p/secrets \
             --config=.semgrep/ \
             --sarif --output=semgrep.sarif \
-            --error \
             --metrics=off
 
+      - name: Détailler les résultats
+        # Sans cette étape, un échec n'indique pas ce qui a été trouvé :
+        # le SARIF part dans un fichier et n'apparaît nulle part dans le log.
+        if: always()
+        run: |
+          node -e '
+            const fs = require("fs");
+            if (!fs.existsSync("semgrep.sarif")) {
+              console.log("Aucun rapport produit — le scan a échoué avant de rendre la main.");
+              process.exit(0);
+            }
+            const sarif = JSON.parse(fs.readFileSync("semgrep.sarif", "utf8"));
+            const run = sarif.runs[0];
+            const gravite = Object.fromEntries(
+              (run.tool.driver.rules || []).map((r) => [r.id, r.defaultConfiguration?.level || "warning"]),
+            );
+            const resultats = run.results || [];
+            if (!resultats.length) {
+              console.log("Aucun problème détecté.");
+              process.exit(0);
+            }
+            let bloquants = 0;
+            for (const r of resultats) {
+              const niveau = gravite[r.ruleId] || "warning";
+              if (niveau === "error") bloquants++;
+              const loc = r.locations[0].physicalLocation;
+              console.log(
+                `[${niveau.toUpperCase()}] ${r.ruleId}\n` +
+                  `  ${loc.artifactLocation.uri}:${loc.region.startLine}\n` +
+                  `  ${(r.message.text || "").split("\n")[0]}\n`,
+              );
+            }
+            console.log(`${resultats.length} problème(s), dont ${bloquants} bloquant(s).`);
+            fs.appendFileSync(process.env.GITHUB_ENV, `SEMGREP_BLOQUANTS=${bloquants}\n`);
+          '
+
       - name: Publier les résultats dans l'onglet Security
-        # Exécuté même en cas d'échec, sinon les alertes détectées seraient perdues.
         if: always()
         uses: github/codeql-action/upload-sarif@a2983b8bed1923f44751c5c43237f479442827b3 # v3
         with:
           sarif_file: semgrep.sarif
           category: semgrep
+
+      - name: Échouer si un problème bloquant subsiste
+        if: always()
+        run: |
+          if [ "${SEMGREP_BLOQUANTS:-0}" -gt 0 ]; then
+            echo "::error::${SEMGREP_BLOQUANTS} problème(s) de sévérité ERROR — voir le détail plus haut."
+            exit 1
+          fi
