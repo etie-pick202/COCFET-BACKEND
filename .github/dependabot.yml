@@ -8,6 +8,12 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Délai de carence : on n'adopte pas une version publiée il y a moins de
+    # 7 jours. C'est la fenêtre pendant laquelle une compromission de paquet
+    # (prise de contrôle d'un mainteneur, publication malveillante) est
+    # habituellement détectée et retirée.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: 'chore(deps)'
@@ -35,6 +41,12 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Délai de carence : on n'adopte pas une version publiée il y a moins de
+    # 7 jours. C'est la fenêtre pendant laquelle une compromission de paquet
+    # (prise de contrôle d'un mainteneur, publication malveillante) est
+    # habituellement détectée et retirée.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: 'ci(actions)'
     labels:
