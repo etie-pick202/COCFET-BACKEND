@@ -39,6 +39,10 @@ Le script suivant lit les valeurs au clavier **sans les afficher**, les écrit d
 - **Où** : `.env` en local ; variables d'environnement de l'hébergeur en production.
 - **Nécessaire** : immédiatement.
 
+**Vérification du certificat TLS.** Elle est active par défaut. Si l'hébergeur présente un certificat signé par une autorité privée, fournir cette autorité via `DATABASE_SSL_CA` plutôt que de désactiver la vérification.
+
+`DATABASE_SSL_REJECT_UNAUTHORIZED=false` est un dernier recours : la connexion accepte alors **n'importe quel certificat**, y compris celui d'un attaquant interposé. Sur une base portant des données personnelles d'étudiants et des transactions, c'est une exposition réelle. À ne jamais laisser en production sans avoir épuisé l'option `DATABASE_SSL_CA`.
+
 ### Authentification — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 
 Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, différentes par environnement.
