@@ -35,7 +35,7 @@ pnpm run start:dev
 
 Pour lire les emails émis en développement, lancer **Mailpit** — soit le [binaire autonome](https://github.com/axllent/mailpit/releases) (aucune dépendance), soit `docker compose up -d`. Interface sur `http://localhost:8025`. L'API démarre et fonctionne même sans Mailpit : seuls les envois d'emails échouent, et l'erreur est journalisée sans interrompre l'action métier en cours.
 
-En développement, TypeORM synchronise le schéma automatiquement (`synchronize: true`). En production, le schéma est appliqué par migrations.
+Le schéma est géré **exclusivement par migrations**, y compris en développement — `synchronize` supprimerait les colonnes disparues des entités, donc des données. Voir [docs/MIGRATIONS.md](docs/MIGRATIONS.md).
 
 ## Scripts
 
