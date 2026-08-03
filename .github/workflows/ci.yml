@@ -97,6 +97,59 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:e2e
 
+  migrations:
+    name: Migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: cocfet
+          POSTGRES_PASSWORD: cocfet
+          POSTGRES_DB: cocfet_migrations
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U cocfet"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      DATABASE_URL: postgresql://cocfet:cocfet@localhost:5432/cocfet_migrations
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Appliquer les migrations sur une base vierge
+        run: pnpm run migration:run
+
+      - name: Vérifier l'absence de dérive entre entités et migrations
+        # `migration:generate` sort en échec quand il n'a rien à générer, ce qui
+        # est précisément le cas attendu : le schéma issu des migrations doit
+        # correspondre exactement aux entités. S'il réussit, c'est qu'une entité
+        # a été modifiée sans migration correspondante.
+        run: |
+          if pnpm run migration:generate ./src/migrations/DeriveDetectee; then
+            echo "::error::Une entité a été modifiée sans migration correspondante. Lancez « pnpm run migration:generate ./src/migrations/NomExplicite »."
+            exit 1
+          fi
+          echo "Aucune dérive : le schéma correspond aux entités."
+
+      - name: Vérifier que le retour arrière est propre
+        run: |
+          pnpm run migration:revert
+          restantes=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'migrations';")
+          if [ "$restantes" -ne 0 ]; then
+            echo "::error::Le retour arrière laisse $restantes table(s) derrière lui."
+            exit 1
+          fi
+          echo "Retour arrière propre."
+
   bdd:
     name: BDD (Cucumber)
     runs-on: ubuntu-latest
