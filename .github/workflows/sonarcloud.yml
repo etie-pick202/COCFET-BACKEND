@@ -8,7 +8,11 @@ name: SonarCloud
 
 on:
   pull_request:
-    branches: [main, develop, staging]
+    # `feat/**` est inclus pour les PR empilees : une branche ouverte sur une
+    # autre branche de fonctionnalite, le temps que la premiere soit mergee.
+    # Sans cela ces PR n'ont aucune verification, et arrivent en revue sans
+    # qu'on sache si elles compilent.
+    branches: [main, develop, staging, 'feat/**']
   push:
     branches: [main, develop]
 
@@ -48,10 +52,8 @@ jobs:
       MAIL_HOST: smtp.example.com
       MAIL_USER: ci
       MAIL_PASSWORD: ci
-      R2_ENDPOINT: https://example.r2.cloudflarestorage.com
-      R2_BUCKET: ci
-      R2_ACCESS_KEY_ID: ci
-      R2_SECRET_ACCESS_KEY: ci
+      # Variables R2_* volontairement absentes : le stockage local prend le
+      # relais, et la CI eprouve donc l'adaptateur que toute l'equipe utilise.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
