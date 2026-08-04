@@ -169,6 +169,42 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 
 ---
 
+## État de configuration
+
+Deux environnements GitHub existent : `staging` (alimenté par la branche `staging`) et `production` (branche `main`). Les valeurs y sont cloisonnées — un secret de staging n'est jamais lisible depuis un déploiement de production, ni l'inverse.
+
+| Variable | staging | production | Type |
+|---|:---:|:---:|---|
+| `MAIL_USER`, `MAIL_PASSWORD` | ✅ | ✅ | secret |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURE`, `MAIL_FROM` | ✅ | ✅ | variable |
+| `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ✅ | ✅ | secret |
+| `R2_BUCKET` | ✅ | ✅ | variable |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ❌ | ❌ | secret |
+| `DATABASE_URL` | ❌ | ❌ | secret |
+| `NOTCHPAY_*` | ❌ | ❌ | secret |
+| `UPSTASH_REDIS_REST_*` | ❌ | ❌ | secret |
+
+Chaque environnement possède ses propres identifiants Brevo et son propre jeton R2, restreint à son seul bucket (`cocfet-staging`, `cocfet-prod`). Une fuite côté staging ne donne donc aucun accès aux fichiers de production.
+
+### Ce qui reste
+
+**`JWT_ACCESS_SECRET` et `JWT_REFRESH_SECRET`** — à générer, une paire distincte par environnement. La commande suivante produit la valeur et la transmet directement à GitHub, sans qu'elle s'affiche ni n'entre dans l'historique du shell :
+
+```bash
+openssl rand -base64 48 | tr -d '
+' | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
+```
+
+À répéter pour `JWT_REFRESH_SECRET`, puis pour l'environnement `production`. Les quatre valeurs doivent être différentes deux à deux.
+
+**`DATABASE_URL`** — dépend de l'hébergeur, qui n'est pas encore choisi.
+
+**`NOTCHPAY_*`** — attend l'ouverture du compte marchand.
+
+**Domaine d'envoi** — le COCFET n'a pas encore de nom de domaine. L'expéditeur validé est une adresse Gmail individuelle : suffisant pour tester, insuffisant en production. Sans SPF ni DKIM publiés sur un domaine propre, les messages de vérification partent en spam chez Gmail et Outlook — et sans message de vérification, aucun compte ne peut être créé.
+
+---
+
 ## Révoquer un secret compromis
 
 Un secret ayant transité par un canal non sécurisé, ou commité par erreur, doit être régénéré :
