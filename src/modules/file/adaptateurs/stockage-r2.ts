@@ -8,13 +8,15 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
+import {
+  assainirNomFichier,
+  FichierATeleverser,
+  Stockage,
+} from '../ports/stockage';
 
-/**
- * Stockage sur Cloudflare R2 (compatible S3).
- * Les objets ne sont jamais publics : l'accès se fait par URL signée.
- */
+/** Stockage sur Cloudflare R2 (compatible S3). Utilisé en staging et en production. */
 @Injectable()
-export class FileService {
+export class StockageR2 implements Stockage {
   private readonly client: S3Client;
   private readonly bucket: string;
 
@@ -30,32 +32,35 @@ export class FileService {
     });
   }
 
-  async upload(file: Express.Multer.File, prefix = 'uploads'): Promise<string> {
-    const key = `${prefix}/${randomUUID()}-${file.originalname}`;
+  async televerser(
+    fichier: FichierATeleverser,
+    prefixe = 'uploads',
+  ): Promise<string> {
+    const cle = `${prefixe}/${randomUUID()}-${assainirNomFichier(fichier.originalname)}`;
 
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
-        Key: key,
-        Body: file.buffer,
-        ContentType: file.mimetype,
+        Key: cle,
+        Body: fichier.buffer,
+        ContentType: fichier.mimetype,
       }),
     );
 
-    return key;
+    return cle;
   }
 
-  getSignedUrl(key: string, expiresIn = 3600): Promise<string> {
+  urlSignee(cle: string, expirationSecondes = 3600): Promise<string> {
     return getSignedUrl(
       this.client,
-      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-      { expiresIn },
+      new GetObjectCommand({ Bucket: this.bucket, Key: cle }),
+      { expiresIn: expirationSecondes },
     );
   }
 
-  async delete(key: string): Promise<void> {
+  async supprimer(cle: string): Promise<void> {
     await this.client.send(
-      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: cle }),
     );
   }
 }
