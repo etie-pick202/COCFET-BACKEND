@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { FiltreExceptionGlobal } from './common/erreurs/filtre-exception-global';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -24,6 +25,7 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new FiltreExceptionGlobal());
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('COCFET API')
