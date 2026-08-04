@@ -139,9 +139,7 @@ export class AuthService {
 
     // Une comparaison est effectuée même sans compte, pour que le temps de
     // réponse ne trahisse pas l'existence de l'adresse.
-    const empreinte =
-      user?.passwordHash ??
-      '$2b$12$invalideinvalideinvalideinvalideinvalideinvalideinvalidei';
+    const empreinte = user?.passwordHash ?? (await this.empreinteLeurre());
     const motDePasseValide = await bcrypt.compare(motDePasse, empreinte);
 
     if (!user || !user.passwordHash || !motDePasseValide) {
@@ -240,6 +238,21 @@ export class AuthService {
     });
 
     return this.ouvrirSession(misAJour);
+  }
+
+  /**
+   * Empreinte servant de leurre quand aucun compte ne correspond.
+   *
+   * Elle est calculee au premier besoin plutot qu'ecrite en dur : une valeur
+   * litterale ne serait pas garantie valide, et bcrypt.compare rendrait alors
+   * la main immediatement — la difference de temps trahirait justement
+   * l'absence de compte, ce que cette comparaison cherche a masquer.
+   */
+  private leurre: string | null = null;
+
+  private async empreinteLeurre(): Promise<string> {
+    this.leurre ??= await bcrypt.hash(randomUUID(), AuthService.TOURS_BCRYPT);
+    return this.leurre;
   }
 
   hacherMotDePasse(motDePasse: string): Promise<string> {
