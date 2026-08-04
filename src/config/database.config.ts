@@ -28,6 +28,17 @@ export default registerAs('database', (): TypeOrmModuleOptions => ({
   // appliquées explicitement avant le basculement (voir docs/MIGRATIONS.md).
   migrationsRun: process.env.NODE_ENV !== 'production',
   synchronize: synchronisationActivee(),
-  logging: process.env.NODE_ENV === 'development',
+  // En developpement, TypeORM journalisait chaque requete : une seule tache
+  // planifiee a la minute noyait la console sous des SELECT de 3 000 caracteres,
+  // au point de rendre invisibles les messages de l'application. Seules les
+  // erreurs et les requetes lentes restent affichees ; DATABASE_LOGGING=true
+  // retablit la trace complete, le temps d'un diagnostic.
+  logging:
+    process.env.DATABASE_LOGGING === 'true'
+      ? 'all'
+      : (['error', 'warn'] as const),
+  // Une requete au-dela de ce seuil est signalee : c'est ce qu'on veut voir,
+  // plutot que les milliers qui se comportent normalement.
+  maxQueryExecutionTime: 500,
   ssl: optionsTls(),
 }));

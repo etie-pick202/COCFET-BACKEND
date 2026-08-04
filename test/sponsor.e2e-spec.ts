@@ -47,13 +47,15 @@ describe('Sponsors (e2e)', () => {
     envoyerNotification: jest.fn().mockResolvedValue(undefined),
   };
 
+  const SPONSORS = '/api/v1/sponsors';
+  const ACTIVATION = '/api/v1/auth/invitation/activer';
   const MOT_DE_PASSE = 'phrase de passe partenaire 42';
   const jetonDe = (lien: string) =>
     decodeURIComponent(new URL(lien).searchParams.get('jeton') ?? '');
 
   const inviter = (surcharge: Record<string, unknown> = {}) =>
     request(app.getHttpServer())
-      .post('/api/v1/sponsors')
+      .post(SPONSORS)
       .set(admin.entetes)
       .send({
         nom: 'Groupe Partenaire',
@@ -107,7 +109,7 @@ describe('Sponsors (e2e)', () => {
   describe('autorisation', () => {
     it('refuse l’invitation à un étudiant', async () => {
       await request(app.getHttpServer())
-        .post('/api/v1/sponsors')
+        .post(SPONSORS)
         .set(etudiant.entetes)
         .send({ nom: 'Intrus', email: 'intrus@entreprise.cm' })
         .expect(403);
@@ -115,7 +117,7 @@ describe('Sponsors (e2e)', () => {
 
     it('refuse sans jeton', async () => {
       await request(app.getHttpServer())
-        .post('/api/v1/sponsors')
+        .post(SPONSORS)
         .send({ nom: 'Anonyme', email: 'anonyme@entreprise.cm' })
         .expect(401);
     });
@@ -164,7 +166,7 @@ describe('Sponsors (e2e)', () => {
       // Rattacher donnerait le rôle SPONSOR à un compte existant — ici un
       // étudiant — et lui ouvrirait l'annuaire des finissants.
       await request(app.getHttpServer())
-        .post('/api/v1/sponsors')
+        .post(SPONSORS)
         .set(admin.entetes)
         .send({ nom: 'Doublon', email: etudiant.user.email })
         .expect(409);
@@ -206,7 +208,7 @@ describe('Sponsors (e2e)', () => {
       const email = (reponse.body as { email: string }).email;
 
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton: jetonDe(invitations[0].lien), motDePasse: MOT_DE_PASSE })
         .expect(200);
 
@@ -227,12 +229,12 @@ describe('Sponsors (e2e)', () => {
       const jeton = jetonDe(invitations[0].lien);
 
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton, motDePasse: MOT_DE_PASSE })
         .expect(200);
 
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton, motDePasse: 'une autre phrase de passe 42' })
         .expect(400);
     });
@@ -244,9 +246,7 @@ describe('Sponsors (e2e)', () => {
       const premier = jetonDe(invitations[0].lien);
 
       await request(app.getHttpServer())
-        .post(
-          `/api/v1/sponsors/${(reponse.body as { id: string }).id}/reinviter`,
-        )
+        .post(`${SPONSORS}/${(reponse.body as { id: string }).id}/reinviter`)
         .set(admin.entetes)
         .expect(204);
 
@@ -255,12 +255,12 @@ describe('Sponsors (e2e)', () => {
       // Le premier lien a pu être communiqué par erreur : réémettre doit le
       // rendre inutilisable.
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton: premier, motDePasse: MOT_DE_PASSE })
         .expect(400);
 
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton: jetonDe(invitations[1].lien), motDePasse: MOT_DE_PASSE })
         .expect(200);
     });
@@ -268,21 +268,19 @@ describe('Sponsors (e2e)', () => {
     it('refuse de réinviter un accès déjà activé', async () => {
       const reponse = await inviter().expect(201);
       await request(app.getHttpServer())
-        .post('/api/v1/auth/invitation/activer')
+        .post(ACTIVATION)
         .send({ jeton: jetonDe(invitations[0].lien), motDePasse: MOT_DE_PASSE })
         .expect(200);
 
       await request(app.getHttpServer())
-        .post(
-          `/api/v1/sponsors/${(reponse.body as { id: string }).id}/reinviter`,
-        )
+        .post(`${SPONSORS}/${(reponse.body as { id: string }).id}/reinviter`)
         .set(admin.entetes)
         .expect(409);
     });
 
     it('signale un partenaire inconnu', async () => {
       await request(app.getHttpServer())
-        .post('/api/v1/sponsors/00000000-0000-4000-8000-000000000000/reinviter')
+        .post(`${SPONSORS}/00000000-0000-4000-8000-000000000000/reinviter`)
         .set(admin.entetes)
         .expect(404);
     });
@@ -294,7 +292,7 @@ describe('Sponsors (e2e)', () => {
       await inviter({ nom: 'Beta' }).expect(201);
 
       const reponse = await request(app.getHttpServer())
-        .get('/api/v1/sponsors')
+        .get(SPONSORS)
         .query({ limite: 1, tri: 'nom', ordre: 'asc' })
         .set(admin.entetes)
         .expect(200);
@@ -310,7 +308,7 @@ describe('Sponsors (e2e)', () => {
 
     it('refuse la liste à un étudiant', async () => {
       await request(app.getHttpServer())
-        .get('/api/v1/sponsors')
+        .get(SPONSORS)
         .set(etudiant.entetes)
         .expect(403);
     });

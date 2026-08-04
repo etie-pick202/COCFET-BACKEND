@@ -47,6 +47,8 @@ describe('Notifications (e2e)', () => {
   };
 
   const url = (chemin = '') => `/api/v1/notifications${chemin}`;
+  const DIFFUSER = '/diffuser';
+  const PREFERENCES = '/preferences';
 
   const creerPour = (compte: CompteDeTest, surcharge = {}) =>
     service.notifier({
@@ -242,7 +244,7 @@ describe('Notifications (e2e)', () => {
   describe('préférences', () => {
     it('renvoie tous les types, activés par défaut', async () => {
       const reponse = await request(app.getHttpServer())
-        .get(url('/preferences'))
+        .get(url(PREFERENCES))
         .set(alice.entetes)
         .expect(200);
 
@@ -257,7 +259,7 @@ describe('Notifications (e2e)', () => {
 
     it('coupe le canal email sans couper l’in-app', async () => {
       await request(app.getHttpServer())
-        .patch(url('/preferences'))
+        .patch(url(PREFERENCES))
         .set(alice.entetes)
         .send({ type: TypeNotification.EVENEMENT, canalEmail: false })
         .expect(204);
@@ -272,7 +274,7 @@ describe('Notifications (e2e)', () => {
 
     it('n’affecte pas les autres types', async () => {
       await request(app.getHttpServer())
-        .patch(url('/preferences'))
+        .patch(url(PREFERENCES))
         .set(alice.entetes)
         .send({ type: TypeNotification.EVENEMENT, canalEmail: false })
         .expect(204);
@@ -285,7 +287,7 @@ describe('Notifications (e2e)', () => {
     it('ne crée jamais deux lignes pour le même type', async () => {
       for (const canalEmail of [false, true, false]) {
         await request(app.getHttpServer())
-          .patch(url('/preferences'))
+          .patch(url(PREFERENCES))
           .set(alice.entetes)
           .send({ type: TypeNotification.SONDAGE, canalEmail })
           .expect(204);
@@ -298,7 +300,7 @@ describe('Notifications (e2e)', () => {
   describe('diffusion', () => {
     it('est refusée à un étudiant', async () => {
       await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(alice.entetes)
         .send({
           type: TypeNotification.SYSTEME,
@@ -310,7 +312,7 @@ describe('Notifications (e2e)', () => {
 
     it('atteint tous les comptes vérifiés', async () => {
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.SYSTEME,
@@ -329,7 +331,7 @@ describe('Notifications (e2e)', () => {
       await creerCompteAuthentifie(app, { emailVerifie: false });
 
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.SYSTEME,
@@ -346,7 +348,7 @@ describe('Notifications (e2e)', () => {
       await users.update(desactive.user.id, { isActive: false });
 
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.SYSTEME,
@@ -362,7 +364,7 @@ describe('Notifications (e2e)', () => {
       await creerCompteAuthentifie(app, { promotion: 2025 });
 
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.EVENEMENT,
@@ -377,7 +379,7 @@ describe('Notifications (e2e)', () => {
 
     it('cible un rôle', async () => {
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.SYSTEME,
@@ -394,7 +396,7 @@ describe('Notifications (e2e)', () => {
       // « Les finissants » ne désigne alors personne. Interpréter cela comme
       // « tout le monde » enverrait une annonce ciblée à toute la plateforme.
       const reponse = await request(app.getHttpServer())
-        .post(url('/diffuser'))
+        .post(url(DIFFUSER))
         .set(admin.entetes)
         .send({
           type: TypeNotification.EVENEMENT,
