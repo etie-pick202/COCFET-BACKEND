@@ -12,6 +12,8 @@
   },
   "//": "Un seul worker : chaque fichier monte l'application, qui joue les migrations au demarrage. En parallele, deux instances tentent de creer les memes tables et l'une echoue. Elles partagent en outre la meme base.",
   "maxWorkers": 1,
+  "//testTimeout": "Monter l'application et jouer les migrations depasse les 5 s par defaut des que le code est instrumente pour la couverture. Sans cette marge, les suites e2e passent en local et echouent sous --coverage.",
+  "testTimeout": 30000,
   "collectCoverageFrom": [
     "src/**/*.ts"
   ],
