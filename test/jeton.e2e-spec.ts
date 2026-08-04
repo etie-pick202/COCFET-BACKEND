@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import {

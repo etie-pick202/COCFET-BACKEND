@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHash, randomBytes, timingSafeEqual } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { LessThan, Repository } from 'typeorm';
 import { User } from '../user/entities/user.entity';
 import { JetonAuth, TypeJeton } from './entities/jeton-auth.entity';

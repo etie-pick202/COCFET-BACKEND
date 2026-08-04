@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { extname } from 'path';
+import { extname } from 'node:path';
 import { Public } from '../auth/decorators/public.decorator';
 import { StockageLocal } from './adaptateurs/stockage-local';
 // `Stockage` est une interface : elle disparaît à la compilation, et
