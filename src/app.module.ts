@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -37,6 +38,9 @@ import { UserModule } from './modules/user/user.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => config.getOrThrow('database'),
     }),
+    // Taches planifiees : purge des comptes non verifies, purge des
+    // notifications anciennes, envoi des rappels d'evenement.
+    ScheduleModule.forRoot(),
     // Socle
     AuthModule,
     UserModule,
