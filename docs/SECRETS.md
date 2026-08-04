@@ -45,21 +45,25 @@ Le script suivant lit les valeurs au clavier **sans les afficher**, les écrit d
 
 ### Authentification — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 
-Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, différentes par environnement.
+Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, une paire distincte par environnement.
 
 ```bash
 openssl rand -base64 48
 ```
 
-- **Où** : `.env` en local ; variables d'environnement de l'hébergeur en production.
+- **Où** : `.env` en local ; secrets GitHub Actions pour la CI ; variables d'environnement de l'hébergeur en production.
 - **Nécessaire** : immédiatement.
 - ⚠️ Changer ces secrets invalide tous les tokens en circulation et déconnecte tous les utilisateurs.
 
-### SSO UCAC-ICAM — `UCAC_OAUTH_CLIENT_ID`, `UCAC_OAUTH_CLIENT_SECRET`, `UCAC_OAUTH_CALLBACK_URL`
+**L'application refuse de démarrer** si l'un des trois cas suivants se présente :
 
-- **Obtention** : auprès du service informatique de l'UCAC-ICAM. Il faut leur communiquer l'URL de callback à autoriser (`https://api.cocfet.com/api/v1/auth/ucac-callback` en production, `http://localhost:3000/api/v1/auth/ucac-callback` en développement).
-- **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation de la connexion UCAC-ICAM.
+| Cas | Pourquoi c'est bloquant |
+|---|---|
+| Secret de moins de 32 caractères | HS256 signe avec le secret tel quel. Une phrase courte se retrouve **hors ligne**, sans une seule requête vers l'API, à partir d'un jeton intercepté — et forger un jeton d'administrateur ne demande alors rien de plus. |
+| Valeur reprise de `.env.example` | Elle figure dans un dépôt public. |
+| Les deux secrets identiques | Un refresh token deviendrait une signature valide pour le garde d'accès : il ouvrirait l'API **sept jours** au lieu de quinze minutes, alors que c'est justement le jeton conservé côté client. |
+
+Deux contrôles supplémentaires ne s'appliquent qu'en production : `DATABASE_SSL` doit valoir `true`, et `DATABASE_SYNCHRONIZE` ne peut pas valoir `true`.
 
 ### Limitation de débit — `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 
