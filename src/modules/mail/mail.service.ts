@@ -27,6 +27,46 @@ export class MailService {
     );
   }
 
+  async envoyerVerificationEmail(
+    to: string,
+    prenom: string,
+    lienVerification: string,
+  ): Promise<void> {
+    await this.send(
+      to,
+      'Confirmez votre adresse — COCFET',
+      'verification-email',
+      { prenom, lienVerification },
+    );
+  }
+
+  /**
+   * Prévient le titulaire d'un compte déjà actif qu'une inscription a été
+   * tentée avec son adresse. C'est ce qui permet de renvoyer la même réponse
+   * dans tous les cas sans laisser la tentative passer inaperçue.
+   */
+  async envoyerTentativeInscription(to: string, prenom: string): Promise<void> {
+    await this.send(
+      to,
+      'Tentative d’inscription avec votre adresse — COCFET',
+      'tentative-inscription',
+      { prenom },
+    );
+  }
+
+  async envoyerInvitationSponsor(
+    to: string,
+    nomSponsor: string,
+    lienActivation: string,
+  ): Promise<void> {
+    await this.send(
+      to,
+      'Votre accès partenaire — COCFET',
+      'invitation-sponsor',
+      { nomSponsor, lienActivation },
+    );
+  }
+
   private async send(
     to: string,
     subject: string,

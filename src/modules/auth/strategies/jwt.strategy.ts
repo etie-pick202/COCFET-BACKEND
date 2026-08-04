@@ -9,6 +9,15 @@ export interface JwtPayload {
   sub: string;
   email: string;
   role: Role;
+  /**
+   * Identifiant unique du jeton.
+   *
+   * Sans lui, deux jetons signés dans la même seconde avec la même charge
+   * utile sont **identiques** — `iat` étant exprimé en secondes. La rotation
+   * du refresh token ne rotait alors rien, et un jeton volé restait accepté
+   * après renouvellement.
+   */
+  jti?: string;
 }
 
 @Injectable()

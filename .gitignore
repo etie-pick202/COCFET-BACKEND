@@ -38,3 +38,5 @@ prisma/*.db
 
 # Local editor/tooling session data
 .claude
+
+/coverage-e2e

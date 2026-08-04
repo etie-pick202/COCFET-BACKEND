@@ -22,6 +22,36 @@ jobs:
     # systématiquement. Ces PR ne modifient que des versions de dépendances, et
     # restent couvertes par les treize autres vérifications.
     if: ${{ vars.SONAR_ENABLED == 'true' && github.actor != 'dependabot[bot]' }}
+    services:
+      # Les tests end-to-end couvrent des garanties qu'aucun dépôt simulé ne
+      # peut vérifier — usage unique d'un jeton, comportement sous concurrence.
+      # Sans base ici, leur couverture serait perdue et le seuil pousserait à
+      # écrire des tests mockés sans valeur pour l'atteindre.
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: cocfet
+          POSTGRES_PASSWORD: cocfet
+          POSTGRES_DB: cocfet_sonar
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U cocfet"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    env:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://cocfet:cocfet@localhost:5432/cocfet_sonar
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      MAIL_HOST: smtp.example.com
+      MAIL_USER: ci
+      MAIL_PASSWORD: ci
+      R2_ENDPOINT: https://example.r2.cloudflarestorage.com
+      R2_BUCKET: ci
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -33,6 +63,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run test:cov
+        continue-on-error: true
+      - run: pnpm run test:e2e:cov
         continue-on-error: true
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
