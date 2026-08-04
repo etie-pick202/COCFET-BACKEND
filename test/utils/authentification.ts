@@ -1,7 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { Role } from '../../src/common/enums/role.enum';
 import { JwtPayload } from '../../src/modules/auth/strategies/jwt.strategy';

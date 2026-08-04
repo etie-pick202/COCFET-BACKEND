@@ -47,8 +47,12 @@ jobs:
     env:
       NODE_ENV: development
       DATABASE_URL: postgresql://cocfet:cocfet@localhost:5432/cocfet_sonar
-      JWT_ACCESS_SECRET: ci-access-secret
-      JWT_REFRESH_SECRET: ci-refresh-secret
+      # Longueur imposee par env.validation : HS256 ne vaut que ce que vaut le
+      # secret. Ces deux valeurs sont publiques et ne servent qu'a la CI, sur
+      # une base jetable ; elles doivent surtout etre differentes l'une de
+      # l'autre, sans quoi la validation echoue — comme en production.
+      JWT_ACCESS_SECRET: cle-de-ci-pour-jeton-d-acces-sans-valeur-reelle
+      JWT_REFRESH_SECRET: cle-de-ci-pour-jeton-de-rafraichissement-distincte
       MAIL_HOST: smtp.example.com
       MAIL_USER: ci
       MAIL_PASSWORD: ci

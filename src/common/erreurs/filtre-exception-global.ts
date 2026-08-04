@@ -6,7 +6,7 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
+import { randomUUID } from 'node:crypto';
 import { Request, Response } from 'express';
 import { QueryFailedError } from 'typeorm';
 import { CodeErreur, ReponseErreur } from './reponse-erreur';

@@ -45,21 +45,25 @@ Le script suivant lit les valeurs au clavier **sans les afficher**, les écrit d
 
 ### Authentification — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 
-Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, différentes par environnement.
+Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, une paire distincte par environnement.
 
 ```bash
 openssl rand -base64 48
 ```
 
-- **Où** : `.env` en local ; variables d'environnement de l'hébergeur en production.
+- **Où** : `.env` en local ; secrets GitHub Actions pour la CI ; variables d'environnement de l'hébergeur en production.
 - **Nécessaire** : immédiatement.
 - ⚠️ Changer ces secrets invalide tous les tokens en circulation et déconnecte tous les utilisateurs.
 
-### SSO UCAC-ICAM — `UCAC_OAUTH_CLIENT_ID`, `UCAC_OAUTH_CLIENT_SECRET`, `UCAC_OAUTH_CALLBACK_URL`
+**L'application refuse de démarrer** si l'un des trois cas suivants se présente :
 
-- **Obtention** : auprès du service informatique de l'UCAC-ICAM. Il faut leur communiquer l'URL de callback à autoriser (`https://api.cocfet.com/api/v1/auth/ucac-callback` en production, `http://localhost:3000/api/v1/auth/ucac-callback` en développement).
-- **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation de la connexion UCAC-ICAM.
+| Cas | Pourquoi c'est bloquant |
+|---|---|
+| Secret de moins de 32 caractères | HS256 signe avec le secret tel quel. Une phrase courte se retrouve **hors ligne**, sans une seule requête vers l'API, à partir d'un jeton intercepté — et forger un jeton d'administrateur ne demande alors rien de plus. |
+| Valeur reprise de `.env.example` | Elle figure dans un dépôt public. |
+| Les deux secrets identiques | Un refresh token deviendrait une signature valide pour le garde d'accès : il ouvrirait l'API **sept jours** au lieu de quinze minutes, alors que c'est justement le jeton conservé côté client. |
+
+Deux contrôles supplémentaires ne s'appliquent qu'en production : `DATABASE_SSL` doit valoir `true`, et `DATABASE_SYNCHRONIZE` ne peut pas valoir `true`.
 
 ### Limitation de débit — `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 
@@ -162,6 +166,42 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 - **Où** : `.env` et hébergeur.
 - **Nécessaire** : à la mise en production.
 - Le DSN n'est pas réellement secret (il est exposé côté client dans les apps front), mais on le traite comme tel par défaut.
+
+---
+
+## État de configuration
+
+Deux environnements GitHub existent : `staging` (alimenté par la branche `staging`) et `production` (branche `main`). Les valeurs y sont cloisonnées — un secret de staging n'est jamais lisible depuis un déploiement de production, ni l'inverse.
+
+| Variable | staging | production | Type |
+|---|:---:|:---:|---|
+| `MAIL_USER`, `MAIL_PASSWORD` | ✅ | ✅ | secret |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURE`, `MAIL_FROM` | ✅ | ✅ | variable |
+| `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ✅ | ✅ | secret |
+| `R2_BUCKET` | ✅ | ✅ | variable |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ❌ | ❌ | secret |
+| `DATABASE_URL` | ❌ | ❌ | secret |
+| `NOTCHPAY_*` | ❌ | ❌ | secret |
+| `UPSTASH_REDIS_REST_*` | ❌ | ❌ | secret |
+
+Chaque environnement possède ses propres identifiants Brevo et son propre jeton R2, restreint à son seul bucket (`cocfet-staging`, `cocfet-prod`). Une fuite côté staging ne donne donc aucun accès aux fichiers de production.
+
+### Ce qui reste
+
+**`JWT_ACCESS_SECRET` et `JWT_REFRESH_SECRET`** — à générer, une paire distincte par environnement. La commande suivante produit la valeur et la transmet directement à GitHub, sans qu'elle s'affiche ni n'entre dans l'historique du shell :
+
+```bash
+openssl rand -base64 48 | tr -d '
+' | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
+```
+
+À répéter pour `JWT_REFRESH_SECRET`, puis pour l'environnement `production`. Les quatre valeurs doivent être différentes deux à deux.
+
+**`DATABASE_URL`** — dépend de l'hébergeur, qui n'est pas encore choisi.
+
+**`NOTCHPAY_*`** — attend l'ouverture du compte marchand.
+
+**Domaine d'envoi** — le COCFET n'a pas encore de nom de domaine. L'expéditeur validé est une adresse Gmail individuelle : suffisant pour tester, insuffisant en production. Sans SPF ni DKIM publiés sur un domaine propre, les messages de vérification partent en spam chez Gmail et Outlook — et sans message de vérification, aucun compte ne peut être créé.
 
 ---
 
