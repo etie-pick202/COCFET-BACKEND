@@ -2,7 +2,11 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop, staging]
+    # `feat/**` est inclus pour les PR empilees : une branche ouverte sur une
+    # autre branche de fonctionnalite, le temps que la premiere soit mergee.
+    # Sans cela ces PR n'ont aucune verification, et arrivent en revue sans
+    # qu'on sache si elles compilent.
+    branches: [main, develop, staging, 'feat/**']
   push:
     branches: [main, develop, staging]
 
