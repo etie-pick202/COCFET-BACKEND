@@ -32,4 +32,13 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // Dans les tests, « expect(monMock.methode) » est le motif normal de
+    // vérification d'un appel. La règle unbound-method y voit une méthode
+    // détachée de son objet, ce qui n'a pas de sens pour un mock Jest.
+    files: ['**/*.spec.ts', 'test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
 );

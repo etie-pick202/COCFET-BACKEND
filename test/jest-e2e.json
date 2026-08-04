@@ -5,5 +5,7 @@
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "//": "Un seul worker : chaque fichier monte l'application, qui joue les migrations au demarrage. En parallele, deux instances tentent de creer les memes tables et l'une echoue. Elles partagent en outre la meme base.",
+  "maxWorkers": 1
 }
