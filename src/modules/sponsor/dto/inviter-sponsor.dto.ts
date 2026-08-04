@@ -1,6 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
-  IsEmail,
   IsOptional,
   IsString,
   IsUUID,
@@ -8,6 +7,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
+import { EstUnEmail } from '../../../common/validation/email.decorator';
 
 export class InviterSponsorDto {
   @ApiProperty({ example: 'Groupe Icam Cameroun' })
@@ -16,14 +16,8 @@ export class InviterSponsorDto {
   @MaxLength(120)
   nom: string;
 
-  @ApiProperty({
-    example: 'partenariats@entreprise.cm',
-    description:
-      "Adresse de contact du partenaire. L'invitation y est envoyée, et " +
-      'elle servira ensuite d’identifiant de connexion.',
-  })
-  @IsEmail({}, { message: 'email doit être une adresse valide' })
-  @MaxLength(254)
+  /** L'invitation y est envoyee, et elle servira ensuite d'identifiant. */
+  @EstUnEmail('partenariats@entreprise.cm')
   email: string;
 
   @ApiPropertyOptional({ example: 'Ingénierie et formation' })

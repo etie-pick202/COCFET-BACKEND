@@ -1,11 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsString, MaxLength, MinLength } from 'class-validator';
+import { EstUnEmail } from '../../../common/validation/email.decorator';
 import { EstUnMotDePasseValide } from './mot-de-passe';
 
 export class InscriptionDto {
-  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
-  @IsEmail({}, { message: 'email doit être une adresse valide' })
-  @MaxLength(254)
+  @EstUnEmail()
   email: string;
 
   @EstUnMotDePasseValide()
