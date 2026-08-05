@@ -54,6 +54,28 @@ export class MailService {
     );
   }
 
+  /**
+   * Message générique adossé à une notification.
+   *
+   * `lien` est passé même absent : l'adaptateur Handlebars est en mode strict,
+   * et une variable référencée par le gabarit mais manquante du contexte fait
+   * échouer le rendu — au moment de l'envoi, jamais à la compilation.
+   */
+  async envoyerNotification(
+    to: string,
+    prenom: string,
+    titre: string,
+    message: string,
+    lien: string | null,
+  ): Promise<void> {
+    await this.send(to, `${titre} — COCFET`, 'notification', {
+      prenom,
+      titre,
+      message,
+      lien,
+    });
+  }
+
   async envoyerInvitationSponsor(
     to: string,
     nomSponsor: string,

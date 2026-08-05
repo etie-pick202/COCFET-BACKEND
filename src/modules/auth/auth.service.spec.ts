@@ -13,6 +13,13 @@ import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 
 /**
+ * Empreinte arbitraire : aucun test de ce fichier ne verifie un mot de
+ * passe. Nommee plutot qu'ecrite en clair, pour ne pas ressembler a un secret
+ * oublie dans le code.
+ */
+const EMPREINTE_FACTICE = 'empreinte-sans-signification';
+
+/**
  * Ces règles décident qui entre dans la plateforme et à quel tarif. Une
  * régression y est silencieuse : l'application continuerait de fonctionner,
  * en laissant simplement passer les mauvaises personnes.
@@ -138,7 +145,9 @@ describe('AuthService', () => {
     it('écrase une inscription non vérifiée : le vrai propriétaire reprend la main', async () => {
       const imposteur = utilisateur({
         id: 'usr-imposteur',
-        passwordHash: 'empreinte-imposteur',
+        // Valeur arbitraire : ce test ne verifie aucun mot de passe, il
+        // verifie que l'inscription non verifiee est ecrasee.
+        passwordHash: EMPREINTE_FACTICE,
         emailVerifieLe: null,
       });
       userService.findByEmail.mockResolvedValue(imposteur);

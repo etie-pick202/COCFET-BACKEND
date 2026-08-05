@@ -1,10 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsString, MaxLength } from 'class-validator';
+import { IsString, MaxLength } from 'class-validator';
+import { EstUnEmail } from '../../../common/validation/email.decorator';
 
 export class ConnexionDto {
-  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
-  @IsEmail({}, { message: 'email doit être une adresse valide' })
-  @MaxLength(254)
+  @EstUnEmail()
   email: string;
 
   // Volontairement sans contrainte de robustesse : la politique s'applique à

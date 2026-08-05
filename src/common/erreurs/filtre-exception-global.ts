@@ -139,7 +139,8 @@ export class FiltreExceptionGlobal implements ExceptionFilter {
   private regrouperParChamp(messages: string[]): Record<string, string[]> {
     return messages.reduce<Record<string, string[]>>((acc, message) => {
       const champ = message.split(' ')[0] || 'inconnu';
-      (acc[champ] ??= []).push(message);
+      acc[champ] ??= [];
+      acc[champ].push(message);
       return acc;
     }, {});
   }
