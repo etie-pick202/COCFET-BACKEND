@@ -612,4 +612,242 @@ describe('Événements et billetterie (e2e)', () => {
       );
     });
   });
+  describe('filtres de recherche', () => {
+    it('filtre par type', async () => {
+      await creerEtPublier();
+      await creerEtPublier({
+        titre: 'Conférence payante',
+        type: TypeEvenement.PAYANT,
+        prixCampus: 1000,
+        prixExterne: 2000,
+      });
+
+      const reponse = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .query({ type: TypeEvenement.PAYANT })
+        .expect(200);
+
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('filtre les événements à venir', async () => {
+      const passe = await creerEtPublier();
+      await evenements.update(passe, {
+        dateDebut: new Date(Date.now() - 86_400_000),
+      });
+      await creerEtPublier({ titre: 'Encore à venir' });
+
+      const reponse = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .query({ aVenir: 'true' })
+        .expect(200);
+
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('cherche dans le titre et le lieu', async () => {
+      await creerEtPublier({ titre: 'Gala de clôture' });
+      await creerEtPublier({ titre: 'Atelier CV', lieu: 'Salle Bordeaux' });
+
+      const parTitre = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .query({ recherche: 'gala' })
+        .expect(200);
+      expect((parTitre.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+
+      const parLieu = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .query({ recherche: 'bordeaux' })
+        .expect(200);
+      expect((parLieu.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('traite le motif de recherche comme une donnée, jamais comme du SQL', async () => {
+      await creerEtPublier();
+
+      const reponse = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .query({ recherche: "%' OR 1=1 --" })
+        .expect(200);
+
+      // Si le motif était concaténé, la clause s'ouvrirait et tout remonterait.
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(0);
+      await expect(evenements.count()).resolves.toBe(1);
+    });
+
+    it('refuse un identifiant mal formé', async () => {
+      await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/pas-un-uuid`)
+        .expect(400);
+    });
+  });
+
+  describe('archivage', () => {
+    it('retire l’événement de la liste publique', async () => {
+      const id = await creerEtPublier();
+
+      await request(app.getHttpServer())
+        .post(`${EVENEMENTS}/${id}/archiver`)
+        .set(admin.entetes)
+        .expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(EVENEMENTS)
+        .expect(200);
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(0);
+    });
+
+    it('refuse de republier un événement archivé', async () => {
+      const id = await creerEtPublier();
+      await request(app.getHttpServer())
+        .post(`${EVENEMENTS}/${id}/archiver`)
+        .set(admin.entetes)
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(`${EVENEMENTS}/${id}/publier`)
+        .set(admin.entetes)
+        .expect(400);
+    });
+
+    it('modifie les dates d’un événement existant', async () => {
+      const id = await creerEtPublier();
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${EVENEMENTS}/${id}`)
+        .set(admin.entetes)
+        .send({ dateDebut: dans(45), dateFin: dans(46) })
+        .expect(200);
+
+      expect(
+        new Date((reponse.body as { dateFin: string }).dateFin).getTime(),
+      ).toBeGreaterThan(
+        new Date((reponse.body as { dateDebut: string }).dateDebut).getTime(),
+      );
+    });
+  });
+
+  describe('gestion des billets', () => {
+    it('filtre ses billets par statut et par échéance', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+
+      const confirmes = await request(app.getHttpServer())
+        .get(BILLETS)
+        .query({ statut: StatutInscription.CONFIRMEE, aVenir: 'true' })
+        .set(finissant.entetes)
+        .expect(200);
+      expect((confirmes.body as { donnees: unknown[] }).donnees).toHaveLength(
+        1,
+      );
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${(reponse.body as { id: string }).id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      const annules = await request(app.getHttpServer())
+        .get(BILLETS)
+        .query({ statut: StatutInscription.ANNULEE })
+        .set(finissant.entetes)
+        .expect(200);
+      expect((annules.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('reste sans effet quand on annule deux fois', async () => {
+      // La place ne doit être rendue qu'une seule fois, sinon le compteur
+      // passerait sous le nombre réel d'inscrits.
+      const id = await creerEtPublier({ capaciteMax: 5 });
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billetId = (reponse.body as { id: string }).id;
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${billetId}`)
+        .set(finissant.entetes)
+        .expect(204);
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${billetId}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      await expect(
+        evenements.findOne({ where: { id } }),
+      ).resolves.toMatchObject({ inscriptionsActuelles: 0 });
+    });
+
+    it('refuse l’annulation après le début de l’événement', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      await evenements.update(id, {
+        dateDebut: new Date(Date.now() - 3600_000),
+      });
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${(reponse.body as { id: string }).id}`)
+        .set(finissant.entetes)
+        .expect(409);
+    });
+
+    it('refuse d’annuler un billet déjà scanné', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/scanner`)
+        .set(admin.entetes)
+        .send({ codeBillet: billet.codeBillet })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${billet.id}`)
+        .set(finissant.entetes)
+        .expect(409);
+    });
+
+    it('refuse le scan d’un billet resté impayé', async () => {
+      // La passerelle factice laisse en attente tout numéro finissant par 1.
+      const id = await creerEtPublier({
+        type: TypeEvenement.PAYANT,
+        prixCampus: 5000,
+        prixExterne: 5000,
+      });
+      const reponse = await sInscrire(id, finissant, {
+        methodePaiement: MethodePaiement.MTN_MOMO,
+        telephone: '+237699000001',
+      }).expect(201);
+
+      const billet = reponse.body as { statut: string; codeBillet: string };
+      expect(billet.statut).toBe(StatutInscription.EN_ATTENTE);
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/scanner`)
+        .set(admin.entetes)
+        .send({ codeBillet: billet.codeBillet })
+        .expect(409);
+    });
+
+    it('liste les inscrits d’un événement pour le bureau', async () => {
+      const id = await creerEtPublier();
+      await sInscrire(id, finissant).expect(201);
+      await sInscrire(id, ancien).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/inscriptions`)
+        .query({ statut: StatutInscription.CONFIRMEE })
+        .set(admin.entetes)
+        .expect(200);
+
+      expect((reponse.body as { meta: { total: number } }).meta.total).toBe(2);
+    });
+
+    it('refuse la liste des inscrits à un étudiant', async () => {
+      const id = await creerEtPublier();
+
+      await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/inscriptions`)
+        .set(finissant.entetes)
+        .expect(403);
+    });
+  });
 });
