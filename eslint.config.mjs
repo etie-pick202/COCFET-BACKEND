@@ -2,6 +2,7 @@
 import eslint from '@eslint/js';
 import eslintPluginPrettierRecommended from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
+import sonarjs from 'eslint-plugin-sonarjs';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -10,6 +11,13 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
+  // Les mêmes règles que SonarCloud, exécutées ici.
+  //
+  // Sans elles, on découvrait les signalements après la poussée, dans les
+  // commentaires de la pull request — c'est-à-dire au moment le plus coûteux :
+  // la CI a tourné, la revue est lancée, et chaque correction repart pour un
+  // tour. `pnpm run lint` les remonte désormais avant le commit.
+  sonarjs.configs.recommended,
   eslintPluginPrettierRecommended,
   {
     languageOptions: {
@@ -39,6 +47,20 @@ export default tseslint.config(
     files: ['**/*.spec.ts', 'test/**/*.ts'],
     rules: {
       '@typescript-eslint/unbound-method': 'off',
+    },
+  },
+  {
+    // `.expect(403)` de supertest **est** une assertion : elle lève quand le
+    // statut diffère. La règle ne connaît que `expect()` de Jest et voit donc
+    // un test sans vérification là où il y en a une.
+    //
+    // Ce qu'on perd en la désactivant : un test end-to-end qui n'assérerait
+    // vraiment rien ne serait plus signalé. Le compromis est assumé — la
+    // réécrire mécaniquement en `expect(reponse.status).toBe(403)` ajouterait
+    // du bruit sans rien vérifier de plus.
+    files: ['test/**/*.e2e-spec.ts'],
+    rules: {
+      'sonarjs/assertions-in-tests': 'off',
     },
   },
 );

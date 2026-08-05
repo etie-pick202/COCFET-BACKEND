@@ -1,6 +1,7 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
+import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { Repository } from 'typeorm';
@@ -59,7 +60,7 @@ describe('Sponsors (e2e)', () => {
       .set(admin.entetes)
       .send({
         nom: 'Groupe Partenaire',
-        email: `contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@entreprise.cm`,
+        email: `contact-${randomUUID().slice(0, 8)}@entreprise.cm`,
         ...surcharge,
       });
 

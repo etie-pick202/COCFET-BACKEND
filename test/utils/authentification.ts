@@ -94,10 +94,13 @@ export async function creerCompteAuthentifie(
   return { user, accessToken, ...enteteDe(accessToken) };
 }
 
+/** Ce dont la signature d'un jeton a besoin, et rien de plus. */
+type PorteurDeJeton = Pick<User, 'id' | 'email' | 'role'>;
+
 /** Signe un jeton d'accès pour un utilisateur existant. */
 export function signerAcces(
   app: INestApplication,
-  user: Pick<User, 'id' | 'email' | 'role'>,
+  user: PorteurDeJeton,
   options: JwtSignOptions = {},
 ): string {
   const charge: JwtPayload = {
@@ -118,7 +121,7 @@ export function signerAcces(
  */
 export function jetonExpire(
   app: INestApplication,
-  user: Pick<User, 'id' | 'email' | 'role'>,
+  user: PorteurDeJeton,
 ): string {
   return signerAcces(app, user, { expiresIn: '-1s' });
 }
@@ -129,9 +132,7 @@ export function jetonExpire(
  * Représente le cas d'un jeton fabriqué par un tiers : la charge utile est
  * plausible, la signature ne l'est pas.
  */
-export function jetonSigneAilleurs(
-  user: Pick<User, 'id' | 'email' | 'role'>,
-): string {
+export function jetonSigneAilleurs(user: PorteurDeJeton): string {
   return new JwtService({ secret: 'un-autre-secret-que-le-notre' }).sign({
     sub: user.id,
     email: user.email,
