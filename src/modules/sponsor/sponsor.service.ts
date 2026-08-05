@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -7,12 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import {
-  paginer,
-  PaginationDto,
-  ResultatPagine,
-  triAutorise,
-} from '../../common/pagination';
+import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { Role } from '../../common/enums/role.enum';
 import { normaliserEmail } from '../../common/identite/identite-campus';
 import { TypeJeton } from '../auth/entities/jeton-auth.entity';
@@ -20,6 +16,14 @@ import { JetonService } from '../auth/jeton.service';
 import { MailService } from '../mail/mail.service';
 import { UserService } from '../user/user.service';
 import { InviterSponsorDto } from './dto/inviter-sponsor.dto';
+import {
+  ChangerPalierDto,
+  CreerPalierDto,
+  FiltreSponsorDto,
+  MettreAJourPalierDto,
+  MettreAJourSponsorDto,
+  SponsorPublic,
+} from './dto/sponsor.dto';
 import { PalierSponsor } from './entities/palier-sponsor.entity';
 import { Sponsor } from './entities/sponsor.entity';
 
@@ -119,18 +123,182 @@ export class SponsorService {
     await this.envoyerInvitation(sponsor);
   }
 
-  async lister(pagination: PaginationDto): Promise<ResultatPagine<Sponsor>> {
-    const tri = triAutorise(pagination.tri, TRIS_AUTORISES, 'createdAt');
+  async lister(filtre: FiltreSponsorDto): Promise<ResultatPagine<Sponsor>> {
+    const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'createdAt');
 
     return paginer(
       await this.sponsors.findAndCount({
-        relations: { palier: true },
-        order: { [tri]: pagination.ordre },
-        skip: pagination.sauter,
-        take: pagination.limite,
+        where: filtre.palierId ? { palier: { id: filtre.palierId } } : {},
+        relations: { palier: true, user: true },
+        order: { [tri]: filtre.ordre },
+        skip: filtre.sauter,
+        take: filtre.limite,
       }),
-      pagination,
+      filtre,
     );
+  }
+
+  // ─────────────────────────────  Consultation  ─────────────────────────
+
+  /**
+   * Vitrine publique des partenaires.
+   *
+   * Ni adresse email, ni quotas, ni statistiques : ces données servent la
+   * relation commerciale, pas l'affichage. Les exposer sur une page ouverte
+   * livrerait les contacts de tous les partenaires aux robots collecteurs.
+   */
+  async listerPublic(): Promise<SponsorPublic[]> {
+    // Tri confie a la base : les paliers les plus eleves d'abord, puis l'ordre
+    // alphabetique. Sans second critere, deux partenaires du meme palier
+    // changeraient de place d'un appel a l'autre. NULLS LAST place les
+    // partenaires sans palier en fin de liste plutot qu'en tete.
+    const sponsors = await this.sponsors
+      .createQueryBuilder('s')
+      .leftJoinAndSelect('s.palier', 'palier')
+      .orderBy('palier.ordre', 'ASC', 'NULLS LAST')
+      .addOrderBy('s.nom', 'ASC')
+      .getMany();
+
+    return sponsors.map((s) => ({
+      id: s.id,
+      nom: s.nom,
+      logo: s.logo,
+      description: s.description,
+      siteWeb: s.siteWeb,
+      secteur: s.secteur,
+      palier: s.palier
+        ? {
+            nom: s.palier.nom,
+            ordre: s.palier.ordre,
+            tailleLogo: s.palier.tailleLogo,
+          }
+        : null,
+    }));
+  }
+
+  async trouver(id: string): Promise<Sponsor> {
+    const sponsor = await this.sponsors.findOne({
+      where: { id },
+      relations: { palier: true, user: true },
+    });
+
+    if (!sponsor) {
+      throw new NotFoundException("Ce partenaire n'existe pas.");
+    }
+
+    return sponsor;
+  }
+
+  /** Fiche du partenaire connecte, retrouvee depuis son compte. */
+  async trouverParUtilisateur(userId: string): Promise<Sponsor> {
+    const sponsor = await this.sponsors.findOne({
+      where: { user: { id: userId } },
+      relations: { palier: true },
+    });
+
+    if (!sponsor) {
+      throw new NotFoundException(
+        "Aucun partenaire n'est associé à ce compte.",
+      );
+    }
+
+    return sponsor;
+  }
+
+  // ──────────────────────────────  Ecriture  ────────────────────────────
+
+  /**
+   * Met a jour la fiche.
+   *
+   * `userId` est fourni quand c'est le partenaire lui-meme qui modifie : la
+   * verification d'appartenance fait alors partie de l'operation, plutot que
+   * d'etre laissee au controleur. Le palier n'est jamais modifiable ici — il
+   * conditionne l'acces a l'annuaire, et un partenaire pourrait sinon
+   * s'accorder les droits du palier superieur.
+   */
+  async mettreAJour(
+    id: string,
+    dto: MettreAJourSponsorDto,
+    userId?: string,
+  ): Promise<Sponsor> {
+    const sponsor = await this.trouver(id);
+
+    if (userId && sponsor.user?.id !== userId) {
+      throw new ForbiddenException(
+        'Vous ne pouvez modifier que votre propre fiche.',
+      );
+    }
+
+    await this.sponsors.update(id, dto);
+
+    return this.trouver(id);
+  }
+
+  async changerPalier(id: string, dto: ChangerPalierDto): Promise<Sponsor> {
+    await this.trouver(id);
+
+    const palier = dto.palierId ? await this.trouverPalier(dto.palierId) : null;
+
+    await this.sponsors.update(id, { palier });
+
+    return this.trouver(id);
+  }
+
+  /**
+   * Supprime un partenaire et son compte de connexion.
+   *
+   * Le compte part avec la fiche : le laisser derriere creerait un
+   * utilisateur au role SPONSOR sans partenaire associe, capable de se
+   * connecter sans que rien n'explique pourquoi.
+   */
+  async supprimer(id: string): Promise<void> {
+    const sponsor = await this.trouver(id);
+    const compte = sponsor.user;
+
+    await this.sponsors.delete(id);
+
+    if (compte) {
+      await this.userService.supprimer(compte.id);
+    }
+  }
+
+  // ───────────────────────────────  Paliers  ────────────────────────────
+
+  listerPaliers(): Promise<PalierSponsor[]> {
+    return this.paliers.find({ order: { ordre: 'ASC' } });
+  }
+
+  creerPalier(dto: CreerPalierDto): Promise<PalierSponsor> {
+    return this.paliers.save(this.paliers.create(dto));
+  }
+
+  async mettreAJourPalier(
+    id: string,
+    dto: MettreAJourPalierDto,
+  ): Promise<PalierSponsor> {
+    await this.trouverPalier(id);
+    await this.paliers.update(id, dto);
+    return this.trouverPalier(id);
+  }
+
+  /**
+   * Supprime un palier.
+   *
+   * Refuse tant qu'un partenaire s'y rattache : la relation est en SET NULL,
+   * donc la suppression retirerait silencieusement leurs droits d'annuaire
+   * sans que personne ne s'en apercoive avant une reclamation.
+   */
+  async supprimerPalier(id: string): Promise<void> {
+    await this.trouverPalier(id);
+
+    const rattaches = await this.sponsors.countBy({ palier: { id } });
+    if (rattaches > 0) {
+      throw new ConflictException(
+        `${rattaches} partenaire(s) utilisent ce palier : reaffectez-les d'abord.`,
+      );
+    }
+
+    await this.paliers.delete(id);
   }
 
   private async trouverPalier(id: string): Promise<PalierSponsor> {

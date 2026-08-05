@@ -40,7 +40,16 @@ import { UserModule } from './modules/user/user.module';
     }),
     // Taches planifiees : purge des comptes non verifies, purge des
     // notifications anciennes, envoi des rappels d'evenement.
-    ScheduleModule.forRoot(),
+    //
+    // Desactivees quand TACHES_PLANIFIEES=false, ce que font les tests
+    // end-to-end. La tache de rappel s'execute a la minute : sur une suite qui
+    // dure plusieurs minutes, elle se declenchait au milieu des tests, ecrivait
+    // des notifications et rendait les comptages non deterministes. Les
+    // services restent appelables directement, et c'est ainsi qu'ils sont
+    // eprouves.
+    ...(process.env.TACHES_PLANIFIEES === 'false'
+      ? []
+      : [ScheduleModule.forRoot()]),
     // Socle
     AuthModule,
     UserModule,
