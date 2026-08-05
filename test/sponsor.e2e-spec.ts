@@ -314,4 +314,242 @@ describe('Sponsors (e2e)', () => {
         .expect(403);
     });
   });
+  describe('vitrine publique', () => {
+    it('est accessible sans jeton et masque les données commerciales', async () => {
+      // Ni email, ni quotas, ni statistiques : les exposer sur une page
+      // ouverte livrerait les contacts de tous les partenaires aux robots.
+      await inviter({ nom: 'Alpha', secteur: 'Ingénierie' }).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${SPONSORS}/publics`)
+        .expect(200);
+
+      const corps = reponse.body as Record<string, unknown>[];
+      expect(corps).toHaveLength(1);
+      expect(corps[0]).toMatchObject({ nom: 'Alpha', secteur: 'Ingénierie' });
+      expect(corps[0]).not.toHaveProperty('email');
+      expect(corps[0]).not.toHaveProperty('stats');
+      expect(corps[0]).not.toHaveProperty('user');
+      expect(corps[0]).not.toHaveProperty('quotasPersonnalises');
+    });
+
+    it('classe par palier, puis par nom', async () => {
+      const or = await paliers.save(paliers.create({ nom: 'Or', ordre: 1 }));
+      const argent = await paliers.save(
+        paliers.create({ nom: 'Argent', ordre: 2 }),
+      );
+
+      await inviter({ nom: 'Zeta', palierId: or.id }).expect(201);
+      await inviter({ nom: 'Alpha', palierId: argent.id }).expect(201);
+      await inviter({ nom: 'Beta', palierId: argent.id }).expect(201);
+      // Sans palier : doit finir en queue de liste, pas en tête.
+      await inviter({ nom: 'Aaa' }).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${SPONSORS}/publics`)
+        .expect(200);
+
+      expect((reponse.body as { nom: string }[]).map((s) => s.nom)).toEqual([
+        'Zeta',
+        'Alpha',
+        'Beta',
+        'Aaa',
+      ]);
+    });
+  });
+
+  describe('espace partenaire', () => {
+    /** Invite un partenaire, active son accès, et renvoie ses en-têtes. */
+    const partenaireActif = async () => {
+      const reponse = await inviter({ nom: 'Partenaire Actif' }).expect(201);
+      const activation = await request(app.getHttpServer())
+        .post(ACTIVATION)
+        .send({
+          jeton: jetonDe(invitations[invitations.length - 1].lien),
+          motDePasse: MOT_DE_PASSE,
+        })
+        .expect(200);
+
+      const { accessToken } = activation.body as { accessToken: string };
+      return {
+        id: (reponse.body as { id: string }).id,
+        entetes: { Authorization: `Bearer ${accessToken}` },
+      };
+    };
+
+    it('permet au partenaire de consulter et modifier sa fiche', async () => {
+      const partenaire = await partenaireActif();
+
+      await request(app.getHttpServer())
+        .get(`${SPONSORS}/moi`)
+        .set(partenaire.entetes)
+        .expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${SPONSORS}/moi`)
+        .set(partenaire.entetes)
+        .send({ description: 'Cabinet de conseil en ingénierie.' })
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({
+        description: 'Cabinet de conseil en ingénierie.',
+      });
+    });
+
+    it('n’expose pas le palier à la modification par le partenaire', async () => {
+      // Le palier ouvre l'accès à l'annuaire des finissants : un partenaire
+      // pourrait sinon s'accorder les droits du palier supérieur.
+      const or = await paliers.save(paliers.create({ nom: 'Or', ordre: 1 }));
+      const partenaire = await partenaireActif();
+
+      await request(app.getHttpServer())
+        .patch(`${SPONSORS}/moi`)
+        .set(partenaire.entetes)
+        .send({ palierId: or.id })
+        .expect(400);
+    });
+
+    it('n’expose pas l’adresse à la modification', async () => {
+      // Elle sert d'identifiant de connexion : la changer ici déconnecterait
+      // le partenaire de son compte sans qu'il en soit averti.
+      const partenaire = await partenaireActif();
+
+      await request(app.getHttpServer())
+        .patch(`${SPONSORS}/moi`)
+        .set(partenaire.entetes)
+        .send({ email: 'autre@entreprise.cm' })
+        .expect(400);
+    });
+
+    it('refuse l’espace partenaire à un étudiant', async () => {
+      await request(app.getHttpServer())
+        .get(`${SPONSORS}/moi`)
+        .set(etudiant.entetes)
+        .expect(403);
+    });
+  });
+
+  describe('administration des partenaires', () => {
+    it('consulte et modifie une fiche', async () => {
+      const reponse = await inviter().expect(201);
+      const id = (reponse.body as { id: string }).id;
+
+      await request(app.getHttpServer())
+        .get(`${SPONSORS}/${id}`)
+        .set(admin.entetes)
+        .expect(200);
+
+      const modifiee = await request(app.getHttpServer())
+        .patch(`${SPONSORS}/${id}`)
+        .set(admin.entetes)
+        .send({ nom: 'Nouveau nom' })
+        .expect(200);
+
+      expect(modifiee.body).toMatchObject({ nom: 'Nouveau nom' });
+    });
+
+    it('change le palier par l’endpoint dédié', async () => {
+      const or = await paliers.save(paliers.create({ nom: 'Or', ordre: 1 }));
+      const reponse = await inviter().expect(201);
+
+      const modifiee = await request(app.getHttpServer())
+        .patch(`${SPONSORS}/${(reponse.body as { id: string }).id}/palier`)
+        .set(admin.entetes)
+        .send({ palierId: or.id })
+        .expect(200);
+
+      expect((modifiee.body as { palier: { nom: string } }).palier.nom).toBe(
+        'Or',
+      );
+    });
+
+    it('supprime la fiche et le compte de connexion associé', async () => {
+      // Laisser le compte derrière créerait un utilisateur au rôle SPONSOR
+      // sans partenaire associé, capable de se connecter sans raison visible.
+      const reponse = await inviter().expect(201);
+      const corps = reponse.body as { id: string; email: string };
+
+      await request(app.getHttpServer())
+        .delete(`${SPONSORS}/${corps.id}`)
+        .set(admin.entetes)
+        .expect(204);
+
+      await expect(sponsors.countBy({ id: corps.id })).resolves.toBe(0);
+      await expect(users.countBy({ email: corps.email })).resolves.toBe(0);
+    });
+
+    it('signale une fiche inconnue', async () => {
+      await request(app.getHttpServer())
+        .get(`${SPONSORS}/00000000-0000-4000-8000-000000000000`)
+        .set(admin.entetes)
+        .expect(404);
+    });
+  });
+
+  describe('paliers', () => {
+    const PALIERS = `${SPONSORS}/paliers`;
+
+    it('crée, liste et modifie un palier', async () => {
+      const cree = await request(app.getHttpServer())
+        .post(PALIERS)
+        .set(admin.entetes)
+        .send({ nom: 'Or', ordre: 1, accesAnnuaire: true })
+        .expect(201);
+
+      const id = (cree.body as { id: string }).id;
+
+      const liste = await request(app.getHttpServer())
+        .get(PALIERS)
+        .set(admin.entetes)
+        .expect(200);
+      expect(liste.body as unknown[]).toHaveLength(1);
+
+      const modifie = await request(app.getHttpServer())
+        .patch(`${PALIERS}/${id}`)
+        .set(admin.entetes)
+        .send({ maxTelechargementsCv: 25 })
+        .expect(200);
+      expect(modifie.body).toMatchObject({ maxTelechargementsCv: 25 });
+    });
+
+    it('refuse de supprimer un palier encore utilisé', async () => {
+      // La relation étant en SET NULL, la suppression retirerait
+      // silencieusement les droits d'annuaire du partenaire.
+      const cree = await request(app.getHttpServer())
+        .post(PALIERS)
+        .set(admin.entetes)
+        .send({ nom: 'Or', ordre: 1 })
+        .expect(201);
+      const id = (cree.body as { id: string }).id;
+
+      await inviter({ palierId: id }).expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`${PALIERS}/${id}`)
+        .set(admin.entetes)
+        .expect(409);
+    });
+
+    it('supprime un palier libre de tout partenaire', async () => {
+      const cree = await request(app.getHttpServer())
+        .post(PALIERS)
+        .set(admin.entetes)
+        .send({ nom: 'Bronze', ordre: 3 })
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`${PALIERS}/${(cree.body as { id: string }).id}`)
+        .set(admin.entetes)
+        .expect(204);
+
+      await expect(paliers.count()).resolves.toBe(0);
+    });
+
+    it('refuse la gestion des paliers à un étudiant', async () => {
+      await request(app.getHttpServer())
+        .get(PALIERS)
+        .set(etudiant.entetes)
+        .expect(403);
+    });
+  });
 });

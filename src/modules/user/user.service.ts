@@ -32,6 +32,10 @@ export class UserService {
     return user;
   }
 
+  async supprimer(id: string): Promise<void> {
+    await this.users.delete(id);
+  }
+
   async setRefreshTokenHash(id: string, hash: string | null): Promise<void> {
     await this.users.update(id, { refreshTokenHash: hash });
   }
