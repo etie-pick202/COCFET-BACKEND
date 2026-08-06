@@ -1,5 +1,5 @@
 import { Then, When } from '@cucumber/cucumber';
-import { strict as assert } from 'assert';
+import { strict as assert } from 'node:assert';
 import { AppController } from '../../src/app.controller';
 import { AppService } from '../../src/app.service';
 import type { HealthStatus } from '../../src/app.service';

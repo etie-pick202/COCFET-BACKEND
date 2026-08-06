@@ -38,3 +38,8 @@ prisma/*.db
 
 # Local editor/tooling session data
 .claude
+
+/coverage-e2e
+
+# Fichiers téléversés en local, quand les identifiants R2 sont absents
+/var
