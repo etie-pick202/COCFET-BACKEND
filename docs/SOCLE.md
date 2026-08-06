@@ -83,6 +83,32 @@ parle SMTP, servi par Mailpit en local (`docker compose up -d`, boîte sur
 <http://localhost:8025>) et par Brevo ailleurs. Les mêmes variables `MAIL_*`
 couvrent les deux, un port n'y ajouterait qu'une indirection.
 
+## Envoyer un fichier
+
+`POST /api/v1/fichiers` en `multipart/form-data`, deux champs : `fichier` et
+`usage`.
+
+| Usage | Dossier | Taille max | Formats |
+|---|---|---|---|
+| `avatar` | `avatars/` | 2 Mo | image |
+| `sponsor` | `sponsors/` | 2 Mo | image |
+| `evenement` | `evenements/` | 5 Mo | image |
+| `produit` | `produits/` | 5 Mo | image |
+| `article` | `articles/` | 5 Mo | image |
+| `cv` | `cv/` | 5 Mo | PDF |
+
+Réponse : `{ cle, url, type }`. **Seule la clé se conserve en base** — l'URL
+expire, et une URL stockée serait périmée à la première relecture. Pour en
+obtenir une nouvelle : `GET /api/v1/fichiers/url-signee?cle=...`.
+
+Le format est déterminé à partir des **premiers octets du contenu**, jamais du
+champ `mimetype` : celui-ci est fourni par le client, qui annonce ce qu'il
+veut. Un exécutable renommé en `.png` et déclaré `image/png` passerait tout
+contrôle fondé sur ce seul champ.
+
+Le dossier découle de l'usage, jamais d'un chemin fourni par l'appelant : un
+préfixe libre permettrait de déposer un CV parmi les logos publics.
+
 ## Tests : obtenir un vrai JWT
 
 `test/utils/authentification.ts` crée un compte en base et signe un jeton avec

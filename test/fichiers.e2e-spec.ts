@@ -11,6 +11,12 @@ import { AppModule } from './../src/app.module';
 import { FiltreExceptionGlobal } from './../src/common/erreurs/filtre-exception-global';
 import { StockageLocal } from './../src/modules/file/adaptateurs/stockage-local';
 import { STOCKAGE } from './../src/modules/file/ports/stockage';
+import { Role } from './../src/common/enums/role.enum';
+import {
+  CompteDeTest,
+  creerCompteAuthentifie,
+  purgerUtilisateurs,
+} from './utils/authentification';
 
 /**
  * Accès aux fichiers en stockage local, de bout en bout.
@@ -178,5 +184,123 @@ describe('Fichiers en stockage local (e2e)', () => {
     await stockage.supprimer(cle);
 
     await request(app.getHttpServer()).get(url).expect(404);
+  });
+  describe('envoi', () => {
+    const ENVOI = '/api/v1/fichiers';
+    let compte: CompteDeTest;
+    let admin: CompteDeTest;
+
+    /** En-tête PNG réel, suivi d'un remplissage. */
+    const png = () => {
+      const b = Buffer.alloc(512);
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(b);
+      return b;
+    };
+
+    beforeAll(async () => {
+      compte = await creerCompteAuthentifie(app);
+      admin = await creerCompteAuthentifie(app, { role: Role.ADMIN });
+    });
+
+    afterAll(async () => {
+      await purgerUtilisateurs(app);
+    });
+
+    it('accepte une image et la range selon son usage', async () => {
+      const reponse = await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'avatar')
+        .attach('fichier', png(), 'photo.png')
+        .expect(201);
+
+      const corps = reponse.body as { cle: string; url: string; type: string };
+      expect(corps.cle.startsWith('avatars/')).toBe(true);
+      expect(corps.type).toBe('image/png');
+      expect(corps.url).toContain('signature=');
+    });
+
+    it('refuse un exécutable renommé en .png', async () => {
+      // Le champ mimetype est fourni par le client : seul le contenu tranche.
+      const executable = Buffer.alloc(512);
+      Buffer.from([0x7f, 0x45, 0x4c, 0x46]).copy(executable);
+
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'avatar')
+        .attach('fichier', executable, {
+          filename: 'photo.png',
+          contentType: 'image/png',
+        })
+        .expect(400);
+    });
+
+    it('refuse une image là où un CV est attendu', async () => {
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'cv')
+        .attach('fichier', png(), 'cv.pdf')
+        .expect(400);
+    });
+
+    it('refuse un usage inconnu plutôt que de deviner un dossier', async () => {
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', '../public')
+        .attach('fichier', png(), 'photo.png')
+        .expect(400);
+    });
+
+    it('exige un jeton', async () => {
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .field('usage', 'avatar')
+        .attach('fichier', png(), 'photo.png')
+        .expect(401);
+    });
+
+    it('sert ensuite le fichier envoyé', async () => {
+      const envoi = await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'evenement')
+        .attach('fichier', png(), 'affiche.png')
+        .expect(201);
+
+      const url = new URL((envoi.body as { url: string }).url);
+      const lecture = await request(app.getHttpServer())
+        .get(url.pathname + url.search)
+        .expect(200);
+
+      expect(lecture.headers['content-type']).toContain('image/png');
+    });
+
+    it('réserve la suppression au bureau', async () => {
+      // La clé seule ne dit pas à quelle entité l'objet est rattaché : rien ne
+      // garantirait que le demandeur en est le propriétaire.
+      const envoi = await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'avatar')
+        .attach('fichier', png(), 'photo.png')
+        .expect(201);
+
+      const cle = (envoi.body as { cle: string }).cle;
+
+      await request(app.getHttpServer())
+        .delete(ENVOI)
+        .query({ cle })
+        .set(compte.entetes)
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .delete(ENVOI)
+        .query({ cle })
+        .set(admin.entetes)
+        .expect(204);
+    });
   });
 });
