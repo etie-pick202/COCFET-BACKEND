@@ -1,4 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Role } from '../../common/enums/role.enum';
 
 /**
  * Usages autorisés, et contraintes propres à chacun.
@@ -8,28 +9,51 @@ import { BadRequestException } from '@nestjs/common';
  * d'écraser l'arborescence attendue par les autres modules.
  */
 export const USAGES = {
-  avatar: { prefixe: 'avatars', tailleMax: 2 * 1024 * 1024, types: ['image'] },
+  /** Sa propre photo : tout compte authentifie y a droit. */
+  avatar: {
+    prefixe: 'avatars',
+    tailleMax: 2 * 1024 * 1024,
+    types: ['image'],
+    roles: null,
+  },
   evenement: {
     prefixe: 'evenements',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
+    roles: [Role.ADMIN],
   },
   produit: {
     prefixe: 'produits',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
+    roles: [Role.ADMIN],
   },
+  /** Le partenaire depose son logo ; le bureau peut le faire pour lui. */
   sponsor: {
     prefixe: 'sponsors',
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
+    roles: [Role.SPONSOR, Role.ADMIN],
   },
   article: {
     prefixe: 'articles',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
+    roles: [Role.ADMIN],
   },
-  cv: { prefixe: 'cv', tailleMax: 5 * 1024 * 1024, types: ['pdf'] },
+  /**
+   * Reserve aux etudiants.
+   *
+   * L'annuaire des finissants est ce que consultent les entreprises
+   * partenaires : un CV depose par un visiteur externe n'y a pas sa place, et
+   * ouvrirait un espace de stockage a qui n'est pas concerne par le dispositif.
+   */
+  cv: {
+    prefixe: 'cv',
+    tailleMax: 5 * 1024 * 1024,
+    types: ['pdf'],
+    roles: [Role.STUDENT, Role.ADMIN],
+  },
 } as const;
 
 export type Usage = keyof typeof USAGES;
@@ -70,11 +94,20 @@ export interface FichierValide {
 export function validerFichier(
   usage: Usage,
   fichier: { originalname: string; mimetype: string; buffer: Buffer },
+  role: Role,
 ): FichierValide {
   const regles = USAGES[usage];
   if (!regles) {
     throw new BadRequestException(
       `Usage inconnu. Valeurs acceptées : ${Object.keys(USAGES).join(', ')}.`,
+    );
+  }
+
+  const autorises = regles.roles as readonly Role[] | null;
+  if (autorises && !autorises.includes(role)) {
+    // 403 et non 400 : la demande est bien formée, c'est le droit qui manque.
+    throw new ForbiddenException(
+      `Votre compte ne peut pas envoyer de fichier de type « ${usage} ».`,
     );
   }
 

@@ -11,6 +11,7 @@ import {
   NotFoundException,
   Post,
   Query,
+  Req,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -25,7 +26,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { extname } from 'node:path';
 import { Role } from '../../common/enums/role.enum';
 import { Public } from '../auth/decorators/public.decorator';
@@ -45,6 +46,9 @@ import { USAGES, validerFichier } from './validation-fichier';
  * d'etre refuse.
  */
 const TAILLE_ABSOLUE_MAX = 5 * 1024 * 1024;
+
+/** La stratégie JWT pose l'utilisateur sur la requête. */
+type RequeteAuthentifiee = Request & { user: { id: string; role: Role } };
 
 /**
  * Types servis tels quels. Tout le reste part en pièce jointe : une page HTML
@@ -143,12 +147,17 @@ export class FileController {
   async envoyer(
     @UploadedFile() fichier: Express.Multer.File | undefined,
     @Body('usage') usage: Usage,
+    @Req() requete: RequeteAuthentifiee,
   ): Promise<{ cle: string; url: string; type: string }> {
     if (!fichier) {
       throw new BadRequestException('Aucun fichier reçu (champ « fichier »).');
     }
 
-    const { prefixe, mimeReel } = validerFichier(usage, fichier);
+    const { prefixe, mimeReel } = validerFichier(
+      usage,
+      fichier,
+      requete.user.role,
+    );
 
     const cle = await this.stockage.televerser(
       // Le type detecte remplace celui annonce : c'est lui qui sera renvoye

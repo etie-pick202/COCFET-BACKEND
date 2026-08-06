@@ -14,6 +14,11 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
+import {
+  LIMITE_AUTHENTIFICATION,
+  LIMITE_ENVOI_EMAIL,
+  LimiteDebit,
+} from '../../common/guards/limite-debit.decorator';
 import { Public } from './decorators/public.decorator';
 import { ConnexionDto } from './dto/connexion.dto';
 import { DefinirMotDePasseDto } from './dto/definir-mot-de-passe.dto';
@@ -37,6 +42,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @LimiteDebit(LIMITE_ENVOI_EMAIL)
   @Post('inscription')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
@@ -58,6 +64,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('verification-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -72,6 +79,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_ENVOI_EMAIL)
   @Post('verification-email/renvoyer')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Renvoyer le lien de confirmation' })
@@ -83,6 +91,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('connexion')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -97,6 +106,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('rafraichir')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -125,6 +135,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_ENVOI_EMAIL)
   @Post('mot-de-passe/oublie')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({
@@ -140,6 +151,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('mot-de-passe/reinitialiser')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -157,6 +169,7 @@ export class AuthController {
   }
 
   @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('invitation/activer')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

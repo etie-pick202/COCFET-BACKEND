@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EvenementModule } from '../evenement/evenement.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -13,7 +13,7 @@ import { Inscription } from './entities/inscription.entity';
     TypeOrmModule.forFeature([Inscription]),
     EvenementModule,
     NotificationModule,
-    PaiementModule,
+    forwardRef(() => PaiementModule),
     UserModule,
   ],
   controllers: [BilletterieController],
