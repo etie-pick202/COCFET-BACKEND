@@ -109,6 +109,57 @@ contrôle fondé sur ce seul champ.
 Le dossier découle de l'usage, jamais d'un chemin fourni par l'appelant : un
 préfixe libre permettrait de déposer un CV parmi les logos publics.
 
+## Protection des routes
+
+`JwtAuthGuard` est une garde globale : **toute route exige un jeton**, sauf
+celles qui portent `@Public()`. Oublier un décorateur rend donc une route plus
+fermée, jamais plus ouverte.
+
+| Niveau | Décorateur |
+|---|---|
+| Ouvert à tous | `@Public()` |
+| Ouvert, mais exploite le jeton s'il est là | `@AuthOptionnelle()` |
+| Authentifié | *(rien)* |
+| Rôle précis | `@Roles(Role.ADMIN)` |
+
+`@Roles` **n'est pas hiérarchique** : `@Roles(Role.SPONSOR)` ferme la route à
+un administrateur. C'est voulu pour les espaces personnels, qui n'ont pas de
+sens hors de leur titulaire.
+
+L'autorisation sur un objet précis ne passe pas par une garde mais par la
+**condition SQL** : le propriétaire fait partie du `WHERE`. Connaître un
+identifiant ne suffit donc jamais à lire ou modifier la ressource d'autrui —
+une vérification faite après lecture laisserait, elle, une fenêtre.
+
+### Limitation de débit
+
+`RateLimitGuard` **refuse de démarrer en production** sans Upstash. Un garde
+qui se désactive en silence est pire que pas de garde : on se croit protégé.
+
+Deux plafonds au-delà du plafond général de 100 requêtes/minute :
+
+| Décorateur | Plafond | Routes |
+|---|---|---|
+| `@LimiteDebit(LIMITE_ENVOI_EMAIL)` | 3/min | inscription, renvoi de vérification, mot de passe oublié |
+| `@LimiteDebit(LIMITE_AUTHENTIFICATION)` | 10/min | connexion, rafraîchissement, vérification, activation |
+
+Deux compteurs jouent sur les routes qui portent une adresse : **par IP** et
+**par email normalisé**. Le second arrête celui qui change d'IP à chaque
+tentative — que le premier ne verrait jamais passer.
+
+### Droits d'envoi de fichier
+
+| Usage | Qui peut |
+|---|---|
+| `avatar` | tout compte authentifié |
+| `cv` | `STUDENT`, `ADMIN` |
+| `sponsor` | `SPONSOR`, `ADMIN` |
+| `evenement`, `produit`, `article` | `ADMIN` |
+
+Le CV est réservé aux étudiants : l'annuaire des finissants est ce que
+consultent les entreprises partenaires, et un CV déposé par un visiteur
+externe n'y a pas sa place.
+
 ## Tests : obtenir un vrai JWT
 
 `test/utils/authentification.ts` crée un compte en base et signe un jeton avec

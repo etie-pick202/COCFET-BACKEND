@@ -1,5 +1,9 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Role } from '../../common/enums/role.enum';
 import { Usage, USAGES, validerFichier } from './validation-fichier';
+
+/** Role par defaut des tests de format : il a droit a tous les usages. */
+const ADMIN = Role.ADMIN;
 
 /** Premiers octets réels de chaque format, suivis d'un remplissage. */
 const ENTETES = {
@@ -38,18 +42,20 @@ describe('validerFichier', () => {
       ['jpeg', ENTETES.jpeg, 'image/jpeg'],
       ['gif', ENTETES.gif, 'image/gif'],
     ])('accepte un %s et en déduit le type réel', (_nom, octets, attendu) => {
-      expect(validerFichier('avatar', fichier(octets))).toEqual({
+      expect(validerFichier('avatar', fichier(octets), ADMIN)).toEqual({
         prefixe: 'avatars',
         mimeReel: attendu,
       });
     });
 
     it('accepte un webp', () => {
-      expect(validerFichier('avatar', webp()).mimeReel).toBe('image/webp');
+      expect(validerFichier('avatar', webp(), ADMIN).mimeReel).toBe(
+        'image/webp',
+      );
     });
 
     it('accepte un pdf pour un CV', () => {
-      expect(validerFichier('cv', fichier(ENTETES.pdf)).mimeReel).toBe(
+      expect(validerFichier('cv', fichier(ENTETES.pdf), ADMIN).mimeReel).toBe(
         'application/pdf',
       );
     });
@@ -63,13 +69,18 @@ describe('validerFichier', () => {
         validerFichier(
           'avatar',
           fichier(ENTETES.elf, { nom: 'photo.png', mime: 'image/png' }),
+          ADMIN,
         ),
       ).toThrow(BadRequestException);
     });
 
     it('refuse une archive déguisée en image', () => {
       expect(() =>
-        validerFichier('produit', fichier(ENTETES.zip, { nom: 'visuel.jpg' })),
+        validerFichier(
+          'produit',
+          fichier(ENTETES.zip, { nom: 'visuel.jpg' }),
+          ADMIN,
+        ),
       ).toThrow(BadRequestException);
     });
 
@@ -80,22 +91,26 @@ describe('validerFichier', () => {
       buffer.write('WAVE', 8);
 
       expect(() =>
-        validerFichier('avatar', {
-          originalname: 'son.webp',
-          mimetype: 'image/webp',
-          buffer,
-        }),
+        validerFichier(
+          'avatar',
+          {
+            originalname: 'son.webp',
+            mimetype: 'image/webp',
+            buffer,
+          },
+          ADMIN,
+        ),
       ).toThrow(BadRequestException);
     });
 
     it('refuse un pdf là où une image est attendue', () => {
-      expect(() => validerFichier('avatar', fichier(ENTETES.pdf))).toThrow(
-        BadRequestException,
-      );
+      expect(() =>
+        validerFichier('avatar', fichier(ENTETES.pdf), ADMIN),
+      ).toThrow(BadRequestException);
     });
 
     it('refuse une image là où un pdf est attendu', () => {
-      expect(() => validerFichier('cv', fichier(ENTETES.png))).toThrow(
+      expect(() => validerFichier('cv', fichier(ENTETES.png), ADMIN)).toThrow(
         BadRequestException,
       );
     });
@@ -104,11 +119,15 @@ describe('validerFichier', () => {
   describe('taille et usage', () => {
     it('refuse un fichier vide', () => {
       expect(() =>
-        validerFichier('avatar', {
-          originalname: 'vide.png',
-          mimetype: 'image/png',
-          buffer: Buffer.alloc(0),
-        }),
+        validerFichier(
+          'avatar',
+          {
+            originalname: 'vide.png',
+            mimetype: 'image/png',
+            buffer: Buffer.alloc(0),
+          },
+          ADMIN,
+        ),
       ).toThrow(/vide/);
     });
 
@@ -116,14 +135,14 @@ describe('validerFichier', () => {
       // 3 Mo passent pour un visuel d'événement, pas pour un avatar.
       const gros = fichier(ENTETES.png, { taille: 3 * 1024 * 1024 });
 
-      expect(() => validerFichier('avatar', gros)).toThrow(/2 Mo/);
-      expect(() => validerFichier('evenement', gros)).not.toThrow();
+      expect(() => validerFichier('avatar', gros, ADMIN)).toThrow(/2 Mo/);
+      expect(() => validerFichier('evenement', gros, ADMIN)).not.toThrow();
     });
 
     it('refuse un usage inconnu plutôt que de deviner un dossier', () => {
       // Un préfixe libre permettrait de déposer un CV parmi les logos.
       expect(() =>
-        validerFichier('../public' as Usage, fichier(ENTETES.png)),
+        validerFichier('../public' as Usage, fichier(ENTETES.png), ADMIN),
       ).toThrow(BadRequestException);
     });
 
@@ -133,10 +152,68 @@ describe('validerFichier', () => {
           validerFichier(
             usage as Usage,
             usage === 'cv' ? fichier(ENTETES.pdf) : fichier(ENTETES.png),
+            ADMIN,
           ).prefixe,
       );
 
       expect(new Set(prefixes).size).toBe(prefixes.length);
+    });
+  });
+
+  describe('droits par usage', () => {
+    it('reserve le CV aux etudiants', () => {
+      // L'annuaire des finissants est ce que consultent les entreprises : un
+      // CV depose par un visiteur externe n'y a pas sa place.
+      expect(() =>
+        validerFichier('cv', fichier(ENTETES.pdf), Role.STUDENT),
+      ).not.toThrow();
+
+      expect(() =>
+        validerFichier('cv', fichier(ENTETES.pdf), Role.VISITOR),
+      ).toThrow(ForbiddenException);
+
+      expect(() =>
+        validerFichier('cv', fichier(ENTETES.pdf), Role.SPONSOR),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('laisse tout compte deposer sa propre photo', () => {
+      for (const role of Object.values(Role)) {
+        expect(() =>
+          validerFichier('avatar', fichier(ENTETES.png), role),
+        ).not.toThrow();
+      }
+    });
+
+    it('reserve les visuels du site au bureau', () => {
+      for (const usage of ['evenement', 'produit', 'article'] as const) {
+        expect(() =>
+          validerFichier(usage, fichier(ENTETES.png), Role.STUDENT),
+        ).toThrow(ForbiddenException);
+        expect(() =>
+          validerFichier(usage, fichier(ENTETES.png), Role.ADMIN),
+        ).not.toThrow();
+      }
+    });
+
+    it('laisse le partenaire deposer son logo, et le bureau le faire pour lui', () => {
+      expect(() =>
+        validerFichier('sponsor', fichier(ENTETES.png), Role.SPONSOR),
+      ).not.toThrow();
+      expect(() =>
+        validerFichier('sponsor', fichier(ENTETES.png), Role.ADMIN),
+      ).not.toThrow();
+      expect(() =>
+        validerFichier('sponsor', fichier(ENTETES.png), Role.STUDENT),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('verifie le droit avant le format', () => {
+      // Un refus de droit ne doit pas dependre du contenu envoye : sinon un
+      // message d'erreur different revelerait quels usages existent.
+      expect(() =>
+        validerFichier('cv', fichier(ENTETES.png), Role.VISITOR),
+      ).toThrow(ForbiddenException);
     });
   });
 });

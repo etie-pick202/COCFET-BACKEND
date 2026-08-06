@@ -189,6 +189,7 @@ describe('Fichiers en stockage local (e2e)', () => {
     const ENVOI = '/api/v1/fichiers';
     let compte: CompteDeTest;
     let admin: CompteDeTest;
+    let visiteur: CompteDeTest;
 
     /** En-tête PNG réel, suivi d'un remplissage. */
     const png = () => {
@@ -198,8 +199,9 @@ describe('Fichiers en stockage local (e2e)', () => {
     };
 
     beforeAll(async () => {
-      compte = await creerCompteAuthentifie(app);
+      compte = await creerCompteAuthentifie(app, { role: Role.STUDENT });
       admin = await creerCompteAuthentifie(app, { role: Role.ADMIN });
+      visiteur = await creerCompteAuthentifie(app, { role: Role.VISITOR });
     });
 
     afterAll(async () => {
@@ -263,9 +265,10 @@ describe('Fichiers en stockage local (e2e)', () => {
     });
 
     it('sert ensuite le fichier envoyé', async () => {
+      // Un visuel d'evenement releve du bureau : l'etudiant n'y a pas droit.
       const envoi = await request(app.getHttpServer())
         .post(ENVOI)
-        .set(compte.entetes)
+        .set(admin.entetes)
         .field('usage', 'evenement')
         .attach('fichier', png(), 'affiche.png')
         .expect(201);
@@ -301,6 +304,52 @@ describe('Fichiers en stockage local (e2e)', () => {
         .query({ cle })
         .set(admin.entetes)
         .expect(204);
+    });
+
+    it('reserve le depot de CV aux etudiants', async () => {
+      // L'annuaire des finissants est ce que consultent les entreprises
+      // partenaires : un CV depose par un visiteur externe n'y a pas sa place.
+      const pdf = Buffer.alloc(512);
+      Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]).copy(pdf);
+
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'cv')
+        .attach('fichier', pdf, 'cv.pdf')
+        .expect(201);
+
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(visiteur.entetes)
+        .field('usage', 'cv')
+        .attach('fichier', pdf, 'cv.pdf')
+        .expect(403);
+    });
+
+    it('reserve les visuels du site au bureau', async () => {
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(compte.entetes)
+        .field('usage', 'evenement')
+        .attach('fichier', png(), 'affiche.png')
+        .expect(403);
+
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(admin.entetes)
+        .field('usage', 'evenement')
+        .attach('fichier', png(), 'affiche.png')
+        .expect(201);
+    });
+
+    it('laisse chacun deposer sa propre photo', async () => {
+      await request(app.getHttpServer())
+        .post(ENVOI)
+        .set(visiteur.entetes)
+        .field('usage', 'avatar')
+        .attach('fichier', png(), 'photo.png')
+        .expect(201);
     });
   });
 });
