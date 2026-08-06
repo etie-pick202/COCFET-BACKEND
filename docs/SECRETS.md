@@ -147,8 +147,20 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 3. **Settings** > **Webhooks** > ajouter `https://api.cocfet.com/api/v1/webhooks/notchpay` et relever le secret de signature.
 
 - **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation du paiement Mobile Money.
+- **Nécessaire** : l'adaptateur est écrit et testé, il attend ces trois valeurs. Laisser les variables vides bascule sur la passerelle factice ; les renseigner suffit à passer au prestataire réel, sans toucher au code.
 - ⚠️ `NOTCHPAY_WEBHOOK_SECRET` est indispensable : il permet de vérifier la signature des webhooks. Sans cette vérification, n'importe qui pourrait appeler l'endpoint et faire passer une commande en « payée ».
+
+**Une URL publique est nécessaire pour le webhook.** Le serveur de NotchPay doit joindre le nôtre : `localhost` ne convient pas. Pour essayer avant le déploiement, un tunnel (`ngrok http 3000`) fournit une URL temporaire à déclarer dans *Settings → Webhooks*. L'adresse à enregistrer est `https://<domaine>/api/v1/webhooks/notchpay`.
+
+**Trois points restent à confirmer au premier essai réel**, l'adaptateur ayant été écrit contre la documentation seule :
+
+| À vérifier | Où le corriger |
+|---|---|
+| Nom exact de l'en-tête de signature | `ENTETES_SIGNATURE` dans `paiement.controller.ts` |
+| Libellés de statut renvoyés | `versStatut()` dans `passerelle-notchpay.ts` |
+| Identifiants de canal Orange / MTN | `canal()` dans le même fichier |
+
+Un statut inconnu **lève** au lieu d'être interprété : mieux vaut un paiement à examiner qu'un billet livré sans règlement.
 
 ### Analyse de code — `SONAR_TOKEN` *(configuré)*
 

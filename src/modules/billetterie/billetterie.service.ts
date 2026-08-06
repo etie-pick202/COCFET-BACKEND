@@ -19,6 +19,8 @@ import { EvenementService } from '../evenement/evenement.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
+import { OrigineTransaction } from '../paiement/entities/transaction.entity';
+import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
 import { User } from '../user/entities/user.entity';
@@ -45,6 +47,7 @@ export class BilletterieService {
     private readonly notificationService: NotificationService,
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
+    private readonly transactionService: TransactionService,
   ) {}
 
   /**
@@ -273,10 +276,24 @@ export class BilletterieService {
       return;
     }
 
-    await this.inscriptions.update(inscription.id, {
-      statut: StatutInscription.CONFIRMEE,
-      statutPaiement: StatutPaiement.COMPLETE,
-    });
+    // Conditionnee au statut courant : un second webhook pour la meme
+    // reference n'affecte aucune ligne, et la notification ne part qu'une fois.
+    const resultat = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({
+        statut: StatutInscription.CONFIRMEE,
+        statutPaiement: StatutPaiement.COMPLETE,
+      })
+      .where('id = :id AND statut_paiement != :complete', {
+        id: inscription.id,
+        complete: StatutPaiement.COMPLETE,
+      })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      return;
+    }
 
     await this.notificationService.notifier({
       destinataire: inscription.user,
@@ -357,6 +374,17 @@ export class BilletterieService {
     evenement: Evenement,
     dto: SInscrireDto,
   ): Promise<void> {
+    // Ouverte **avant** l'appel au prestataire : si le webhook arrive pendant
+    // que nous attendons encore la réponse, il trouve une ligne à mettre à
+    // jour plutôt que rien, et le paiement n'est pas perdu.
+    await this.transactionService.ouvrir({
+      reference: inscription.codeBillet,
+      montant: inscription.prix,
+      origine: OrigineTransaction.EVENEMENT,
+      user: inscription.user,
+      methodePaiement: dto.methodePaiement ?? null,
+    });
+
     const resultat = await this.paiement.initier({
       // Le code du billet sert de référence : il est unique, et c'est lui qui
       // permet de retrouver l'inscription au retour du webhook.

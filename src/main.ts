@@ -7,7 +7,11 @@ import { AppModule } from './app.module';
 import { FiltreExceptionGlobal } from './common/erreurs/filtre-exception-global';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody : la signature d'un webhook porte sur les octets exacts recus.
+  // Un corps deserialise puis reserialise reordonne les cles et change les
+  // espaces — la signature ne correspond alors plus, et toutes les
+  // notifications de paiement seraient rejetees.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
 
   app.use(helmet());
