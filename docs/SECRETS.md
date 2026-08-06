@@ -191,25 +191,22 @@ Deux environnements GitHub existent : `staging` (alimenté par la branche `stagi
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURE`, `MAIL_FROM` | ✅ | ✅ | variable |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ✅ | ✅ | secret |
 | `R2_BUCKET` | ✅ | ✅ | variable |
-| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ❌ | ❌ | secret |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ✅ | ✅ | secret |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | ✅ | ✅ | secret |
 | `DATABASE_URL` | ❌ | ❌ | secret |
 | `NOTCHPAY_*` | ❌ | ❌ | secret |
-| `UPSTASH_REDIS_REST_*` | ❌ | ❌ | secret |
 
 Chaque environnement possède ses propres identifiants Brevo et son propre jeton R2, restreint à son seul bucket (`cocfet-staging`, `cocfet-prod`). Une fuite côté staging ne donne donc aucun accès aux fichiers de production.
 
 ### Ce qui reste
 
-**`JWT_ACCESS_SECRET` et `JWT_REFRESH_SECRET`** — à générer, une paire distincte par environnement. La commande suivante produit la valeur et la transmet directement à GitHub, sans qu'elle s'affiche ni n'entre dans l'historique du shell :
+**`DATABASE_URL`** — dépend de l'hébergeur, qui n'est pas encore choisi. C'est le seul secret manquant qui empêche un déploiement.
 
-```bash
-openssl rand -base64 48 | tr -d '
-' | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
-```
-
-À répéter pour `JWT_REFRESH_SECRET`, puis pour l'environnement `production`. Les quatre valeurs doivent être différentes deux à deux.
-
-**`DATABASE_URL`** — dépend de l'hébergeur, qui n'est pas encore choisi.
+> Sous Windows, `openssl` n'est pas disponible. Pour générer un secret sans qu'il s'affiche ni n'entre dans l'historique du shell :
+>
+> ```bash
+> node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))" | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
+> ```
 
 **`NOTCHPAY_*`** — attend l'ouverture du compte marchand.
 
