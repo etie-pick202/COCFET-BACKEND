@@ -13,6 +13,15 @@ export interface StatistiquesGeneration {
  * Une génération correspond au mandat d'un Bureau des Finissants.
  * L'archivage fige les statistiques et bascule sur une nouvelle génération.
  */
+/**
+ * L'index partiel unique est declare ici **et** cree par migration : sans la
+ * declaration, TypeORM le verrait comme un index de trop et proposerait de le
+ * supprimer a la premiere generation de migration.
+ */
+@Index('uq_generation_active', ['isActive'], {
+  unique: true,
+  where: '"is_active" = true',
+})
 @Entity('generations')
 export class Generation extends BaseEntity {
   @Index({ unique: true })
