@@ -30,11 +30,11 @@ import { Inscription, StatutInscription } from './entities/inscription.entity';
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
 /** Statuts qui occupent une place. Une annulation la rend. */
-const STATUTS_ACTIFS = [
+const STATUTS_ACTIFS = new Set([
   StatutInscription.EN_ATTENTE,
   StatutInscription.CONFIRMEE,
   StatutInscription.UTILISEE,
-];
+]);
 
 @Injectable()
 export class BilletterieService {
@@ -354,7 +354,7 @@ export class BilletterieService {
 
     // Une inscription annulée ne bloque pas : on doit pouvoir se réinscrire
     // après s'être désisté.
-    if (existante && STATUTS_ACTIFS.includes(existante.statut)) {
+    if (existante && STATUTS_ACTIFS.has(existante.statut)) {
       throw new ConflictException('Vous êtes déjà inscrit à cet événement.');
     }
   }

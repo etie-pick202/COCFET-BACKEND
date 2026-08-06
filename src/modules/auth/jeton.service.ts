@@ -76,7 +76,10 @@ export class JetonService {
       relations: { user: true },
     });
 
-    if (!jeton || jeton.consommeLe !== null || jeton.expireLe <= new Date()) {
+    if (!jeton) {
+      return null;
+    }
+    if (jeton.consommeLe !== null || jeton.expireLe <= new Date()) {
       return null;
     }
 
