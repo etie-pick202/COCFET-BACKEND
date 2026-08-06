@@ -69,6 +69,16 @@ rules:
     message: >-
       console.log n'est pas journalisé de façon structurée et échappe à la
       supervision. Utiliser le Logger de NestJS.
+    # Les scripts en ligne de commande sont exclus : leur sortie s'adresse à
+    # la personne qui les lance, dans son terminal, pas à un agrégateur de
+    # journaux. Les y soumettre produisait cinq avertissements par exécution
+    # sur le seul fichier de seed — et, la résolution des discussions étant
+    # exigée sur develop, cela bloquait purement et simplement la fusion.
+    paths:
+      exclude:
+        - src/seed/**
+        - scripts/**
+        - test/**
     pattern-either:
       - pattern: console.log(...)
       - pattern: console.debug(...)
