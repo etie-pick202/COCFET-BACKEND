@@ -4,6 +4,7 @@ import { DataSource } from 'typeorm';
 import { Role } from '../common/enums/role.enum';
 import { normaliserEmail } from '../common/identite/identite-campus';
 import sourceDeDonnees from '../config/data-source';
+import { PosteBureau } from '../modules/bureau/entities/poste-bureau.entity';
 import { Generation } from '../modules/generation/entities/generation.entity';
 import { User } from '../modules/user/entities/user.entity';
 
@@ -17,10 +18,47 @@ const ADMIN = {
 
 const GENERATION_INITIALE = {
   annee: 2027,
-  nom: 'Promotion 2027',
+  // Nom du bureau COCFET, pas un libelle de promotion : une generation est le
+  // mandat d'un bureau, et c'est ce nom que la plateforme affiche.
+  nom: 'ATLAS',
   couleurPrimaire: '#0F172A',
   couleurSecondaire: '#D4AF37',
 };
+
+/**
+ * Postes minimaux d'un bureau COCFET.
+ *
+ * Le catalogue reste modifiable par l'administration — chaque mandat
+ * s'organise a sa facon. Ces trois-la sont marques cles : sans eux, une
+ * generation ne peut pas etre activee, et la plateforme basculerait sur un
+ * bureau qui n'existe pas.
+ *
+ * La presidence accorde l'administration : c'est par elle que la passation se
+ * fait d'un mandat au suivant.
+ */
+const POSTES_INITIAUX = [
+  {
+    nom: 'President',
+    ordre: 1,
+    estCle: true,
+    accordeAdministration: true,
+    description: 'Represente le bureau et pilote la plateforme.',
+  },
+  {
+    nom: 'Vice-president',
+    ordre: 2,
+    estCle: true,
+    accordeAdministration: true,
+    description: 'Seconde la presidence et la supplee.',
+  },
+  {
+    nom: 'Secretaire',
+    ordre: 3,
+    estCle: true,
+    accordeAdministration: false,
+    description: 'Tient les comptes rendus et la correspondance.',
+  },
+];
 
 /**
  * Jeu de données minimal pour démarrer.
@@ -62,6 +100,15 @@ async function semer(source: DataSource): Promise<void> {
     console.log(`Génération créée : ${generation.nom}`);
   } else {
     console.log(`Génération déjà présente : ${generation.nom}`);
+  }
+
+  const postes = source.getRepository(PosteBureau);
+  for (const definition of POSTES_INITIAUX) {
+    const existant = await postes.findOne({ where: { nom: definition.nom } });
+    if (!existant) {
+      await postes.save(postes.create(definition));
+      console.log(`Poste cree : ${definition.nom}`);
+    }
   }
 
   const emailAdmin = normaliserEmail(ADMIN.email);
