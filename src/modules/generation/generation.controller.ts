@@ -19,6 +19,7 @@ import {
 import { Role } from '../../common/enums/role.enum';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { DesignerLogoDto } from '../bureau/dto/bureau.dto';
 import {
   CreerGenerationDto,
   MettreAJourGenerationDto,
@@ -92,14 +93,38 @@ export class GenerationController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @Patch(':id/logo')
+  @ApiOperation({
+    summary: 'Désigner le logo utilisé par la plateforme',
+    description:
+      'Un bureau fait souvent décliner plusieurs logos. Celui-ci doit figurer ' +
+      'parmi ceux déposés : sans ce contrôle, une faute de frappe afficherait ' +
+      'une image inexistante.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Logo non déposé pour cette génération.',
+  })
+  designerLogo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DesignerLogoDto,
+  ): Promise<Generation> {
+    return this.generationService.designerLogo(id, dto.logo);
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
   @Post(':id/activer')
   @ApiOperation({
     summary: 'Activer une génération',
     description:
-      'Désactive la précédente et recalcule le statut de finissant de toute ' +
-      'la plateforme, dans une seule transaction. Deux générations actives ' +
-      'rendraient le thème et la tarification indéterminés.',
+      'Bascule le mandat : désactive la précédente, recalcule le statut de ' +
+      'finissant, et opère la passation d’administration — les titulaires des ' +
+      'postes administrateurs entrants sont promus, les sortants devenus ' +
+      'alumni rétrogradés. Le tout dans une seule transaction. Refusé tant ' +
+      'que les postes clés du bureau ne sont pas pourvus.',
   })
+  @ApiResponse({ status: 400, description: 'Bureau incomplet.' })
   @ApiResponse({ status: 409, description: 'Génération archivée.' })
   activer(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
     return this.generationService.activer(id);

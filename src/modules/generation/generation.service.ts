@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -6,10 +7,12 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import { BureauService } from '../bureau/bureau.service';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Produit } from '../boutique/entities/produit.entity';
 import { Evenement } from '../evenement/entities/evenement.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
+import { Role } from '../../common/enums/role.enum';
 import { User } from '../user/entities/user.entity';
 import {
   CreerGenerationDto,
@@ -35,6 +38,7 @@ export class GenerationService {
     @InjectRepository(Generation)
     private readonly generations: Repository<Generation>,
     private readonly dataSource: DataSource,
+    private readonly bureauService: BureauService,
   ) {}
 
   /**
@@ -145,6 +149,11 @@ export class GenerationService {
       return generation;
     }
 
+    // Un mandat ne prend pas ses fonctions sans bureau : postes cles pourvus,
+    // et au moins un titulaire capable d'administrer la plateforme.
+    await this.bureauService.verifierComposition(id);
+    const entrants = await this.bureauService.administrateursDe(id);
+
     await this.dataSource.transaction(async (gestionnaire) => {
       // Désactivation d'abord : l'index partiel unique en base n'autorise
       // qu'une seule ligne active, et l'ordre inverse le violerait.
@@ -173,10 +182,40 @@ export class GenerationService {
         })
         .setParameter('annee', generation.annee)
         .execute();
+
+      // Passation d'administration.
+      //
+      // Le COCFET est un bureau de finissants : une fois la promotion sortie,
+      // ses membres deviennent alumni et n'ont plus a piloter la plateforme.
+      // Les entrants sont donc promus, et les sortants retrogrades.
+      //
+      // La condition « promotion IS NOT NULL » epargne les comptes qui n'ont
+      // jamais ete etudiants — l'administration technique. Un alumni est
+      // quelqu'un qui a ete etudiant ; celui qui ne l'a jamais ete n'en
+      // devient pas un, et sa presence garantit qu'il reste toujours quelqu'un
+      // aux commandes si une bascule se passe mal.
+      await gestionnaire
+        .createQueryBuilder()
+        .update(User)
+        .set({ role: Role.STUDENT })
+        .where('role = :admin', { admin: Role.ADMIN })
+        .andWhere('promotion IS NOT NULL')
+        .andWhere('promotion <> :annee', { annee: generation.annee })
+        .execute();
+
+      if (entrants.length > 0) {
+        await gestionnaire
+          .createQueryBuilder()
+          .update(User)
+          .set({ role: Role.ADMIN })
+          .whereInIds(entrants)
+          .execute();
+      }
     });
 
     this.logger.log(
-      `Génération ${generation.annee} activée : finissants recalculés.`,
+      `Generation ${generation.annee} (${generation.nom}) activee : ` +
+        `${entrants.length} administrateur(s) entrant(s), finissants recalcules.`,
     );
 
     return this.trouver(id);
@@ -237,6 +276,27 @@ export class GenerationService {
     }
 
     await this.generations.delete(id);
+  }
+
+  /**
+   * Designe le logo qui habille la plateforme.
+   *
+   * La cle doit figurer parmi les logos deposes : sans ce controle, une faute
+   * de frappe afficherait une image inexistante, et le bureau chercherait
+   * longtemps pourquoi son logo a disparu.
+   */
+  async designerLogo(id: string, logo: string): Promise<Generation> {
+    const generation = await this.trouver(id);
+
+    if (!generation.logos.includes(logo)) {
+      throw new BadRequestException(
+        'Ce logo n’a pas été déposé pour cette génération.',
+      );
+    }
+
+    await this.generations.update(id, { logo });
+
+    return this.trouver(id);
   }
 
   // ──────────────────────────────  Interne  ─────────────────────────────

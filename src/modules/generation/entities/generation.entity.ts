@@ -28,11 +28,28 @@ export class Generation extends BaseEntity {
   @Column({ type: 'int' })
   annee: number;
 
+  /**
+   * Nom du bureau — « ATLAS » pour la promotion 2027.
+   *
+   * Une génération **est** le mandat d'un bureau COCFET : c'est ce nom que la
+   * plateforme affiche, pas un libellé de promotion.
+   */
   @Column()
   nom: string;
 
+  /**
+   * Logo effectivement utilisé par l'application.
+   *
+   * Un bureau en fait souvent décliner plusieurs ; il faut donc désigner celui
+   * qui habille la plateforme, sans quoi l'affichage dépendrait de l'ordre
+   * d'envoi. Sa valeur appartient toujours à `logos`.
+   */
   @Column({ type: 'varchar', nullable: true })
   logo: string | null;
+
+  /** Toutes les déclinaisons déposées, clés de stockage. */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  logos: string[];
 
   @Column({ name: 'couleur_primaire', default: '#000000' })
   couleurPrimaire: string;

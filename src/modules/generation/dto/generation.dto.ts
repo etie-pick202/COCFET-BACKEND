@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsInt,
   IsOptional,
   IsString,
@@ -33,17 +35,26 @@ export class CreerGenerationDto {
   @Max(ANNEE_MAXIMALE)
   annee: number;
 
-  @ApiProperty({ example: 'Promotion 2027' })
+  @ApiProperty({ example: 'ATLAS', description: 'Nom du bureau COCFET.' })
   @IsString()
   @MinLength(3)
   @MaxLength(100)
   nom: string;
 
-  @ApiPropertyOptional({ description: 'Clé de l’objet dans le stockage.' })
-  @IsString()
-  @MaxLength(300)
+  /**
+   * Déclinaisons du logo, clés de stockage.
+   *
+   * Un bureau en fait souvent produire plusieurs — fond clair, fond sombre,
+   * version monochrome. Celle qui habille la plateforme se désigne ensuite,
+   * sans quoi l'affichage dépendrait de l'ordre d'envoi.
+   */
+  @ApiPropertyOptional({ type: [String] })
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(300, { each: true })
+  @ArrayMaxSize(10)
   @IsOptional()
-  logo?: string;
+  logos?: string[];
 
   @ApiPropertyOptional({ example: '#1d4ed8' })
   @Matches(COULEUR, {
