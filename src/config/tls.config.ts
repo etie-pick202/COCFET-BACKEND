@@ -17,6 +17,10 @@ export type OptionsTls = false | { ca?: string; rejectUnauthorized: boolean };
  * que les migrations ne se connectent jamais dans des conditions plus laxistes
  * que l'application elle-même.
  */
+// L'union false | objet n'est pas un choix : c'est la forme qu'attend l'option
+// `ssl` de TypeORM, ou `false` desactive TLS et un objet le configure. Une
+// forme unique obligerait chaque appelant a la retraduire.
+// eslint-disable-next-line sonarjs/function-return-type
 export function optionsTls(): OptionsTls {
   if (process.env.DATABASE_SSL !== 'true') {
     return false;

@@ -2,7 +2,11 @@ name: CI
 
 on:
   pull_request:
-    branches: [main, develop, staging]
+    # `feat/**` est inclus pour les PR empilees : une branche ouverte sur une
+    # autre branche de fonctionnalite, le temps que la premiere soit mergee.
+    # Sans cela ces PR n'ont aucune verification, et arrivent en revue sans
+    # qu'on sache si elles compilent.
+    branches: [main, develop, staging, 'feat/**']
   push:
     branches: [main, develop, staging]
 
@@ -78,15 +82,17 @@ jobs:
     env:
       NODE_ENV: development
       DATABASE_URL: postgresql://cocfet:cocfet@localhost:5432/cocfet_test
-      JWT_ACCESS_SECRET: ci-access-secret
-      JWT_REFRESH_SECRET: ci-refresh-secret
+      # Longueur imposee par env.validation : HS256 ne vaut que ce que vaut le
+      # secret. Ces deux valeurs sont publiques et ne servent qu'a la CI, sur
+      # une base jetable ; elles doivent surtout etre differentes l'une de
+      # l'autre, sans quoi la validation echoue — comme en production.
+      JWT_ACCESS_SECRET: cle-de-ci-pour-jeton-d-acces-sans-valeur-reelle
+      JWT_REFRESH_SECRET: cle-de-ci-pour-jeton-de-rafraichissement-distincte
       MAIL_HOST: smtp.example.com
       MAIL_USER: ci
       MAIL_PASSWORD: ci
-      R2_ENDPOINT: https://example.r2.cloudflarestorage.com
-      R2_BUCKET: ci
-      R2_ACCESS_KEY_ID: ci
-      R2_SECRET_ACCESS_KEY: ci
+      # Variables R2_* volontairement absentes : le stockage local prend le
+      # relais, et la CI eprouve donc l'adaptateur que toute l'equipe utilise.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -141,14 +147,23 @@ jobs:
           echo "Aucune dérive : le schéma correspond aux entités."
 
       - name: Vérifier que le retour arrière est propre
+        # `migration:revert` n'annule que la dernière migration : il faut donc
+        # boucler jusqu'à ce qu'il n'en reste aucune. La borne évite une boucle
+        # infinie si une migration refusait obstinément de s'annuler.
         run: |
-          pnpm run migration:revert
-          restantes=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'migrations';")
-          if [ "$restantes" -ne 0 ]; then
-            echo "::error::Le retour arrière laisse $restantes table(s) derrière lui."
+          for _ in $(seq 1 50); do
+            restantes=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM migrations;" 2>/dev/null || echo 0)
+            [ "$restantes" -eq 0 ] && break
+            pnpm run migration:revert
+          done
+
+          tables=$(psql "$DATABASE_URL" -tAc "SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'migrations';")
+          if [ "$tables" -ne 0 ]; then
+            echo "::error::Le retour arrière laisse $tables table(s) derrière lui."
+            psql "$DATABASE_URL" -c "SELECT table_name FROM information_schema.tables WHERE table_schema='public' AND table_name <> 'migrations';"
             exit 1
           fi
-          echo "Retour arrière propre."
+          echo "Retour arrière propre : aucune table résiduelle."
 
   bdd:
     name: BDD (Cucumber)

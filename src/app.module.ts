@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -37,6 +38,18 @@ import { UserModule } from './modules/user/user.module';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => config.getOrThrow('database'),
     }),
+    // Taches planifiees : purge des comptes non verifies, purge des
+    // notifications anciennes, envoi des rappels d'evenement.
+    //
+    // Desactivees quand TACHES_PLANIFIEES=false, ce que font les tests
+    // end-to-end. La tache de rappel s'execute a la minute : sur une suite qui
+    // dure plusieurs minutes, elle se declenchait au milieu des tests, ecrivait
+    // des notifications et rendait les comptages non deterministes. Les
+    // services restent appelables directement, et c'est ainsi qu'ils sont
+    // eprouves.
+    ...(process.env.TACHES_PLANIFIEES === 'false'
+      ? []
+      : [ScheduleModule.forRoot()]),
     // Socle
     AuthModule,
     UserModule,

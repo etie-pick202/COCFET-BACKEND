@@ -4,9 +4,14 @@ import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { FiltreExceptionGlobal } from './common/erreurs/filtre-exception-global';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody : la signature d'un webhook porte sur les octets exacts recus.
+  // Un corps deserialise puis reserialise reordonne les cles et change les
+  // espaces — la signature ne correspond alors plus, et toutes les
+  // notifications de paiement seraient rejetees.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
   const config = app.get(ConfigService);
 
   app.use(helmet());
@@ -24,22 +29,40 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new FiltreExceptionGlobal());
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('COCFET API')
-    .setDescription(
-      "API de la plateforme du Bureau des Finissants de l'UCAC-ICAM",
-    )
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  SwaggerModule.setup(
-    'docs',
-    app,
-    SwaggerModule.createDocument(app, swaggerConfig),
-  );
+  // Swagger décrit toute la surface de l'API : chemins, formes de charge
+  // utile, rôles attendus. C'est une carte offerte à qui cherche une faille,
+  // et elle n'a aucun usage pour un utilisateur final. Elle reste donc fermée
+  // en production, sauf activation délibérée.
+  const documentationActive =
+    config.get<string>('NODE_ENV') !== 'production' ||
+    config.get<string>('SWAGGER_ENABLED') === 'true';
 
-  await app.listen(config.get<number>('PORT', 3000));
+  if (documentationActive) {
+    const swaggerConfig = new DocumentBuilder()
+      .setTitle('COCFET API')
+      .setDescription(
+        "API de la plateforme du Bureau des Finissants de l'UCAC-ICAM",
+      )
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    SwaggerModule.setup(
+      'docs',
+      app,
+      SwaggerModule.createDocument(app, swaggerConfig),
+    );
+  }
+
+  // Sans cela, un SIGTERM — ce que tout hébergeur envoie au redéploiement —
+  // coupe les requêtes en cours et laisse les connexions à la base ouvertes.
+  app.enableShutdownHooks();
+
+  // 0.0.0.0 explicitement : dans un conteneur, une écoute sur la seule
+  // interface locale est injoignable depuis l'extérieur, et l'hébergeur
+  // conclut à un démarrage raté.
+  await app.listen(config.get<number>('PORT', 3000), '0.0.0.0');
 }
 
 void bootstrap();
