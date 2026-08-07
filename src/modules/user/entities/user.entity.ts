@@ -80,6 +80,20 @@ export class User extends BaseEntity {
   @ApiProperty({ format: 'date-time', nullable: true })
   emailVerifieLe: Date | null;
 
+  /**
+   * Adresse demandée, en attente de confirmation.
+   *
+   * Elle ne remplace `email` qu'une fois le lien suivi : tant que la nouvelle
+   * boîte n'a pas répondu, la connexion continue de se faire avec l'ancienne.
+   * Une bascule immédiate enfermerait dehors quiconque se trompe d'adresse.
+   */
+  @Column({ name: 'email_en_attente', type: 'varchar', nullable: true })
+  @ApiProperty({
+    nullable: true,
+    description: 'Adresse demandée, tant que sa boîte n’a pas confirmé.',
+  })
+  emailEnAttente: string | null;
+
   /** Jamais chargée par défaut, pour la même raison que `passwordHash`. */
   @Column({
     name: 'refresh_token_hash',

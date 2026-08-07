@@ -29,6 +29,7 @@ import {
 } from '../../common/swagger';
 import { Public } from './decorators/public.decorator';
 import { ConnexionDto } from './dto/connexion.dto';
+import { ConfirmerChangementEmailDto } from './dto/changement-email.dto';
 import { DefinirMotDePasseDto } from './dto/definir-mot-de-passe.dto';
 import { DemandeReinitialisationDto } from './dto/demande-reinitialisation.dto';
 import { InscriptionDto } from './dto/inscription.dto';
@@ -232,6 +233,25 @@ export class AuthController {
       dto.motDePasse,
       TypeJeton.REINITIALISATION_MOT_DE_PASSE,
     );
+  }
+
+  @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
+  @Post('email/confirmer')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirmer une nouvelle adresse',
+    description:
+      'Le lien part vers l’adresse demandée : le suivre prouve qu’on y a ' +
+      'accès. Les attributs de promotion sont alors recalculés — l’adresse est ' +
+      'ce qui atteste l’appartenance. Les rôles ADMIN et SPONSOR ne bougent ' +
+      'pas : ils viennent du bureau ou d’un partenariat, pas d’un domaine.',
+  })
+  @ApiResponse({ status: 409, description: 'Adresse prise entre-temps.' })
+  confirmerChangementEmail(
+    @Body() dto: ConfirmerChangementEmailDto,
+  ): Promise<PaireJetons> {
+    return this.authService.confirmerChangementEmail(dto.jeton);
   }
 
   @Public()
