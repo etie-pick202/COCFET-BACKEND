@@ -1,7 +1,10 @@
+import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { writeFileSync } from 'node:fs';
 import { AppModule } from './app.module';
 import { documentSwagger } from './swagger';
+
+const logger = new Logger('OpenAPI');
 
 /**
  * Écrit la spécification OpenAPI dans `openapi.json`, sans démarrer de serveur.
@@ -12,7 +15,10 @@ import { documentSwagger } from './swagger';
  * changement de contrat modifie réellement.
  */
 async function generer(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { logger: false });
+  // Seules les erreurs pendant l'amorçage : les messages de démarrage de Nest
+  // n'apprennent rien ici, alors qu'un module qui refuse de se charger doit se
+  // voir.
+  const app = await NestFactory.create(AppModule, { logger: ['error'] });
   app.setGlobalPrefix(process.env.API_PREFIX ?? 'api/v1');
 
   const document = documentSwagger(app);
@@ -20,7 +26,10 @@ async function generer(): Promise<void> {
 
   const chemins = Object.keys(document.paths).length;
   const schemas = Object.keys(document.components?.schemas ?? {}).length;
-  console.log(`openapi.json ecrit : ${chemins} chemins, ${schemas} schemas.`);
+  // Le bilan doit paraître malgré le silence imposé à l'amorçage : c'est la
+  // seule sortie de la commande.
+  Logger.overrideLogger(['error', 'log']);
+  logger.log(`openapi.json ecrit : ${chemins} chemins, ${schemas} schemas.`);
 
   await app.close();
 }
