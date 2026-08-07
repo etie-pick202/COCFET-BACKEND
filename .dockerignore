@@ -1,0 +1,25 @@
+# Tout ce qui n'a rien à faire dans l'image, et surtout ce qui ne doit jamais
+# y entrer : un .env copié par mégarde se retrouverait lisible par quiconque
+# récupère l'image.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+build
+coverage
+coverage-e2e
+var
+
+.git
+.github
+.husky
+.vscode
+.idea
+.claude
+
+*.log
+docs
+test
+**/*.spec.ts

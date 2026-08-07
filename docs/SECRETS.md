@@ -45,21 +45,25 @@ Le script suivant lit les valeurs au clavier **sans les afficher**, les écrit d
 
 ### Authentification — `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`
 
-Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, différentes par environnement.
+Ces valeurs ne s'obtiennent nulle part : **on les génère soi-même**, une paire distincte par environnement.
 
 ```bash
 openssl rand -base64 48
 ```
 
-- **Où** : `.env` en local ; variables d'environnement de l'hébergeur en production.
+- **Où** : `.env` en local ; secrets GitHub Actions pour la CI ; variables d'environnement de l'hébergeur en production.
 - **Nécessaire** : immédiatement.
 - ⚠️ Changer ces secrets invalide tous les tokens en circulation et déconnecte tous les utilisateurs.
 
-### SSO UCAC-ICAM — `UCAC_OAUTH_CLIENT_ID`, `UCAC_OAUTH_CLIENT_SECRET`, `UCAC_OAUTH_CALLBACK_URL`
+**L'application refuse de démarrer** si l'un des trois cas suivants se présente :
 
-- **Obtention** : auprès du service informatique de l'UCAC-ICAM. Il faut leur communiquer l'URL de callback à autoriser (`https://api.cocfet.com/api/v1/auth/ucac-callback` en production, `http://localhost:3000/api/v1/auth/ucac-callback` en développement).
-- **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation de la connexion UCAC-ICAM.
+| Cas | Pourquoi c'est bloquant |
+|---|---|
+| Secret de moins de 32 caractères | HS256 signe avec le secret tel quel. Une phrase courte se retrouve **hors ligne**, sans une seule requête vers l'API, à partir d'un jeton intercepté — et forger un jeton d'administrateur ne demande alors rien de plus. |
+| Valeur reprise de `.env.example` | Elle figure dans un dépôt public. |
+| Les deux secrets identiques | Un refresh token deviendrait une signature valide pour le garde d'accès : il ouvrirait l'API **sept jours** au lieu de quinze minutes, alors que c'est justement le jeton conservé côté client. |
+
+Deux contrôles supplémentaires ne s'appliquent qu'en production : `DATABASE_SSL` doit valoir `true`, et `DATABASE_SYNCHRONIZE` ne peut pas valoir `true`.
 
 ### Limitation de débit — `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`
 
@@ -143,8 +147,20 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 3. **Settings** > **Webhooks** > ajouter `https://api.cocfet.com/api/v1/webhooks/notchpay` et relever le secret de signature.
 
 - **Où** : `.env` et hébergeur.
-- **Nécessaire** : à l'implémentation du paiement Mobile Money.
+- **Nécessaire** : l'adaptateur est écrit et testé, il attend ces trois valeurs. Laisser les variables vides bascule sur la passerelle factice ; les renseigner suffit à passer au prestataire réel, sans toucher au code.
 - ⚠️ `NOTCHPAY_WEBHOOK_SECRET` est indispensable : il permet de vérifier la signature des webhooks. Sans cette vérification, n'importe qui pourrait appeler l'endpoint et faire passer une commande en « payée ».
+
+**Une URL publique est nécessaire pour le webhook.** Le serveur de NotchPay doit joindre le nôtre : `localhost` ne convient pas. Pour essayer avant le déploiement, un tunnel (`ngrok http 3000`) fournit une URL temporaire à déclarer dans *Settings → Webhooks*. L'adresse à enregistrer est `https://<domaine>/api/v1/webhooks/notchpay`.
+
+**Trois points restent à confirmer au premier essai réel**, l'adaptateur ayant été écrit contre la documentation seule :
+
+| À vérifier | Où le corriger |
+|---|---|
+| Nom exact de l'en-tête de signature | `ENTETES_SIGNATURE` dans `paiement.controller.ts` |
+| Libellés de statut renvoyés | `versStatut()` dans `passerelle-notchpay.ts` |
+| Identifiants de canal Orange / MTN | `canal()` dans le même fichier |
+
+Un statut inconnu **lève** au lieu d'être interprété : mieux vaut un paiement à examiner qu'un billet livré sans règlement.
 
 ### Analyse de code — `SONAR_TOKEN` *(configuré)*
 
@@ -162,6 +178,39 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 - **Où** : `.env` et hébergeur.
 - **Nécessaire** : à la mise en production.
 - Le DSN n'est pas réellement secret (il est exposé côté client dans les apps front), mais on le traite comme tel par défaut.
+
+---
+
+## État de configuration
+
+Deux environnements GitHub existent : `staging` (alimenté par la branche `staging`) et `production` (branche `main`). Les valeurs y sont cloisonnées — un secret de staging n'est jamais lisible depuis un déploiement de production, ni l'inverse.
+
+| Variable | staging | production | Type |
+|---|:---:|:---:|---|
+| `MAIL_USER`, `MAIL_PASSWORD` | ✅ | ✅ | secret |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURE`, `MAIL_FROM` | ✅ | ✅ | variable |
+| `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ✅ | ✅ | secret |
+| `R2_BUCKET` | ✅ | ✅ | variable |
+| `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ✅ | ✅ | secret |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | ✅ | ✅ | secret |
+| `DATABASE_URL` | ❌ | ❌ | secret |
+| `NOTCHPAY_*` | ❌ | ❌ | secret |
+
+Chaque environnement possède ses propres identifiants Brevo et son propre jeton R2, restreint à son seul bucket (`cocfet-staging`, `cocfet-prod`). Une fuite côté staging ne donne donc aucun accès aux fichiers de production.
+
+### Ce qui reste
+
+**`DATABASE_URL`** — dépend de l'hébergeur, qui n'est pas encore choisi. C'est le seul secret manquant qui empêche un déploiement.
+
+> Sous Windows, `openssl` n'est pas disponible. Pour générer un secret sans qu'il s'affiche ni n'entre dans l'historique du shell :
+>
+> ```bash
+> node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))" | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
+> ```
+
+**`NOTCHPAY_*`** — attend l'ouverture du compte marchand.
+
+**Domaine d'envoi** — le COCFET n'a pas encore de nom de domaine. L'expéditeur validé est une adresse Gmail individuelle : suffisant pour tester, insuffisant en production. Sans SPF ni DKIM publiés sur un domaine propre, les messages de vérification partent en spam chez Gmail et Outlook — et sans message de vérification, aucun compte ne peut être créé.
 
 ---
 

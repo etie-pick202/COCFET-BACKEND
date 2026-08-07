@@ -1,9 +1,35 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
-  "rootDir": ".",
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
+  "rootDir": "..",
   "testEnvironment": "node",
-  "testRegex": ".e2e-spec.ts$",
+  "testRegex": "test/.*\\.e2e-spec\\.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
-  }
+  },
+  "//": "maxWorkers a 1 : chaque fichier monte l'application, qui joue les migrations au demarrage. En parallele, deux instances tentent de creer les memes tables et l'une echoue ; elles partagent en outre la meme base. testTimeout a 30 s : monter l'application et jouer les migrations depasse les 5 s par defaut des que le code est instrumente pour la couverture, et les suites passaient en local pour echouer sous --coverage. Jest n'accepte qu'une seule cle de commentaire, d'ou leur regroupement ici.",
+  "maxWorkers": 1,
+  "setupFiles": ["<rootDir>/test/setup-e2e.ts"],
+  "testTimeout": 30000,
+  "collectCoverageFrom": [
+    "src/**/*.ts"
+  ],
+  "coveragePathIgnorePatterns": [
+    "/node_modules/",
+    "src/main.ts",
+    "src/migrations/",
+    "src/seed/",
+    "\\.module\\.ts$",
+    "\\.dto\\.ts$",
+    "\\.entity\\.ts$",
+    "\\.enum\\.ts$"
+  ],
+  "coverageDirectory": "coverage-e2e",
+  "coverageReporters": [
+    "text-summary",
+    "lcov"
+  ]
 }
