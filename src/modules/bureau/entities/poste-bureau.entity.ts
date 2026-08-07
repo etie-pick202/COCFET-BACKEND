@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
@@ -13,13 +14,16 @@ import { BaseEntity } from '../../../common/entities/base.entity';
 export class PosteBureau extends BaseEntity {
   @Index({ unique: true })
   @Column()
+  @ApiProperty()
   nom: string;
 
   @Column({ type: 'text', nullable: true })
+  @ApiProperty({ nullable: true })
   description: string | null;
 
   /** Ordre protocolaire d'affichage. 1 = président. */
   @Column({ type: 'int', default: 0 })
+  @ApiProperty()
   ordre: number;
 
   /**
@@ -29,6 +33,7 @@ export class PosteBureau extends BaseEntity {
    * activée : la plateforme basculerait sur un bureau qui n'existe pas.
    */
   @Column({ name: 'est_cle', default: false })
+  @ApiProperty()
   estCle: boolean;
 
   /**
@@ -39,5 +44,6 @@ export class PosteBureau extends BaseEntity {
    * — devenus alumni — cessent de l'être.
    */
   @Column({ name: 'accorde_administration', default: false })
+  @ApiProperty()
   accordeAdministration: boolean;
 }

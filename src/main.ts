@@ -1,9 +1,9 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { monterSwagger } from './swagger';
 import { FiltreExceptionGlobal } from './common/erreurs/filtre-exception-global';
 
 async function bootstrap() {
@@ -40,19 +40,7 @@ async function bootstrap() {
     config.get<string>('SWAGGER_ENABLED') === 'true';
 
   if (documentationActive) {
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('COCFET API')
-      .setDescription(
-        "API de la plateforme du Bureau des Finissants de l'UCAC-ICAM",
-      )
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build();
-    SwaggerModule.setup(
-      'docs',
-      app,
-      SwaggerModule.createDocument(app, swaggerConfig),
-    );
+    monterSwagger(app);
   }
 
   // Sans cela, un SIGTERM — ce que tout hébergeur envoie au redéploiement —

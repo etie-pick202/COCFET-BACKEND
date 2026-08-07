@@ -104,6 +104,48 @@ export class MettreAJourPreferenceDto {
   canalPush?: boolean;
 }
 
+/**
+ * Réglages renvoyés à l'interface, un par type de notification.
+ *
+ * Décrit en classe alors que le service renvoie un objet littéral : sans
+ * modèle nommé, le frontend générerait un type anonyme pour chaque route et
+ * ne pourrait pas partager le composant qui affiche ces interrupteurs.
+ */
+export class PreferenceExposee {
+  @ApiProperty({ enum: TypeNotification })
+  type: TypeNotification;
+
+  @ApiProperty({ description: 'Vrai par défaut, tant que rien n’a été réglé.' })
+  canalEmail: boolean;
+
+  @ApiProperty({ description: 'Vrai par défaut, tant que rien n’a été réglé.' })
+  canalPush: boolean;
+}
+
+/** Pastille de l'interface. */
+export class CompteNonLuesDto {
+  @ApiProperty({ example: 3 })
+  nonLues: number;
+}
+
+export class ResultatMarquageDto {
+  @ApiProperty({
+    example: 12,
+    description: 'Nombre de notifications passées à « lue ».',
+  })
+  misAJour: number;
+}
+
+export class ResultatDiffusionDto {
+  @ApiProperty({
+    example: 148,
+    description:
+      'Nombre de comptes touchés, après exclusion des adresses non ' +
+      'confirmées et des comptes désactivés.',
+  })
+  destinataires: number;
+}
+
 export class CreerRappelDto {
   @ApiProperty({ format: 'uuid' })
   @IsString()
