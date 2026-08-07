@@ -15,6 +15,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { BilletterieModule } from './modules/billetterie/billetterie.module';
+import { BureauModule } from './modules/bureau/bureau.module';
 import { BoutiqueModule } from './modules/boutique/boutique.module';
 import { CommandeModule } from './modules/commande/commande.module';
 import { EvenementModule } from './modules/evenement/evenement.module';
@@ -54,6 +55,7 @@ import { UserModule } from './modules/user/user.module';
     AuthModule,
     UserModule,
     GenerationModule,
+    BureauModule,
     // M1 — Événements & billetterie
     EvenementModule,
     BilletterieModule,

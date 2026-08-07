@@ -142,7 +142,7 @@ export class AuthService {
     const empreinte = user?.passwordHash ?? (await this.empreinteLeurre());
     const motDePasseValide = await bcrypt.compare(motDePasse, empreinte);
 
-    if (!user || !user.passwordHash || !motDePasseValide) {
+    if (!user?.passwordHash || !motDePasseValide) {
       throw new UnauthorizedException(ECHEC_CONNEXION);
     }
     if (!user.emailVerifieLe || !user.isActive) {
