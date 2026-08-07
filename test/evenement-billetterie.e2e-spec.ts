@@ -49,6 +49,7 @@ describe('Événements et billetterie (e2e)', () => {
     envoyerVerificationEmail: jest.fn().mockResolvedValue(undefined),
     envoyerTentativeInscription: jest.fn().mockResolvedValue(undefined),
     envoyerInvitationSponsor: jest.fn().mockResolvedValue(undefined),
+    envoyerBillet: jest.fn().mockResolvedValue(undefined),
   };
 
   const dans = (jours: number) =>
@@ -848,6 +849,106 @@ describe('Événements et billetterie (e2e)', () => {
         .get(`${EVENEMENTS}/${id}/inscriptions`)
         .set(finissant.entetes)
         .expect(403);
+    });
+  });
+
+  describe('émission du billet', () => {
+    it('génère le QR code et envoie le billet à la confirmation', async () => {
+      const id = await creerEtPublier();
+
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      const enregistre = await inscriptions.findOneByOrFail({ id: billet.id });
+      expect(enregistre.qrCode).toMatch(/^data:image\/png;base64,/);
+
+      expect(faussaireMail.envoyerBillet).toHaveBeenCalledTimes(1);
+      const [destinataire, , contenu] = faussaireMail.envoyerBillet.mock
+        .calls[0] as [string, string, { codeBillet: string; qrPng: Buffer }];
+
+      expect(destinataire).toBe(finissant.user.email);
+      expect(contenu.codeBillet).toBe(billet.codeBillet);
+      expect(Buffer.isBuffer(contenu.qrPng)).toBe(true);
+    });
+
+    it('n’émet aucun billet tant que le paiement est en attente', async () => {
+      const id = await creerEtPublier({
+        type: TypeEvenement.PAYANT,
+        prixCampus: 5000,
+        prixExterne: 10_000,
+      });
+
+      // Numéro terminé par 1 : la passerelle factice laisse le paiement en
+      // attente, comme un webhook qui n'arrive pas. La place est réservée, le
+      // billet ne vaut pas encore droit d'entrée — donc pas de QR, pas d'email.
+      const reponse = await sInscrire(id, finissant, {
+        methodePaiement: MethodePaiement.MTN_MOMO,
+        telephone: '670000001',
+      }).expect(201);
+      const billet = reponse.body as { id: string; statut: string };
+
+      expect(billet.statut).toBe(StatutInscription.EN_ATTENTE);
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+      expect(faussaireMail.envoyerBillet).not.toHaveBeenCalled();
+    });
+
+    it('renvoie le billet à la demande', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      jest.clearAllMocks();
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(finissant.entetes)
+        .expect(202);
+
+      expect(faussaireMail.envoyerBillet).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuse de renvoyer le billet d’autrui', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string };
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(ancien.entetes)
+        .expect(404);
+    });
+
+    it('refuse de renvoyer un billet annulé', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string };
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${billet.id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(finissant.entetes)
+        .expect(409);
+    });
+
+    it('laisse l’inscription valide quand l’envoi échoue', async () => {
+      const id = await creerEtPublier();
+      faussaireMail.envoyerBillet.mockRejectedValueOnce(new Error('SMTP mort'));
+
+      // Le cœur du récit : la place est payée et le code est en base. Une
+      // panne SMTP ne doit pas rendre la place ni supprimer le billet.
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; statut: string };
+
+      expect(billet.statut).toBe(StatutInscription.CONFIRMEE);
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ statut: StatutInscription.CONFIRMEE });
     });
   });
 });

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6">
+    <h1 style="color: #111827">Votre billet</h1>
+    <p>Bonjour {{prenom}},</p>
+    <p>
+      Votre inscription à <strong>{{titre}}</strong> est confirmée. Présentez ce
+      QR code à l’entrée.
+    </p>
+
+    <table style="margin: 24px 0; border-collapse: collapse">
+      <tr>
+        <td style="padding: 4px 16px 4px 0; color: #6b7280">Date</td>
+        <td><strong>{{dateDebut}}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 16px 4px 0; color: #6b7280">Lieu</td>
+        <td><strong>{{lieu}}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 16px 4px 0; color: #6b7280">Code d’entrée</td>
+        <td><strong>{{codeBillet}}</strong></td>
+      </tr>
+    </table>
+
+    <p style="text-align: center">
+      <img
+        src="cid:qrbillet"
+        alt="QR code du billet {{codeBillet}}"
+        width="260"
+        height="260"
+        style="border: 1px solid #e5e7eb; border-radius: 8px"
+      />
+    </p>
+
+    <p style="color: #6b7280; font-size: 13px">
+      Le code écrit sous l’image vaut le QR : si votre messagerie n’affiche pas
+      les images, dictez-le à l’accueil. Ce billet n’est valable qu’une fois —
+      ne le publiez pas, quiconque le présenterait entrerait à votre place.
+    </p>
+  </body>
+</html>
