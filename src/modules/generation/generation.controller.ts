@@ -12,11 +12,20 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import { Role } from '../../common/enums/role.enum';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { DesignerLogoDto } from '../bureau/dto/bureau.dto';
@@ -29,6 +38,8 @@ import { Generation } from './entities/generation.entity';
 import { GenerationService } from './generation.service';
 
 @ApiTags('Générations')
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller('generations')
 export class GenerationController {
   constructor(private readonly generationService: GenerationService) {}
@@ -42,6 +53,10 @@ export class GenerationController {
       "neutres plutôt qu'une erreur quand aucune génération n'est active : " +
       'une plateforme fraîchement installée doit pouvoir s’afficher.',
   })
+  @ApiOkResponse({
+    description: 'Thème courant, ou valeurs neutres si aucun mandat en cours.',
+    type: ThemeGeneration,
+  })
   theme(): Promise<ThemeGeneration> {
     return this.generationService.theme();
   }
@@ -50,6 +65,10 @@ export class GenerationController {
   @Roles(Role.ADMIN)
   @Get()
   @ApiOperation({ summary: 'Lister les générations' })
+  @ApiOkResponse({
+    description: 'Toutes les générations, archives comprises.',
+    type: [Generation],
+  })
   lister(): Promise<Generation[]> {
     return this.generationService.lister();
   }
@@ -58,6 +77,11 @@ export class GenerationController {
   @Roles(Role.ADMIN)
   @Get(':id')
   @ApiOperation({ summary: 'Consulter une génération' })
+  @ApiOkResponse({ description: 'La génération demandée.', type: Generation })
+  @ApiNotFoundResponse({
+    description: 'Génération inconnue.',
+    type: ReponseErreurDto,
+  })
   trouver(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
     return this.generationService.trouver(id);
   }
@@ -71,7 +95,12 @@ export class GenerationController {
       "Créée inactive : l'activation bascule toute la plateforme et mérite un " +
       'geste explicite.',
   })
-  @ApiResponse({ status: 409, description: 'Cette année existe déjà.' })
+  @ApiCreatedResponse({ description: 'La génération créée.', type: Generation })
+  @ApiResponse({
+    status: 409,
+    description: 'Cette année existe déjà.',
+    type: ReponseErreurDto,
+  })
   creer(@Body() dto: CreerGenerationDto): Promise<Generation> {
     return this.generationService.creer(dto);
   }
@@ -80,9 +109,18 @@ export class GenerationController {
   @Roles(Role.ADMIN)
   @Patch(':id')
   @ApiOperation({ summary: 'Modifier une génération' })
+  @ApiOkResponse({
+    description: 'La génération mise à jour.',
+    type: Generation,
+  })
+  @ApiNotFoundResponse({
+    description: 'Génération inconnue.',
+    type: ReponseErreurDto,
+  })
   @ApiResponse({
     status: 409,
     description: 'Génération archivée, ou année déjà prise.',
+    type: ReponseErreurDto,
   })
   mettreAJour(
     @Param('id', ParseUUIDPipe) id: string,
@@ -101,9 +139,18 @@ export class GenerationController {
       'parmi ceux déposés : sans ce contrôle, une faute de frappe afficherait ' +
       'une image inexistante.',
   })
+  @ApiOkResponse({
+    description: 'La génération mise à jour.',
+    type: Generation,
+  })
   @ApiResponse({
     status: 400,
     description: 'Logo non déposé pour cette génération.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Génération inconnue.',
+    type: ReponseErreurDto,
   })
   designerLogo(
     @Param('id', ParseUUIDPipe) id: string,
@@ -124,8 +171,20 @@ export class GenerationController {
       'alumni rétrogradés. Le tout dans une seule transaction. Refusé tant ' +
       'que les postes clés du bureau ne sont pas pourvus.',
   })
-  @ApiResponse({ status: 400, description: 'Bureau incomplet.' })
-  @ApiResponse({ status: 409, description: 'Génération archivée.' })
+  @ApiOkResponse({
+    description: 'La génération devenue active.',
+    type: Generation,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Bureau incomplet.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Génération archivée.',
+    type: ReponseErreurDto,
+  })
   activer(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
     return this.generationService.activer(id);
   }
@@ -140,9 +199,14 @@ export class GenerationController {
       'ne bougent plus : les recalculer plus tard donnerait des chiffres ' +
       'différents, et le bilan ne serait jamais deux fois le même.',
   })
+  @ApiOkResponse({
+    description: 'La génération archivée, statistiques figées.',
+    type: Generation,
+  })
   @ApiResponse({
     status: 409,
     description: 'La génération est en cours de mandat.',
+    type: ReponseErreurDto,
   })
   archiver(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
     return this.generationService.archiver(id);
@@ -157,6 +221,12 @@ export class GenerationController {
     description:
       'Réservé à une génération créée par erreur : ni la génération en cours, ' +
       'ni une archive, qui conserve le bilan de son mandat.',
+  })
+  @ApiNoContentResponse({ description: 'Génération supprimée.' })
+  @ApiResponse({
+    status: 409,
+    description: 'Génération active ou archivée.',
+    type: ReponseErreurDto,
   })
   supprimer(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.generationService.supprimer(id);

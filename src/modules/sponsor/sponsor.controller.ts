@@ -14,6 +14,10 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -21,6 +25,12 @@ import {
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ApiReponsePaginee,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import {
@@ -39,6 +49,8 @@ import { SponsorService } from './sponsor.service';
 type Requete = Request & { user: { id: string; role: Role } };
 
 @ApiTags('Sponsors')
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller('sponsors')
 export class SponsorController {
   constructor(private readonly sponsorService: SponsorService) {}
@@ -54,6 +66,10 @@ export class SponsorController {
       'relation commerciale, pas l’affichage. Les exposer livrerait les ' +
       'contacts de tous les partenaires aux robots collecteurs.',
   })
+  @ApiOkResponse({
+    description: 'Les partenaires affichés sur la vitrine.',
+    type: [SponsorPublic],
+  })
   listerPublic(): Promise<SponsorPublic[]> {
     return this.sponsorService.listerPublic();
   }
@@ -66,6 +82,10 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Get('paliers')
   @ApiOperation({ summary: 'Lister les paliers' })
+  @ApiOkResponse({
+    description: 'Le catalogue des paliers.',
+    type: [PalierSponsor],
+  })
   listerPaliers(): Promise<PalierSponsor[]> {
     return this.sponsorService.listerPaliers();
   }
@@ -74,6 +94,7 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Post('paliers')
   @ApiOperation({ summary: 'Créer un palier' })
+  @ApiCreatedResponse({ description: 'Le palier créé.', type: PalierSponsor })
   creerPalier(@Body() dto: CreerPalierDto): Promise<PalierSponsor> {
     return this.sponsorService.creerPalier(dto);
   }
@@ -82,6 +103,11 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Patch('paliers/:id')
   @ApiOperation({ summary: 'Modifier un palier' })
+  @ApiOkResponse({ description: 'Le palier mis à jour.', type: PalierSponsor })
+  @ApiNotFoundResponse({
+    description: 'Palier inconnu.',
+    type: ReponseErreurDto,
+  })
   mettreAJourPalier(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourPalierDto,
@@ -99,9 +125,15 @@ export class SponsorController {
       'Refusé tant qu’un partenaire s’y rattache : la relation étant en SET ' +
       'NULL, la suppression retirerait silencieusement leurs droits d’annuaire.',
   })
+  @ApiNoContentResponse({ description: 'Palier supprimé.' })
+  @ApiNotFoundResponse({
+    description: 'Palier inconnu.',
+    type: ReponseErreurDto,
+  })
   @ApiResponse({
     status: 409,
     description: 'Des partenaires utilisent ce palier.',
+    type: ReponseErreurDto,
   })
   supprimerPalier(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.sponsorService.supprimerPalier(id);
@@ -113,6 +145,14 @@ export class SponsorController {
   @Roles(Role.SPONSOR)
   @Get('moi')
   @ApiOperation({ summary: 'Consulter sa propre fiche partenaire' })
+  @ApiOkResponse({
+    description: 'La fiche du partenaire connecté.',
+    type: Sponsor,
+  })
+  @ApiNotFoundResponse({
+    description: 'Aucune fiche partenaire rattachée à ce compte.',
+    type: ReponseErreurDto,
+  })
   maFiche(@Req() requete: Requete): Promise<Sponsor> {
     return this.sponsorService.trouverParUtilisateur(requete.user.id);
   }
@@ -127,6 +167,11 @@ export class SponsorController {
       'l’annuaire, et un partenaire pourrait sinon s’accorder les droits du ' +
       'palier supérieur. L’adresse non plus — elle sert d’identifiant de ' +
       'connexion.',
+  })
+  @ApiOkResponse({ description: 'La fiche mise à jour.', type: Sponsor })
+  @ApiNotFoundResponse({
+    description: 'Aucune fiche partenaire rattachée à ce compte.',
+    type: ReponseErreurDto,
   })
   async mettreAJourMaFiche(
     @Req() requete: Requete,
@@ -150,13 +195,14 @@ export class SponsorController {
       'compte est créé sans mot de passe, et le partenaire choisit le sien en ' +
       "suivant le lien reçu. Aucun mot de passe n'est généré ni transmis.",
   })
-  @ApiResponse({
-    status: 201,
+  @ApiCreatedResponse({
     description: 'Partenaire créé, invitation envoyée.',
+    type: Sponsor,
   })
   @ApiResponse({
     status: 409,
     description: 'Un compte utilise déjà cette adresse.',
+    type: ReponseErreurDto,
   })
   inviter(@Body() dto: InviterSponsorDto): Promise<Sponsor> {
     return this.sponsorService.inviter(dto);
@@ -166,6 +212,7 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Get()
   @ApiOperation({ summary: 'Lister les partenaires' })
+  @ApiReponsePaginee(Sponsor, 'Page de partenaires.')
   lister(@Query() filtre: FiltreSponsorDto): Promise<ResultatPagine<Sponsor>> {
     return this.sponsorService.lister(filtre);
   }
@@ -174,6 +221,11 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Get(':id')
   @ApiOperation({ summary: 'Consulter un partenaire' })
+  @ApiOkResponse({ description: 'Le partenaire demandé.', type: Sponsor })
+  @ApiNotFoundResponse({
+    description: 'Partenaire inconnu.',
+    type: ReponseErreurDto,
+  })
   trouver(@Param('id', ParseUUIDPipe) id: string): Promise<Sponsor> {
     return this.sponsorService.trouver(id);
   }
@@ -182,6 +234,11 @@ export class SponsorController {
   @Roles(Role.ADMIN)
   @Patch(':id')
   @ApiOperation({ summary: 'Modifier un partenaire' })
+  @ApiOkResponse({ description: 'Le partenaire mis à jour.', type: Sponsor })
+  @ApiNotFoundResponse({
+    description: 'Partenaire inconnu.',
+    type: ReponseErreurDto,
+  })
   mettreAJour(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourSponsorDto,
@@ -196,6 +253,11 @@ export class SponsorController {
     summary: 'Changer le palier d’un partenaire',
     description:
       'Endpoint distinct : le palier ouvre des droits sur l’annuaire.',
+  })
+  @ApiOkResponse({ description: 'Le partenaire mis à jour.', type: Sponsor })
+  @ApiNotFoundResponse({
+    description: 'Partenaire ou palier inconnu.',
+    type: ReponseErreurDto,
   })
   changerPalier(
     @Param('id', ParseUUIDPipe) id: string,
@@ -214,6 +276,16 @@ export class SponsorController {
       'Le lien précédent cesse aussitôt d’être utilisable : un jeton ' +
       'communiqué par erreur est ainsi révoqué en réémettant l’invitation.',
   })
+  @ApiNoContentResponse({ description: 'Nouvelle invitation envoyée.' })
+  @ApiNotFoundResponse({
+    description: 'Partenaire inconnu.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Accès déjà activé, ou partenaire sans compte de connexion.',
+    type: ReponseErreurDto,
+  })
   reinviter(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.sponsorService.reinviter(id);
   }
@@ -228,6 +300,11 @@ export class SponsorController {
       'Le compte de connexion part avec la fiche : le laisser derrière ' +
       'créerait un utilisateur au rôle SPONSOR sans partenaire associé, ' +
       'capable de se connecter sans que rien n’explique pourquoi.',
+  })
+  @ApiNoContentResponse({ description: 'Partenaire et compte supprimés.' })
+  @ApiNotFoundResponse({
+    description: 'Partenaire inconnu.',
+    type: ReponseErreurDto,
   })
   supprimer(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.sponsorService.supprimer(id);

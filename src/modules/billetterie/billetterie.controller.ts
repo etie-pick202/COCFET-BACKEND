@@ -14,6 +14,10 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -21,6 +25,12 @@ import {
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ApiReponsePaginee,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserService } from '../user/user.service';
 import { BilletterieService } from './billetterie.service';
@@ -35,6 +45,8 @@ type Requete = Request & { user: { id: string; role: Role } };
 
 @ApiTags('Billetterie')
 @ApiBearerAuth()
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller()
 export class BilletterieController {
   constructor(
@@ -50,14 +62,24 @@ export class BilletterieController {
       'conditionnelle atomique : deux personnes ne peuvent pas payer la même ' +
       'dernière place. Si le paiement échoue, la place est rendue.',
   })
+  @ApiCreatedResponse({
+    description: 'Le billet émis — payé, ou en attente de paiement.',
+    type: Inscription,
+  })
   @ApiResponse({
     status: 409,
     description: 'Événement complet ou déjà inscrit.',
+    type: ReponseErreurDto,
   })
   @ApiResponse({
     status: 400,
     description:
       'Inscriptions fermées, événement commencé, ou paiement refusé.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Événement inconnu ou compte supprimé.',
+    type: ReponseErreurDto,
   })
   async sInscrire(
     @Param('id', ParseUUIDPipe) id: string,
@@ -76,6 +98,7 @@ export class BilletterieController {
 
   @Get('billets')
   @ApiOperation({ summary: 'Lister ses billets' })
+  @ApiReponsePaginee(Inscription, 'Page de billets du porteur du jeton.')
   mesBillets(
     @Query() filtre: FiltreInscriptionDto,
     @Req() requete: Requete,
@@ -90,6 +113,11 @@ export class BilletterieController {
       'Le propriétaire fait partie de la condition de recherche : connaître ' +
       'un identifiant ne suffit pas à lire le billet d’autrui, ni son code ' +
       'd’entrée.',
+  })
+  @ApiOkResponse({ description: 'Le billet demandé.', type: Inscription })
+  @ApiNotFoundResponse({
+    description: 'Billet inconnu, ou appartenant à un autre compte.',
+    type: ReponseErreurDto,
   })
   consulter(
     @Param('id', ParseUUIDPipe) id: string,
@@ -107,6 +135,16 @@ export class BilletterieController {
       'Un billet payé n’est pas remboursé automatiquement : le remboursement ' +
       'passe par le prestataire et relève du bureau.',
   })
+  @ApiNoContentResponse({ description: 'Inscription annulée.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Événement commencé, ou billet déjà scanné.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Billet inconnu, ou appartenant à un autre compte.',
+    type: ReponseErreurDto,
+  })
   annuler(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() requete: Requete,
@@ -117,6 +155,7 @@ export class BilletterieController {
   @Roles(Role.ADMIN)
   @Get('evenements/:id/inscriptions')
   @ApiOperation({ summary: 'Lister les inscrits d’un événement' })
+  @ApiReponsePaginee(Inscription, 'Page d’inscriptions à cet événement.')
   listerInscrits(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() filtre: FiltreInscriptionDto,
@@ -133,10 +172,13 @@ export class BilletterieController {
       'requête : deux scans simultanés du même code ne peuvent pas réussir ' +
       'tous les deux.',
   })
+  @ApiOkResponse({ description: 'Le billet validé.', type: Inscription })
   @ApiResponse({
     status: 409,
     description: 'Billet déjà scanné, annulé ou impayé.',
+    type: ReponseErreurDto,
   })
+  @ApiNotFoundResponse({ description: 'Code inconnu.', type: ReponseErreurDto })
   scanner(@Body() dto: ScannerBilletDto): Promise<Inscription> {
     return this.billetterieService.scanner(dto.codeBillet);
   }
