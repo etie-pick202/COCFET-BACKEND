@@ -80,11 +80,28 @@ export class CreerGenerationDto {
  */
 export class MettreAJourGenerationDto extends PartialType(CreerGenerationDto) {}
 
-/** Ce que le frontend charge au démarrage pour s'habiller. */
-export interface ThemeGeneration {
+/**
+ * Ce que le frontend charge au démarrage pour s'habiller.
+ *
+ * Les champs sont nuls et les couleurs neutres tant qu'aucune génération n'est
+ * active : une plateforme fraîchement installée doit pouvoir s'afficher.
+ */
+export class ThemeGeneration {
+  @ApiProperty({ example: 2027, nullable: true })
   annee: number | null;
+
+  @ApiProperty({ example: 'ATLAS', nullable: true })
   nom: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage du logo désigné.',
+  })
   logo: string | null;
+
+  @ApiProperty({ example: '#0F172A' })
   couleurPrimaire: string;
+
+  @ApiProperty({ example: '#D4AF37' })
   couleurSecondaire: string;
 }

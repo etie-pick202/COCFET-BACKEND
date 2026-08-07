@@ -53,6 +53,8 @@ describe('AuthService', () => {
     userService = {
       findById: jest.fn(),
       findByEmail: jest.fn(),
+      findByEmailPourConnexion: jest.fn(),
+      findByIdPourRafraichissement: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       setRefreshTokenHash: jest.fn(),
@@ -272,7 +274,7 @@ describe('AuthService', () => {
     const empreinteValide = async () => bcrypt.hash('motdepasselong42', 4);
 
     it('refuse un compte dont l’email n’est pas vérifié', async () => {
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({
           passwordHash: await empreinteValide(),
           emailVerifieLe: null,
@@ -288,7 +290,7 @@ describe('AuthService', () => {
     });
 
     it('refuse un compte désactivé', async () => {
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({
           passwordHash: await empreinteValide(),
           emailVerifieLe: new Date(),
@@ -306,7 +308,7 @@ describe('AuthService', () => {
 
     it('refuse un compte sans mot de passe défini', async () => {
       // Cas du sponsor invité mais n'ayant pas encore activé son accès.
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({ passwordHash: null, emailVerifieLe: new Date() }),
       );
 
@@ -318,12 +320,12 @@ describe('AuthService', () => {
     it('donne le même message quel que soit le motif du refus', async () => {
       const messages: string[] = [];
 
-      userService.findByEmail.mockResolvedValue(null);
+      userService.findByEmailPourConnexion.mockResolvedValue(null);
       await service
         .connecter('inconnu@gmail.com', 'motdepasselong42')
         .catch((e: Error) => messages.push(e.message));
 
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({
           passwordHash: await empreinteValide(),
           emailVerifieLe: new Date(),
@@ -333,7 +335,7 @@ describe('AuthService', () => {
         .connecter('etienne.mayack@2027.ucac-icam.com', 'mauvais-mot-de-passe')
         .catch((e: Error) => messages.push(e.message));
 
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({
           passwordHash: await empreinteValide(),
           emailVerifieLe: null,
@@ -350,7 +352,7 @@ describe('AuthService', () => {
     });
 
     it('accepte un compte vérifié et actif', async () => {
-      userService.findByEmail.mockResolvedValue(
+      userService.findByEmailPourConnexion.mockResolvedValue(
         utilisateur({
           passwordHash: await empreinteValide(),
           emailVerifieLe: new Date(),

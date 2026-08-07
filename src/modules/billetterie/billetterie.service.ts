@@ -6,16 +6,19 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
+  ControleAcces,
   Evenement,
   StatutEvenement,
   TypeEvenement,
 } from '../evenement/entities/evenement.entity';
 import { EvenementService } from '../evenement/evenement.service';
+import { MailService } from '../mail/mail.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -24,8 +27,19 @@ import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
 import { User } from '../user/entities/user.entity';
-import { SInscrireDto, FiltreInscriptionDto } from './dto/billetterie.dto';
+import {
+  CodeBillet,
+  FiltreInscriptionDto,
+  SInscrireDto,
+} from './dto/billetterie.dto';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
+import {
+  emettreJetonBillet,
+  estJetonTournant,
+  lireJetonBillet,
+  secondesAvantRotation,
+} from './jeton-billet';
+import { enUrlDeDonnees, genererQrBillet } from './qr-billet';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
@@ -40,15 +54,36 @@ const STATUTS_ACTIFS = new Set([
 export class BilletterieService {
   private readonly logger = new Logger(BilletterieService.name);
 
+  /**
+   * Clé de signature des codes tournants.
+   *
+   * Dérivée de la clé d'accès à défaut d'une clé dédiée : réutiliser
+   * `JWT_ACCESS_SECRET` tel quel ferait signer deux choses différentes par la
+   * même valeur, et un jeton de billet deviendrait matière à attaquer les
+   * jetons de session. Le passage par HMAC avec une étiquette distincte donne
+   * une clé indépendante, sans variable de plus à poser au déploiement.
+   */
+  private readonly secretQr: string;
+
   constructor(
     @InjectRepository(Inscription)
     private readonly inscriptions: Repository<Inscription>,
     private readonly evenementService: EvenementService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly transactionService: TransactionService,
-  ) {}
+    config: ConfigService,
+  ) {
+    // `||` et non `??` : une variable posée mais vide doit retomber sur la
+    // dérivation, sinon les billets seraient signés avec une clé vide.
+    this.secretQr =
+      config.get<string>('QR_SECRET') ||
+      createHmac('sha256', config.getOrThrow<string>('JWT_ACCESS_SECRET'))
+        .update('billet-qr-tournant')
+        .digest('hex');
+  }
 
   /**
    * Inscrit une personne à un événement.
@@ -112,6 +147,13 @@ export class BilletterieService {
       }
 
       await this.notifierInscription(user, evenement, inscription);
+
+      // Un événement gratuit, ou un paiement abouti dès l'appel, confirme
+      // l'inscription sans qu'aucun webhook ne passe : le billet doit être
+      // émis ici, sans quoi ces deux cas n'en recevraient jamais.
+      if (inscription.statut === StatutInscription.CONFIRMEE) {
+        await this.emettreBillet({ ...inscription, user, evenement });
+      }
 
       return this.trouverBillet(inscription.id, user.id);
     } catch (erreur) {
@@ -222,7 +264,20 @@ export class BilletterieService {
    * elle-même : deux scans simultanés du même code ne peuvent pas réussir tous
    * les deux, et le second reçoit un refus explicite.
    */
-  async scanner(codeBillet: string): Promise<Inscription> {
+  async scanner(presente: string): Promise<Inscription> {
+    const tournant = estJetonTournant(presente);
+    const codeBillet = tournant
+      ? lireJetonBillet(presente, this.secretQr)
+      : presente;
+
+    if (!codeBillet) {
+      // Jeton mal formé, périmé ou mal signé : le même refus dans les trois
+      // cas. Distinguer aiderait à en fabriquer un.
+      throw new BadRequestException(
+        'Ce code n’est plus valide : faites-le régénérer dans l’application.',
+      );
+    }
+
     const inscription = await this.inscriptions.findOne({
       where: { codeBillet },
       relations: { user: true, evenement: true },
@@ -230,6 +285,23 @@ export class BilletterieService {
 
     if (!inscription) {
       throw new NotFoundException('Billet inconnu.');
+    }
+    const controle = inscription.evenement.controleAcces;
+
+    if (controle === ControleAcces.AUCUN) {
+      // Accepter un scan ici laisserait croire à un contrôle que l'événement
+      // n'a pas : le refus dit franchement qu'il n'y a rien à vérifier.
+      throw new BadRequestException(
+        'Cet événement ne filtre pas l’entrée : il n’y a pas de billet à valider.',
+      );
+    }
+    if (controle === ControleAcces.QR_TOURNANT && !tournant) {
+      // Sans ce refus, l'option ne servirait à rien : le code fixe figure en
+      // clair dans le jeton tournant, et le lire suffirait à entrer avec une
+      // capture d'écran — exactement ce que l'option est censée empêcher.
+      throw new BadRequestException(
+        'Cet événement exige le code tournant affiché dans l’application.',
+      );
     }
     if (inscription.statut === StatutInscription.ANNULEE) {
       throw new ConflictException('Ce billet a été annulé.');
@@ -302,6 +374,93 @@ export class BilletterieService {
       message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}.`,
       lien: `/billets/${inscription.id}`,
     });
+
+    // Après la mise à jour conditionnelle : un webhook rejoué n'affecte aucune
+    // ligne, sort plus haut, et ne renvoie donc pas un second billet.
+    await this.emettreBillet(inscription);
+  }
+
+  /**
+   * Renvoie le billet à la demande.
+   *
+   * Un email se perd, atterrit en indésirable, ou part vers une adresse que la
+   * personne ne relève plus. Sans ce recours, le seul moyen de récupérer son
+   * billet serait d'annuler puis de se réinscrire — donc de repayer.
+   */
+  async renvoyerBillet(inscriptionId: string, userId: string): Promise<void> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id: inscriptionId, user: { id: userId } },
+      relations: { user: true, evenement: true },
+    });
+
+    if (!inscription) {
+      throw new NotFoundException("Ce billet n'existe pas.");
+    }
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      throw new ConflictException('Ce billet a été annulé.');
+    }
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      throw new ConflictException(
+        "Ce billet n'est pas encore payé : il n'y a rien à envoyer.",
+      );
+    }
+    if (inscription.evenement.controleAcces === ControleAcces.AUCUN) {
+      throw new ConflictException(
+        'Cet événement ne filtre pas l’entrée : aucun billet n’a été émis.',
+      );
+    }
+
+    await this.emettreBillet(inscription);
+  }
+
+  /**
+   * Code d'entrée à présenter, sous la forme qu'exige l'événement.
+   *
+   * Toujours servi par l'API et jamais figé côté client : sur un événement à
+   * code tournant, c'est ce qui garantit que l'image affichée n'a que trente
+   * secondes de validité.
+   */
+  async qrDuBillet(id: string, userId: string): Promise<CodeBillet> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id, user: { id: userId } },
+      relations: { evenement: true },
+    });
+
+    if (!inscription) {
+      throw new NotFoundException("Ce billet n'existe pas.");
+    }
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      throw new ConflictException('Ce billet a été annulé.');
+    }
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      throw new ConflictException("Ce billet n'est pas encore payé.");
+    }
+
+    const controle = inscription.evenement.controleAcces;
+
+    if (controle === ControleAcces.AUCUN) {
+      throw new ConflictException(
+        'Cet événement ne filtre pas l’entrée : aucun code n’est à présenter.',
+      );
+    }
+
+    if (controle === ControleAcces.QR_FIXE) {
+      return {
+        qrCode:
+          inscription.qrCode ??
+          enUrlDeDonnees(await genererQrBillet(inscription.codeBillet)),
+        tournant: false,
+        expireDans: null,
+      };
+    }
+
+    const jeton = emettreJetonBillet(inscription.codeBillet, this.secretQr);
+
+    return {
+      qrCode: enUrlDeDonnees(await genererQrBillet(jeton)),
+      tournant: true,
+      expireDans: secondesAvantRotation(),
+    };
   }
 
   async trouverBillet(id: string, userId: string): Promise<Inscription> {
@@ -406,6 +565,65 @@ export class BilletterieService {
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
       });
+
+      // Reporté sur l'objet en mémoire : l'appelant décide d'émettre le billet
+      // à partir de lui, et le laisser périmé priverait de billet quiconque
+      // paie sans passer par le webhook.
+      inscription.statut = StatutInscription.CONFIRMEE;
+      inscription.statutPaiement = StatutPaiement.COMPLETE;
+    }
+  }
+
+  /**
+   * Émet le billet : QR code enregistré, puis envoi par email.
+   *
+   * **Ne lève jamais.** Dès la confirmation, la place est payée et le code est
+   * en base : le scan à l'entrée le reconnaîtra, email reçu ou non. Laisser
+   * une panne SMTP remonter ferait échouer l'inscription — donc rendre la
+   * place et supprimer le billet — pour un incident qui n'appartient ni à la
+   * personne inscrite, ni à son paiement.
+   *
+   * Le QR est régénéré à chaque appel : il dérive du seul code du billet, qui
+   * ne change pas, et un renvoi produit donc exactement la même image.
+   */
+  private async emettreBillet(inscription: Inscription): Promise<void> {
+    const controle = inscription.evenement.controleAcces;
+
+    try {
+      // Seul le régime fixe grave un QR : sous `QR_TOURNANT` l'image ne vaut
+      // que trente secondes et se redemande, sous `AUCUN` il n'y a rien à
+      // contrôler. Dans les deux cas, stocker une image donnerait à croire
+      // qu'elle ouvre une porte.
+      const png =
+        controle === ControleAcces.QR_FIXE
+          ? await genererQrBillet(inscription.codeBillet)
+          : null;
+
+      if (png) {
+        await this.inscriptions.update(inscription.id, {
+          qrCode: enUrlDeDonnees(png),
+        });
+      }
+
+      await this.mailService.envoyerBillet(
+        inscription.user.email,
+        inscription.user.firstName,
+        {
+          titre: inscription.evenement.titre,
+          dateDebut: inscription.evenement.dateDebut,
+          lieu: inscription.evenement.lieu,
+          codeBillet: inscription.codeBillet,
+          qrPng: png,
+          // Le gabarit dit alors quoi faire à l'entrée : présenter l'image,
+          // ouvrir l'application, ou simplement venir.
+          modeAcces: controle,
+        },
+      );
+    } catch (erreur) {
+      this.logger.error(
+        `Émission du billet ${inscription.codeBillet} impossible : l'inscription reste valide.`,
+        erreur,
+      );
     }
   }
 

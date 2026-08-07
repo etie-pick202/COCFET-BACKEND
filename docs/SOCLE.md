@@ -47,7 +47,7 @@ sans toucher aux appelants.
 
 | Port | Jeton | Adaptateur actuel | Adaptateur cible |
 | --- | --- | --- | --- |
-| `PasserellePaiement` | `PASSERELLE_PAIEMENT` | `PasserellePaiementFactice` | NotchPay |
+| `PasserellePaiement` | `PASSERELLE_PAIEMENT` | `PasserellePaiementFactice` | Fapshi |
 | `CanalNotification` | `CANAL_NOTIFICATION` | `CanalNotificationJournal` | Push mobile |
 | `Stockage` | `STOCKAGE` | `StockageLocal` ou `StockageR2` | Cloudflare R2 |
 

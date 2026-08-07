@@ -14,13 +14,25 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiExtraModels,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
+  getSchemaPath,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ApiReponsePaginee,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { AuthOptionnelle } from '../auth/decorators/auth-optionnelle.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { User } from '../user/entities/user.entity';
@@ -38,6 +50,8 @@ import { EvenementService } from './evenement.service';
 type Requete = Request & { user?: { id: string; role: Role } };
 
 @ApiTags('Événements')
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller('evenements')
 export class EvenementController {
   constructor(
@@ -54,6 +68,7 @@ export class EvenementController {
       'publiés ; seul un administrateur peut demander les brouillons et les ' +
       'archives.',
   })
+  @ApiReponsePaginee(Evenement, 'Page d’événements.')
   lister(
     @Query() filtre: FiltreEvenementDto,
     @Req() requete: Requete,
@@ -70,9 +85,19 @@ export class EvenementController {
       'du rôle mais de la promotion : un ancien reste STUDENT et paie ' +
       'pourtant le tarif externe.',
   })
-  @ApiResponse({
-    status: 404,
+  @ApiExtraModels(Evenement, EvenementAvecTarif)
+  @ApiOkResponse({
+    description: 'L’événement, augmenté du tarif calculé pour le demandeur.',
+    schema: {
+      allOf: [
+        { $ref: getSchemaPath(Evenement) },
+        { $ref: getSchemaPath(EvenementAvecTarif) },
+      ],
+    },
+  })
+  @ApiNotFoundResponse({
     description: 'Événement inexistant ou non publié.',
+    type: ReponseErreurDto,
   })
   async consulter(
     @Param('id', ParseUUIDPipe) id: string,
@@ -95,6 +120,7 @@ export class EvenementController {
     description:
       'Créé en brouillon : rien n’est visible ni notifié avant publication.',
   })
+  @ApiCreatedResponse({ description: 'L’événement créé.', type: Evenement })
   creer(@Body() dto: CreerEvenementDto): Promise<Evenement> {
     return this.evenementService.creer(dto);
   }
@@ -103,9 +129,15 @@ export class EvenementController {
   @Roles(Role.ADMIN)
   @Patch(':id')
   @ApiOperation({ summary: 'Modifier un événement' })
+  @ApiOkResponse({ description: 'L’événement mis à jour.', type: Evenement })
   @ApiResponse({
     status: 400,
     description: 'Capacité réduite en dessous du nombre d’inscrits.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Événement inconnu.',
+    type: ReponseErreurDto,
   })
   mettreAJour(
     @Param('id', ParseUUIDPipe) id: string,
@@ -124,6 +156,11 @@ export class EvenementController {
       'événement déjà publié ne renotifie personne : une correction de faute ' +
       'de frappe ne doit pas alerter toute la promotion.',
   })
+  @ApiOkResponse({ description: 'L’événement publié.', type: Evenement })
+  @ApiNotFoundResponse({
+    description: 'Événement inconnu.',
+    type: ReponseErreurDto,
+  })
   publier(@Param('id', ParseUUIDPipe) id: string): Promise<Evenement> {
     return this.evenementService.publier(id);
   }
@@ -132,6 +169,11 @@ export class EvenementController {
   @Roles(Role.ADMIN)
   @Post(':id/archiver')
   @ApiOperation({ summary: 'Archiver un événement' })
+  @ApiOkResponse({ description: 'L’événement archivé.', type: Evenement })
+  @ApiNotFoundResponse({
+    description: 'Événement inconnu.',
+    type: ReponseErreurDto,
+  })
   archiver(@Param('id', ParseUUIDPipe) id: string): Promise<Evenement> {
     return this.evenementService.archiver(id);
   }
@@ -146,7 +188,16 @@ export class EvenementController {
       'Refusé dès qu’une inscription existe : la suppression emporterait les ' +
       'billets, y compris payés. L’archivage est la sortie prévue.',
   })
-  @ApiResponse({ status: 403, description: 'L’événement compte des inscrits.' })
+  @ApiNoContentResponse({ description: 'Événement supprimé.' })
+  @ApiResponse({
+    status: 403,
+    description: 'L’événement compte des inscrits.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Événement inconnu.',
+    type: ReponseErreurDto,
+  })
   supprimer(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.evenementService.supprimer(id);
   }

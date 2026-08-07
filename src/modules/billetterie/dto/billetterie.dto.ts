@@ -48,8 +48,37 @@ export class FiltreInscriptionDto extends PaginationDto {
 }
 
 export class ScannerBilletDto {
-  @ApiProperty({ example: 'COCFET-A1B2C3D4' })
+  @ApiProperty({
+    example: 'COCFET-A1B2C3D4',
+    description:
+      'Contenu lu dans le QR : le code d’entrée, ou le jeton tournant qui le ' +
+      'porte quand l’événement l’exige.',
+  })
   @IsString()
-  @MaxLength(40)
+  @MaxLength(120)
   codeBillet: string;
+}
+
+/** Ce qu'affiche l'application au moment de présenter le billet. */
+export class CodeBillet {
+  @ApiProperty({
+    description: 'Image PNG en URL de données, prête pour un « img ».',
+  })
+  qrCode: string;
+
+  @ApiProperty({
+    description:
+      'Vrai si le code se renouvelle. L’image doit alors être redemandée, ' +
+      'jamais mise en cache ni enregistrée.',
+  })
+  tournant: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    example: 23,
+    description:
+      'Secondes avant renouvellement. Nul sur un billet à code fixe, qui ne ' +
+      'périme pas.',
+  })
+  expireDans: number | null;
 }

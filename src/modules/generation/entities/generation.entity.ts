@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
@@ -26,6 +27,7 @@ export interface StatistiquesGeneration {
 export class Generation extends BaseEntity {
   @Index({ unique: true })
   @Column({ type: 'int' })
+  @ApiProperty()
   annee: number;
 
   /**
@@ -35,6 +37,7 @@ export class Generation extends BaseEntity {
    * plateforme affiche, pas un libellé de promotion.
    */
   @Column()
+  @ApiProperty()
   nom: string;
 
   /**
@@ -45,25 +48,32 @@ export class Generation extends BaseEntity {
    * d'envoi. Sa valeur appartient toujours à `logos`.
    */
   @Column({ type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
   logo: string | null;
 
   /** Toutes les déclinaisons déposées, clés de stockage. */
   @Column({ type: 'jsonb', default: () => "'[]'" })
+  @ApiProperty({ type: [String] })
   logos: string[];
 
   @Column({ name: 'couleur_primaire', default: '#000000' })
+  @ApiProperty()
   couleurPrimaire: string;
 
   @Column({ name: 'couleur_secondaire', default: '#FFFFFF' })
+  @ApiProperty()
   couleurSecondaire: string;
 
   /** Une seule génération est active à la fois. */
   @Column({ name: 'is_active', default: false })
+  @ApiProperty()
   isActive: boolean;
 
   @Column({ name: 'archived_at', type: 'timestamptz', nullable: true })
+  @ApiProperty({ nullable: true, format: 'date-time' })
   archivedAt: Date | null;
 
   @Column({ type: 'jsonb', default: () => "'{}'" })
+  @ApiProperty()
   stats: StatistiquesGeneration;
 }

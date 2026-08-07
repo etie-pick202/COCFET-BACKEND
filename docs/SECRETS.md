@@ -140,27 +140,46 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 | Fonctionne hors ligne | Oui | Non |
 | Identifiants à partager dans l'équipe | Aucun | Oui |
 
-### Paiement — `NOTCHPAY_PUBLIC_KEY`, `NOTCHPAY_SECRET_KEY`, `NOTCHPAY_WEBHOOK_SECRET`
+### Paiement — `FAPSHI_API_USER`, `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET`
 
-1. [business.notchpay.co](https://business.notchpay.co) > **Settings** > **API Keys**.
-2. Relever la clé publique et la clé secrète. Utiliser les clés de **test** tant que la plateforme n'est pas en production.
-3. **Settings** > **Webhooks** > ajouter `https://api.cocfet.com/api/v1/webhooks/notchpay` et relever le secret de signature.
+1. [dashboard.fapshi.com](https://dashboard.fapshi.com) > créer un **service de collecte** (`Collection`). Un service de décaissement ne sert pas à encaisser : Fapshi impose deux services distincts si les deux usages sont nécessaires.
+2. Relever `apiuser` et `apikey`. **Chaque environnement a les siens** : le bac à sable et la production sont deux services séparés, avec deux paires d'identifiants.
+3. Dans les réglages du service, poser un **secret de webhook** et déclarer l'URL `https://<domaine>/api/v1/webhooks/fapshi`.
 
-- **Où** : `.env` et hébergeur.
-- **Nécessaire** : l'adaptateur est écrit et testé, il attend ces trois valeurs. Laisser les variables vides bascule sur la passerelle factice ; les renseigner suffit à passer au prestataire réel, sans toucher au code.
-- ⚠️ `NOTCHPAY_WEBHOOK_SECRET` est indispensable : il permet de vérifier la signature des webhooks. Sans cette vérification, n'importe qui pourrait appeler l'endpoint et faire passer une commande en « payée ».
+- **Où** : `.env` en local (identifiants du bac à sable), environnements GitHub pour `staging` et `production`.
+- **Nécessaire** : laisser les variables vides bascule sur la passerelle factice ; les renseigner suffit à passer au prestataire réel, sans toucher au code.
+- ⚠️ **Le secret de webhook n'est pas relisible** une fois posé — le tableau de bord ne l'affiche jamais, ni ne dit s'il en existe un. Notez-le au moment où vous le créez.
 
-**Une URL publique est nécessaire pour le webhook.** Le serveur de NotchPay doit joindre le nôtre : `localhost` ne convient pas. Pour essayer avant le déploiement, un tunnel (`ngrok http 3000`) fournit une URL temporaire à déclarer dans *Settings → Webhooks*. L'adresse à enregistrer est `https://<domaine>/api/v1/webhooks/notchpay`.
-
-**Trois points restent à confirmer au premier essai réel**, l'adaptateur ayant été écrit contre la documentation seule :
-
-| À vérifier | Où le corriger |
+| Environnement | URL de base |
 |---|---|
-| Nom exact de l'en-tête de signature | `ENTETES_SIGNATURE` dans `paiement.controller.ts` |
-| Libellés de statut renvoyés | `versStatut()` dans `passerelle-notchpay.ts` |
-| Identifiants de canal Orange / MTN | `canal()` dans le même fichier |
+| Développement | `https://sandbox.fapshi.com` |
+| Staging, production | `https://live.fapshi.com` |
 
-Un statut inconnu **lève** au lieu d'être interprété : mieux vaut un paiement à examiner qu'un billet livré sans règlement.
+**Une URL publique est nécessaire pour le webhook.** Le serveur de Fapshi doit joindre le nôtre : `localhost` ne convient pas. Pour essayer avant le déploiement, un tunnel (`ngrok http 3000`) fournit une URL temporaire à déclarer dans le service.
+
+#### Pourquoi l'authentification du webhook ne suffit pas
+
+Fapshi **ne signe pas** ses notifications. Là où d'autres prestataires calculent un HMAC du corps, Fapshi renvoie un secret statique dans l'en-tête `x-wh-secret`, à comparer au nôtre.
+
+La différence n'est pas cosmétique. Un HMAC prouve que *ce corps précis* vient du prestataire ; un secret partagé prouve seulement que l'appelant le connaît. Qui récupère ce secret — un journal, une capture d'écran, une variable d'environnement exposée — peut forger une notification « paiement réussi » et se faire délivrer un billet jamais payé.
+
+C'est pourquoi l'adaptateur **ne croit pas le corps reçu** : il y lit uniquement le `transId`, puis redemande l'état à Fapshi par `GET /payment-status/:transId`. Le statut retenu vient de cette réponse-là. Une notification forgée ne survit pas à cette seconde question.
+
+Le coût est d'un appel HTTP supplémentaire par paiement. Le bénéfice est qu'un secret qui fuite ne permet plus de fabriquer des billets — il permet seulement de nous faire interroger Fapshi pour rien.
+
+#### Le whitelisting d'IP, et pourquoi il n'est pas activé
+
+Fapshi permet de déclarer une liste d'adresses IP autorisées à **créer** des transactions (paiements, liens de paiement, décaissements). Une fois la liste non vide, une requête venant d'une IP absente reçoit un **403, même avec des identifiants parfaitement valides**. C'est une seconde barrière : des identifiants volés ne servent à rien depuis une machine inconnue.
+
+**Nous ne l'activons pas pour l'instant**, et c'est un choix, pas un oubli :
+
+- L'hébergeur n'est pas encore arrêté, et les plateformes visées (Railway, Render) ne garantissent pas d'adresse de sortie fixe sur leurs offres courantes. Une IP qui change au redéploiement transformerait la liste blanche en panne de paiement, sans message clair pour l'utilisateur.
+- La documentation de Fapshi recommande elle-même de ne rien déclarer lorsque l'IP du serveur varie.
+- La protection reste assurée par les identifiants, distincts par environnement, et par la revérification systématique du statut décrite plus haut.
+
+**À reconsidérer** dès que la production tournera sur une IP de sortie stable — une passerelle NAT, un service avec IP dédiée. Ce jour-là, déclarer l'IP de production coûte quelques minutes et ferme une porte de plus.
+
+En attendant, un symptôme à connaître : un **403** de Fapshi signifie soit des identifiants invalides, soit une IP non autorisée. L'adaptateur journalise explicitement les deux hypothèses, faute de pouvoir les distinguer.
 
 ### Analyse de code — `SONAR_TOKEN` *(configuré)*
 
@@ -194,7 +213,7 @@ Deux environnements GitHub existent : `staging` (alimenté par la branche `stagi
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | ✅ | ✅ | secret |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | ✅ | ✅ | secret |
 | `DATABASE_URL` | ❌ | ❌ | secret |
-| `NOTCHPAY_*` | ❌ | ❌ | secret |
+| `FAPSHI_API_USER`, `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET` | ❌ | ❌ | secret |
 
 Chaque environnement possède ses propres identifiants Brevo et son propre jeton R2, restreint à son seul bucket (`cocfet-staging`, `cocfet-prod`). Une fuite côté staging ne donne donc aucun accès aux fichiers de production.
 
@@ -208,7 +227,7 @@ Chaque environnement possède ses propres identifiants Brevo et son propre jeton
 > node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))" | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
 > ```
 
-**`NOTCHPAY_*`** — attend l'ouverture du compte marchand.
+**`FAPSHI_*`** — le compte est ouvert et le service créé. Restent à poser : les identifiants du bac à sable en local, ceux du service live dans les environnements `staging` et `production`, et le secret de webhook côté tableau de bord.
 
 **Domaine d'envoi** — le COCFET n'a pas encore de nom de domaine. L'expéditeur validé est une adresse Gmail individuelle : suffisant pour tester, insuffisant en production. Sans SPF ni DKIM publiés sur un domaine propre, les messages de vérification partent en spam chez Gmail et Outlook — et sans message de vérification, aucun compte ne peut être créé.
 
@@ -224,7 +243,7 @@ Un secret ayant transité par un canal non sécurisé, ou commité par erreur, d
 | Cloudflare R2 | R2 > Manage API tokens > **Delete** |
 | Upstash | Base > REST API > **Reset token** |
 | Brevo | SMTP & API > **Delete** la clé SMTP |
-| NotchPay | Settings > API Keys > **Roll** |
+| Fapshi | Tableau de bord > service > régénérer la paire `apiuser`/`apikey` |
 | JWT | Générer de nouvelles valeurs (déconnecte tous les utilisateurs) |
 
 Puis mettre à jour `.env`, les secrets GitHub et les variables de l'hébergeur.
