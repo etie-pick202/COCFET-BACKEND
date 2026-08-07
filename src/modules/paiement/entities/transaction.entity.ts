@@ -39,7 +39,7 @@ export class Transaction extends BaseEntity {
   })
   methodePaiement: MethodePaiement | null;
 
-  /** Référence du prestataire (NotchPay), sert de clé d'idempotence des webhooks. */
+  /** Référence du prestataire (Fapshi), sert de clé d'idempotence des webhooks. */
   @Index({ unique: true })
   @Column()
   reference: string;

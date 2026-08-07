@@ -329,7 +329,8 @@ describe('Événements et billetterie (e2e)', () => {
     });
 
     it('rend la place quand le paiement est refusé', async () => {
-      // La passerelle factice refuse tout numéro se terminant par 0.
+      // Numéro d'échec du bac à sable Fapshi, repris par la passerelle
+      // factice : le même numéro donne la même issue des deux côtés.
       const id = await creerEtPublier({
         type: TypeEvenement.PAYANT,
         prixCampus: 5000,
@@ -339,7 +340,7 @@ describe('Événements et billetterie (e2e)', () => {
 
       await sInscrire(id, finissant, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000000',
+        telephone: '+237690000001',
       }).expect(400);
 
       await expect(
@@ -350,7 +351,7 @@ describe('Événements et billetterie (e2e)', () => {
       // La place est donc bien disponible pour quelqu'un d'autre.
       await sInscrire(id, ancien, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000002',
+        telephone: '+237690000002',
       }).expect(201);
     });
 
@@ -363,7 +364,7 @@ describe('Événements et billetterie (e2e)', () => {
 
       const reponse = await sInscrire(id, ancien, {
         methodePaiement: MethodePaiement.ORANGE_MONEY,
-        telephone: '+237699000002',
+        telephone: '+237690000002',
       }).expect(201);
 
       expect((reponse.body as { prix: number }).prix).toBe(15000);
@@ -811,7 +812,7 @@ describe('Événements et billetterie (e2e)', () => {
     });
 
     it('refuse le scan d’un billet resté impayé', async () => {
-      // La passerelle factice laisse en attente tout numéro finissant par 1.
+      // Numéro hors des listes du bac à sable : le paiement reste en attente.
       const id = await creerEtPublier({
         type: TypeEvenement.PAYANT,
         prixCampus: 5000,
@@ -819,7 +820,7 @@ describe('Événements et billetterie (e2e)', () => {
       });
       const reponse = await sInscrire(id, finissant, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000001',
+        telephone: '+237677123456',
       }).expect(201);
 
       const billet = reponse.body as { statut: string; codeBillet: string };
@@ -894,12 +895,12 @@ describe('Événements et billetterie (e2e)', () => {
         prixExterne: 10_000,
       });
 
-      // Numéro terminé par 1 : la passerelle factice laisse le paiement en
+      // Numéro hors des listes du bac à sable : le paiement reste en
       // attente, comme un webhook qui n'arrive pas. La place est réservée, le
       // billet ne vaut pas encore droit d'entrée — donc pas de QR, pas d'email.
       const reponse = await sInscrire(id, finissant, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '670000001',
+        telephone: '677123456',
       }).expect(201);
       const billet = reponse.body as { id: string; statut: string };
 

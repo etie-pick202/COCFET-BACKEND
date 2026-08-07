@@ -18,20 +18,21 @@ import {
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { MailService } from './../src/modules/mail/mail.service';
 import { Notification } from './../src/modules/notification/entities/notification.entity';
-import { PasserellePaiementFactice } from './../src/modules/paiement/adaptateurs/passerelle-paiement-factice';
 import { Transaction } from './../src/modules/paiement/entities/transaction.entity';
 import {
   MethodePaiement,
   StatutPaiement,
 } from './../src/modules/paiement/enums/paiement.enum';
-import { PASSERELLE_PAIEMENT } from './../src/modules/paiement/ports/passerelle-paiement';
 import {
   CompteDeTest,
   creerCompteAuthentifie,
   purgerUtilisateurs,
 } from './utils/authentification';
 
-const WEBHOOK = '/api/v1/webhooks/notchpay';
+const WEBHOOK = '/api/v1/webhooks/fapshi';
+
+/** Secret par defaut de la passerelle factice. */
+const SECRET_WEBHOOK = 'secret-de-developpement';
 const EVENEMENTS = '/api/v1/evenements';
 const ANNEE_ACTIVE = 2027;
 
@@ -39,13 +40,12 @@ const ANNEE_ACTIVE = 2027;
  * Notification de paiement, de bout en bout.
  *
  * Deux garanties se jouent ici, et aucune ne se vérifie autrement qu'en
- * traversant la pile HTTP complète : la signature porte sur les **octets
- * exacts** reçus — un corps resérialisé ne correspondrait plus — et le
+ * traversant la pile HTTP complète : le corps brut arrive intact jusqu'à
+ * l'adaptateur — un corps resérialisé perdrait l'ordre de ses clés — et le
  * prestataire renvoie délibérément la même notification plusieurs fois.
  */
 describe('Webhook de paiement (e2e)', () => {
   let app: INestApplication<App>;
-  let passerelle: PasserellePaiementFactice;
   let inscriptions: Repository<Inscription>;
   let transactions: Repository<Transaction>;
   let evenements: Repository<Evenement>;
@@ -62,23 +62,22 @@ describe('Webhook de paiement (e2e)', () => {
     envoyerVerificationEmail: jest.fn().mockResolvedValue(undefined),
     envoyerTentativeInscription: jest.fn().mockResolvedValue(undefined),
     envoyerInvitationSponsor: jest.fn().mockResolvedValue(undefined),
+    envoyerBillet: jest.fn().mockResolvedValue(undefined),
   };
 
-  /** Numéro finissant par 1 : la passerelle factice laisse en attente. */
-  const TELEPHONE_EN_ATTENTE = '+237699000001';
+  /** Numéro hors des listes du bac à sable : le paiement reste en attente. */
+  const TELEPHONE_EN_ATTENTE = '+237677123456';
 
   /**
    * Notification au format de la passerelle factice, qui est celle branchée
-   * ici : le format NotchPay est éprouvé séparément, par les tests unitaires
-   * de son adaptateur. Ce fichier vérifie notre chaîne — signature,
+   * ici : le format Fapshi est éprouvé séparément, par les tests unitaires de
+   * son adaptateur. Ce fichier vérifie notre chaîne — authentification,
    * dédoublonnage, confirmation — indépendamment du prestataire.
    */
-  const notifier = (reference: string, statut = StatutPaiement.COMPLETE) => {
-    const corps = Buffer.from(
+  const notifier = (reference: string, statut = StatutPaiement.COMPLETE) =>
+    Buffer.from(
       JSON.stringify({ reference, referenceExterne: 'trx_simule', statut }),
     );
-    return { corps, signature: passerelle.signer(corps) };
-  };
 
   /** Crée un événement payant et une inscription restée en attente. */
   const inscriptionEnAttente = async (): Promise<string> => {
@@ -125,8 +124,8 @@ describe('Webhook de paiement (e2e)', () => {
       .useValue(faussaireMail)
       .compile();
 
-    // rawBody : sans lui, le corps arrive déjà désérialisé et la signature ne
-    // peut plus être vérifiée. C'est exactement la configuration de main.ts.
+    // rawBody : sans lui, le corps arrive déjà désérialisé et resérialisé,
+    // ce qui réordonne ses clés. C'est exactement la configuration de main.ts.
     app = moduleFixture.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
@@ -139,7 +138,6 @@ describe('Webhook de paiement (e2e)', () => {
     app.useGlobalFilters(new FiltreExceptionGlobal());
     await app.init();
 
-    passerelle = app.get(PASSERELLE_PAIEMENT);
     inscriptions = app.get(getRepositoryToken(Inscription));
     transactions = app.get(getRepositoryToken(Transaction));
     evenements = app.get(getRepositoryToken(Evenement));
@@ -178,11 +176,11 @@ describe('Webhook de paiement (e2e)', () => {
     await app.close();
   });
 
-  describe('signature', () => {
-    it('refuse une notification non signée', async () => {
+  describe('authentification', () => {
+    it('refuse une notification sans secret', async () => {
       // Sans ce contrôle, n'importe qui pourrait déclarer un billet payé.
       const code = await inscriptionEnAttente();
-      const { corps } = notifier(code);
+      const corps = notifier(code);
 
       await request(app.getHttpServer())
         .post(WEBHOOK)
@@ -195,16 +193,15 @@ describe('Webhook de paiement (e2e)', () => {
       ).resolves.toMatchObject({ statut: StatutInscription.EN_ATTENTE });
     });
 
-    it('refuse un corps modifié après signature', async () => {
+    it('refuse une notification au mauvais secret', async () => {
       const code = await inscriptionEnAttente();
-      const legitime = notifier(code, StatutPaiement.ECHOUE);
-      const falsifie = notifier(code, StatutPaiement.COMPLETE);
+      const corps = notifier(code);
 
       await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', legitime.signature)
-        .send(falsifie.corps.toString('utf8'))
+        .set('x-wh-secret', 'secret-invente')
+        .send(corps.toString('utf8'))
         .expect(400);
 
       await expect(
@@ -212,15 +209,20 @@ describe('Webhook de paiement (e2e)', () => {
       ).resolves.toMatchObject({ statut: StatutInscription.EN_ATTENTE });
     });
 
-    it('n’est pas protégée par un jeton — la signature en tient lieu', async () => {
+    // Le contenu d'une notification, lui, n'est protégé par aucun secret :
+    // Fapshi ne signe pas ses octets. C'est l'adaptateur réel qui referme la
+    // porte en redemandant l'état au prestataire, et ses tests unitaires
+    // couvrent ce point — le double, lui, est sa propre source de vérité.
+
+    it('n’est pas protégée par un jeton — le secret en tient lieu', async () => {
       // L'appelant est le prestataire, qui n'a pas de compte chez nous.
       const code = await inscriptionEnAttente();
-      const { corps, signature } = notifier(code);
+      const corps = notifier(code);
 
       await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', signature)
+        .set('x-wh-secret', SECRET_WEBHOOK)
         .send(corps.toString('utf8'))
         .expect(200);
     });
@@ -229,12 +231,12 @@ describe('Webhook de paiement (e2e)', () => {
   describe('confirmation', () => {
     it('confirme le billet et prévient la personne', async () => {
       const code = await inscriptionEnAttente();
-      const { corps, signature } = notifier(code);
+      const corps = notifier(code);
 
       const reponse = await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', signature)
+        .set('x-wh-secret', SECRET_WEBHOOK)
         .send(corps.toString('utf8'))
         .expect(200);
 
@@ -269,18 +271,18 @@ describe('Webhook de paiement (e2e)', () => {
       // Le prestataire renvoie délibérément la même notification : c'est son
       // mécanisme de livraison, pas un défaut.
       const code = await inscriptionEnAttente();
-      const { corps, signature } = notifier(code);
+      const corps = notifier(code);
 
       const premier = await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', signature)
+        .set('x-wh-secret', SECRET_WEBHOOK)
         .send(corps.toString('utf8'))
         .expect(200);
       const second = await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', signature)
+        .set('x-wh-secret', SECRET_WEBHOOK)
         .send(corps.toString('utf8'))
         .expect(200);
 
@@ -297,13 +299,13 @@ describe('Webhook de paiement (e2e)', () => {
 
     it('résiste à deux notifications simultanées', async () => {
       const code = await inscriptionEnAttente();
-      const { corps, signature } = notifier(code);
+      const corps = notifier(code);
 
       const envoyer = () =>
         request(app.getHttpServer())
           .post(WEBHOOK)
           .set('Content-Type', 'application/json')
-          .set('x-notch-signature', signature)
+          .set('x-wh-secret', SECRET_WEBHOOK)
           .send(corps.toString('utf8'));
 
       const resultats = await Promise.all([envoyer(), envoyer()]);
@@ -319,12 +321,12 @@ describe('Webhook de paiement (e2e)', () => {
     it('accuse réception sans rien confirmer', async () => {
       // Une référence que nous ne connaissons pas ne doit pas faire échouer la
       // requête : le prestataire réessaierait indéfiniment.
-      const { corps, signature } = notifier('COCFET-INEXISTANT');
+      const corps = notifier('COCFET-INEXISTANT');
 
       const reponse = await request(app.getHttpServer())
         .post(WEBHOOK)
         .set('Content-Type', 'application/json')
-        .set('x-notch-signature', signature)
+        .set('x-wh-secret', SECRET_WEBHOOK)
         .send(corps.toString('utf8'))
         .expect(200);
 

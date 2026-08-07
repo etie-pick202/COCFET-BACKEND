@@ -69,7 +69,7 @@ src/
     ├── billetterie/        # M1 — Inscriptions, billets QR code
     ├── boutique/           # M2 — Produits (merchandising)
     ├── commande/           # M2 — Commandes et lignes de commande
-    ├── paiement/           # Transactions Mobile Money (NotchPay)
+    ├── paiement/           # Transactions Mobile Money (Fapshi)
     ├── annuaire/           # M3 — Profils des finissants
     ├── sponsor/            # M4 — Sponsors et paliers d'accréditation
     ├── article/            # M5 — Actualités / blog
@@ -96,7 +96,7 @@ Modèle de branches, conventions de commit et processus de PR : voir [CONTRIBUTI
 
 ## Identifiants et secrets
 
-La procédure d'obtention et de saisie de **chaque** secret (Upstash, Cloudflare R2, Brevo/Mailtrap, NotchPay, SSO UCAC-ICAM, Sentry…) est décrite dans [docs/SECRETS.md](docs/SECRETS.md).
+La procédure d'obtention et de saisie de **chaque** secret (Upstash, Cloudflare R2, Brevo/Mailtrap, Fapshi, SSO UCAC-ICAM, Sentry…) est décrite dans [docs/SECRETS.md](docs/SECRETS.md).
 
 Saisie assistée, sans jamais afficher les valeurs à l'écran :
 
@@ -108,4 +108,4 @@ Saisie assistée, sans jamais afficher les valeurs à l'écran :
 
 - ✅ **SonarCloud** — projet [`etie-pick202_COCFET-BACKEND`](https://sonarcloud.io/project/overview?id=etie-pick202_COCFET-BACKEND), secret et variable en place.
 - ⬜ **Upstash** — optionnel : sans lui, la limitation de débit se désactive avec un avertissement au démarrage.
-- ⬜ **Cloudflare R2**, **Brevo/Mailtrap**, **NotchPay**, **SSO UCAC-ICAM** — requis au moment d'implémenter les fonctionnalités correspondantes.
+- ⬜ **Cloudflare R2**, **Brevo/Mailtrap**, **Fapshi**, **SSO UCAC-ICAM** — requis au moment d'implémenter les fonctionnalités correspondantes.
