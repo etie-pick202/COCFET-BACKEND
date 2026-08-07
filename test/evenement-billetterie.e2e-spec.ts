@@ -1014,24 +1014,35 @@ describe('Événements et billetterie (e2e)', () => {
       await scanner(jeton!, admin).expect(409);
     });
 
-    it('renouvelle le code servi d’une fenêtre à l’autre', async () => {
+    it('sert un jeton qui désigne le bon billet, à chaque appel', async () => {
       const id = await creerEtPublier({
         controleAcces: ControleAcces.QR_TOURNANT,
       });
       const reponse = await sInscrire(id, finissant).expect(201);
-      const billet = reponse.body as { id: string };
+      const billet = reponse.body as { id: string; codeBillet: string };
 
       const servi = async () => {
         const r = await request(app.getHttpServer())
           .get(`${BILLETS}/${billet.id}/qr`)
           .set(finissant.entetes)
           .expect(200);
-        return lireQr((r.body as { qrCode: string }).qrCode);
+        const corps = r.body as { qrCode: string; expireDans: number };
+        return { jeton: lireQr(corps.qrCode), expireDans: corps.expireDans };
       };
 
-      // Dans la même fenêtre, la valeur ne bouge pas : le porteur ne voit pas
-      // son écran clignoter à chaque rafraîchissement.
-      expect(await servi()).toBe(await servi());
+      // Deux appels rapprochés tombent presque toujours dans la même fenêtre
+      // — mais « presque » ne fait pas un test. À cheval sur une bascule, les
+      // deux jetons diffèrent légitimement, et exiger leur égalité rend
+      // l'assertion dépendante de l'horloge. Ce qui est éprouvé ici ne l'est
+      // pas : chaque appel désigne le bon billet et annonce une échéance
+      // plausible. La stabilité au sein d'une fenêtre est prouvée à horloge
+      // figée dans jeton-billet.spec.ts, là où elle se démontre vraiment.
+      for (const { jeton, expireDans } of [await servi(), await servi()]) {
+        expect(jeton?.split('.')).toHaveLength(3);
+        expect(jeton?.split('.')[0]).toBe(billet.codeBillet);
+        expect(expireDans).toBeGreaterThan(0);
+        expect(expireDans).toBeLessThanOrEqual(30);
+      }
     });
 
     it('laisse l’inscription valide quand l’envoi échoue', async () => {
