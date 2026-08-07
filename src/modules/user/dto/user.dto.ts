@@ -125,23 +125,70 @@ export class FiltreUtilisateurDto extends PaginationDto {
  * une liste d'exclusion se laisse oublier au premier champ sensible ajouté,
  * alors qu'une liste d'inclusion oblige à décider pour chaque nouveau champ.
  */
-export interface UtilisateurExpose {
+export class UtilisateurExpose {
+  @ApiProperty({ format: 'uuid' })
   id: string;
+
+  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
   email: string;
+
+  @ApiProperty({ example: 'Etienne' })
   prenom: string;
+
+  @ApiProperty({ example: 'Mayack' })
   nom: string;
+
+  @ApiProperty({ enum: Role })
   role: Role;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
   avatar: string | null;
+
+  @ApiProperty({
+    example: 2027,
+    nullable: true,
+    description: 'Déduite de l’adresse institutionnelle, jamais saisie.',
+  })
   promotion: number | null;
+
+  @ApiProperty({
+    description:
+      'Calculé à la bascule de génération. Conditionne l’appartenance à ' +
+      'l’annuaire consulté par les entreprises.',
+  })
   isFinissant: boolean;
+
+  @ApiProperty()
   isActive: boolean;
+
+  @ApiProperty()
   emailVerifie: boolean;
-  /** Faux pour un sponsor invité qui n'a pas encore activé son accès. */
+
+  @ApiProperty({
+    description:
+      'Faux pour un sponsor invité qui n’a pas encore activé son accès.',
+  })
   aUnMotDePasse: boolean;
+
+  @ApiProperty({ format: 'date-time' })
   creeLe: Date;
 }
 
 export function exposerUtilisateur(user: User): UtilisateurExpose {
+  // `passwordHash` n'est plus chargé par défaut. Non chargé, il vaut
+  // `undefined` et non `null` : le déduire donnerait « ce compte a un mot de
+  // passe » sur un sponsor qui n'en a pas encore, ou l'inverse, sans que rien
+  // ne le signale. On préfère échouer bruyamment que répondre au hasard.
+  if ((user.passwordHash as string | null | undefined) === undefined) {
+    throw new Error(
+      'exposerUtilisateur a reçu un compte sans son empreinte : chargez-le ' +
+        'via UserService.trouverOuEchouer, update ou lister.',
+    );
+  }
+
   return {
     id: user.id,
     email: user.email,

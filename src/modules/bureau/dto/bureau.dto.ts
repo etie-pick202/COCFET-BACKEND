@@ -10,6 +10,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { MembreBureau } from '../entities/membre-bureau.entity';
 
 export class CreerPosteDto {
   @ApiProperty({ example: 'Président' })
@@ -94,21 +95,133 @@ export class DesignerLogoDto {
 }
 
 /** Vue publique d'un membre : ni adresse, ni identifiant de compte. */
-export interface MembrePublic {
+export class MembrePublic {
+  @ApiProperty({ example: 'Président' })
   poste: string;
+
+  @ApiProperty({ example: 1, description: 'Ordre protocolaire d’affichage.' })
   ordre: number;
+
+  @ApiProperty({ example: 'Awa' })
   prenom: string;
+
+  @ApiProperty({ example: 'Ngassa' })
   nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
   avatar: string | null;
+
+  @ApiProperty({ nullable: true })
   presentation: string | null;
 }
 
-/** Ce que le frontend affiche sur la page « Le bureau ». */
-export interface BureauPublic {
-  annee: number;
+/**
+ * Vue administrative d'un membre : le poste, le mandat, et le titulaire réduit
+ * à sa vue exposée.
+ *
+ * Les routes d'administration renvoyaient l'entité `MembreBureau` telle quelle,
+ * relation `user` comprise. `select: false` sur les empreintes suffit à ce
+ * qu'elles n'y figurent plus ; cette projection ajoute la seconde barrière :
+ * ce qui sort est ce qui est nommé ici, et rien d'autre ne peut s'y glisser
+ * quand une colonne sera ajoutée à `User`.
+ */
+export class PosteDuMembre {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Président' })
   nom: string;
+
+  @ApiProperty({ example: 1, description: 'Ordre protocolaire d’affichage.' })
+  ordre: number;
+}
+
+/**
+ * Le titulaire vu par l'administration : de quoi l'identifier et le
+ * recontacter. Volontairement plus étroit que `UtilisateurExpose`, dont les
+ * champs calculés — `aUnMotDePasse`, `emailVerifie` — relèvent de la gestion
+ * des comptes et n'ont rien à faire dans la composition d'un bureau.
+ */
+export class TitulaireExpose {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
+  email: string;
+
+  @ApiProperty({ example: 'Etienne' })
+  prenom: string;
+
+  @ApiProperty({ example: 'Mayack' })
+  nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
+  avatar: string | null;
+
+  @ApiProperty({ example: 2027, nullable: true })
+  promotion: number | null;
+}
+
+export class MembreExpose {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: PosteDuMembre })
+  poste: PosteDuMembre;
+
+  @ApiProperty({ type: TitulaireExpose })
+  membre: TitulaireExpose;
+
+  @ApiProperty({ nullable: true })
+  presentation: string | null;
+}
+
+export function exposerMembre(membre: MembreBureau): MembreExpose {
+  return {
+    id: membre.id,
+    poste: {
+      id: membre.poste.id,
+      nom: membre.poste.nom,
+      ordre: membre.poste.ordre,
+    },
+    membre: {
+      id: membre.user.id,
+      email: membre.user.email,
+      prenom: membre.user.firstName,
+      nom: membre.user.lastName,
+      avatar: membre.user.avatar,
+      promotion: membre.user.promotion,
+    },
+    presentation: membre.presentation,
+  };
+}
+
+/** Ce que le frontend affiche sur la page « Le bureau ». */
+export class BureauPublic {
+  @ApiProperty({ example: 2027 })
+  annee: number;
+
+  @ApiProperty({ example: 'ATLAS', description: 'Nom du bureau.' })
+  nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Logo désigné pour la plateforme.',
+  })
   logo: string | null;
+
+  @ApiProperty({ example: '#0F172A' })
   couleurPrimaire: string;
+
+  @ApiProperty({ example: '#D4AF37' })
   couleurSecondaire: string;
+
+  @ApiProperty({ type: [MembrePublic] })
   membres: MembrePublic[];
 }

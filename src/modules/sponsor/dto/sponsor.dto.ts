@@ -1,4 +1,9 @@
-import { ApiPropertyOptional, PartialType, PickType } from '@nestjs/swagger';
+import {
+  ApiProperty,
+  ApiPropertyOptional,
+  PartialType,
+  PickType,
+} from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -104,13 +109,48 @@ export class CreerPalierDto {
 
 export class MettreAJourPalierDto extends PartialType(CreerPalierDto) {}
 
-/** Vue publique d'un partenaire : ni email, ni quotas, ni statistiques. */
-export interface SponsorPublic {
-  id: string;
+/** Ce que la vitrine retient du palier : de quoi ordonner et dimensionner. */
+export class PalierPublic {
+  @ApiProperty({ example: 'Or' })
   nom: string;
+
+  @ApiProperty({
+    example: 1,
+    description: 'Ordre d’affichage sur la vitrine, croissant.',
+  })
+  ordre: number;
+
+  @ApiProperty({ enum: TailleLogo })
+  tailleLogo: TailleLogo;
+}
+
+/** Vue publique d'un partenaire : ni email, ni quotas, ni statistiques. */
+export class SponsorPublic {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Camtel' })
+  nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
   logo: string | null;
+
+  @ApiProperty({ nullable: true })
   description: string | null;
+
+  @ApiProperty({ nullable: true, example: 'https://camtel.cm' })
   siteWeb: string | null;
+
+  @ApiProperty({ nullable: true, example: 'Télécommunications' })
   secteur: string | null;
-  palier: { nom: string; ordre: number; tailleLogo: TailleLogo } | null;
+
+  @ApiProperty({
+    type: PalierPublic,
+    nullable: true,
+    description: 'Nul si le partenaire n’est rattaché à aucun palier.',
+  })
+  palier: PalierPublic | null;
 }

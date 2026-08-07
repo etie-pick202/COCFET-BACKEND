@@ -226,6 +226,63 @@ describe('Bureau COCFET (e2e)', () => {
 
       await expect(membres.count()).resolves.toBe(0);
     });
+
+    /**
+     * Cette route charge la relation `user` et renvoyait l'entité de compte
+     * entière : les empreintes du mot de passe et du refresh token partaient
+     * dans le JSON, pour chaque membre du bureau. Le corps est inspecté
+     * entièrement, et pas seulement le premier niveau — les empreintes
+     * arrivaient imbriquées sous `user`, là où un `not.toHaveProperty` posé à
+     * la racine ne les aurait pas vues.
+     */
+    it('ne laisse aucune empreinte dans la composition d’un mandat', async () => {
+      const poste = idDe(await creerPoste('Président').expect(201));
+      const generation = idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+      await affecter(generation, poste, entrant.user.id).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${BUREAU}/${generation}/membres`)
+        .set(admin.entetes)
+        .expect(200);
+
+      const corps = reponse.body as Record<string, unknown>[];
+      expect(corps).toHaveLength(1);
+      expect(corps[0]).toMatchObject({
+        poste: { nom: 'Président' },
+        membre: { id: entrant.user.id },
+      });
+
+      const brut = JSON.stringify(corps);
+      expect(brut).not.toContain('passwordHash');
+      expect(brut).not.toContain('refreshTokenHash');
+      // L'empreinte bcrypt elle-même, au cas où un futur renommage de champ
+      // ferait passer les deux assertions précédentes.
+      expect(brut).not.toContain('$2b$');
+    });
+
+    it('ne laisse aucune empreinte en désignant ou modifiant un membre', async () => {
+      const poste = idDe(await creerPoste('Président').expect(201));
+      const generation = idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+
+      const creation = await affecter(
+        generation,
+        poste,
+        entrant.user.id,
+      ).expect(201);
+
+      const modification = await request(app.getHttpServer())
+        .patch(`${BUREAU}/membres/${idDe(creation)}`)
+        .set(admin.entetes)
+        .send({ presentation: 'Chargé de la cérémonie.' })
+        .expect(200);
+
+      for (const corps of [creation.body, modification.body]) {
+        const brut = JSON.stringify(corps);
+        expect(brut).not.toContain('passwordHash');
+        expect(brut).not.toContain('refreshTokenHash');
+        expect(brut).not.toContain('$2b$');
+      }
+    });
   });
 
   describe('activation d’un mandat', () => {

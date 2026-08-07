@@ -21,17 +21,26 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiConsumes,
+  ApiCreatedResponse,
   ApiExcludeEndpoint,
+  ApiNoContentResponse,
+  ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { extname } from 'node:path';
 import { Role } from '../../common/enums/role.enum';
+import {
+  ApiErreursAuthentification,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { StockageLocal } from './adaptateurs/stockage-local';
+import { FichierTeleverseDto, UrlSigneeDto } from './dto/fichier.dto';
 // `Stockage` est une interface : elle disparaît à la compilation, et
 // `emitDecoratorMetadata` exige alors un import de type explicite.
 import type { Stockage } from './ports/stockage';
@@ -71,6 +80,7 @@ const TYPES_AFFICHABLES: Record<string, string> = {
  * répond alors 404 sur toute requête.
  */
 @ApiTags('Fichiers')
+@ApiErreursAuthentification()
 @Controller('fichiers')
 export class FileController {
   constructor(@Inject(STOCKAGE) private readonly stockage: Stockage) {}
@@ -135,20 +145,21 @@ export class FileController {
       },
     },
   })
-  @ApiResponse({
-    status: 201,
+  @ApiCreatedResponse({
     description: "Cle de l'objet et URL signee temporaire.",
+    type: FichierTeleverseDto,
   })
   @ApiResponse({
     status: 400,
     description:
       'Usage inconnu, fichier vide, trop volumineux ou de format inattendu.',
+    type: ReponseErreurDto,
   })
   async envoyer(
     @UploadedFile() fichier: Express.Multer.File | undefined,
     @Body('usage') usage: Usage,
     @Req() requete: RequeteAuthentifiee,
-  ): Promise<{ cle: string; url: string; type: string }> {
+  ): Promise<FichierTeleverseDto> {
     if (!fichier) {
       throw new BadRequestException('Aucun fichier reçu (champ « fichier »).');
     }
@@ -178,7 +189,21 @@ export class FileController {
       'resterait valable apres la fin du mandat, et se partagerait hors de ' +
       "l'application.",
   })
-  async urlSignee(@Query('cle') cle: string): Promise<{ url: string }> {
+  @ApiQuery({
+    name: 'cle',
+    description: 'Clé de stockage renvoyée au téléversement.',
+    example: 'evenements/2027/6b1f9c2e-4a1f-4b7c-9d3e-8f0a1b2c3d4e.png',
+  })
+  @ApiOkResponse({
+    description: 'URL de lecture temporaire.',
+    type: UrlSigneeDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Paramètre « cle » absent.',
+    type: ReponseErreurDto,
+  })
+  async urlSignee(@Query('cle') cle: string): Promise<UrlSigneeDto> {
     if (!cle) {
       throw new BadRequestException('Le paramètre « cle » est requis.');
     }
@@ -197,6 +222,18 @@ export class FileController {
       "Reserve au bureau : la cle seule ne dit pas a quelle entite l'objet " +
       'est rattache, et rien ne garantirait donc que le demandeur en est le ' +
       'proprietaire.',
+  })
+  @ApiQuery({
+    name: 'cle',
+    description:
+      'Clé de stockage. En paramètre de requête et non en segment d’URL : ' +
+      'elle contient une barre oblique.',
+  })
+  @ApiNoContentResponse({ description: 'Fichier supprimé.' })
+  @ApiResponse({
+    status: 400,
+    description: 'Paramètre « cle » absent.',
+    type: ReponseErreurDto,
   })
   async supprimer(@Query('cle') cle: string): Promise<void> {
     if (!cle) {

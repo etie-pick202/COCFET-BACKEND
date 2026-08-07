@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { ApiProperty } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import { Role } from '../../common/enums/role.enum';
@@ -23,8 +24,19 @@ import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 
-export interface PaireJetons {
+export class PaireJetons {
+  @ApiProperty({
+    description:
+      'À présenter en en-tête « Authorization: Bearer … ». Courte durée de vie.',
+  })
   accessToken: string;
+
+  @ApiProperty({
+    description:
+      'Sert uniquement à obtenir un nouveau jeton d’accès. Chaque ' +
+      'rafraîchissement invalide le précédent : rejouer un ancien jeton coupe ' +
+      'toutes les sessions, le vol étant l’explication la plus probable.',
+  })
   refreshToken: string;
 }
 
@@ -136,7 +148,9 @@ export class AuthService {
   }
 
   async connecter(email: string, motDePasse: string): Promise<PaireJetons> {
-    const user = await this.userService.findByEmail(normaliserEmail(email));
+    const user = await this.userService.findByEmailPourConnexion(
+      normaliserEmail(email),
+    );
 
     // Une comparaison est effectuée même sans compte, pour que le temps de
     // réponse ne trahisse pas l'existence de l'adresse.
@@ -169,7 +183,9 @@ export class AuthService {
       throw new UnauthorizedException('Session expirée.');
     }
 
-    const user = await this.userService.findById(charge.sub);
+    const user = await this.userService.findByIdPourRafraichissement(
+      charge.sub,
+    );
     if (!user?.refreshTokenHash || !user.isActive) {
       throw new UnauthorizedException('Session expirée.');
     }

@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
@@ -14,22 +15,28 @@ export enum TailleLogo {
 @Entity('paliers_sponsor')
 export class PalierSponsor extends BaseEntity {
   @Column()
+  @ApiProperty()
   nom: string;
 
   /** Ordre d'affichage et de prestige (1 = plus élevé). */
   @Column({ type: 'int', default: 0 })
+  @ApiProperty()
   ordre: number;
 
   @Column({ name: 'acces_annuaire', default: false })
+  @ApiProperty()
   accesAnnuaire: boolean;
 
   @Column({ name: 'max_consultations_profils', type: 'int', default: 0 })
+  @ApiProperty()
   maxConsultationsProfils: number;
 
   @Column({ name: 'max_telechargements_cv', type: 'int', default: 0 })
+  @ApiProperty()
   maxTelechargementsCv: number;
 
   @Column({ name: 'is_featured', default: false })
+  @ApiProperty()
   isFeatured: boolean;
 
   @Column({
@@ -38,8 +45,10 @@ export class PalierSponsor extends BaseEntity {
     enum: TailleLogo,
     default: TailleLogo.MOYEN,
   })
+  @ApiProperty({ enum: TailleLogo })
   tailleLogo: TailleLogo;
 
   @Column({ name: 'stats_detaillees', default: false })
+  @ApiProperty()
   statsDetaillees: boolean;
 }
