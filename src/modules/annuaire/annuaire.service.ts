@@ -10,8 +10,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
-import { TypeActivite } from '../activite/entities/journal-activite.entity';
-import { JournalActivite } from '../activite/entities/journal-activite.entity';
+import {
+  JournalActivite,
+  TypeActivite,
+} from '../activite/entities/journal-activite.entity';
 import type { Stockage } from '../file/ports/stockage';
 import { STOCKAGE } from '../file/ports/stockage';
 import { Sponsor } from '../sponsor/entities/sponsor.entity';
@@ -246,7 +248,7 @@ export class AnnuaireService {
       relations: { user: true },
     });
 
-    if (!profil || !profil.user.isActive) {
+    if (!profil?.user.isActive) {
       // Même réponse qu'un identifiant inconnu : distinguer les deux
       // révélerait l'existence d'une fiche masquée.
       throw new NotFoundException("Ce profil n'existe pas.");

@@ -648,4 +648,113 @@ describe('Annuaire des finissants (e2e)', () => {
       ).resolves.toMatchObject({ stats: { cvTelecharges: 0 } });
     });
   });
+  describe('cas limites', () => {
+    it('exige la filière à la création', async () => {
+      await request(app.getHttpServer())
+        .put(MOI)
+        .set(finissant.entetes)
+        .send({ bio: 'Sans filière.' })
+        .expect(400);
+    });
+
+    it('supprime sa fiche et ses pièces', async () => {
+      await publierFiche();
+
+      await request(app.getHttpServer())
+        .delete(MOI)
+        .set(finissant.entetes)
+        .expect(204);
+
+      await expect(profils.count()).resolves.toBe(0);
+      await request(app.getHttpServer())
+        .get(MOI)
+        .set(finissant.entetes)
+        .expect(404);
+    });
+
+    it('cherche par filière et par texte libre', async () => {
+      await publierFiche();
+      const sponsor = await sponsorAccredite();
+
+      const parFiliere = await request(app.getHttpServer())
+        .get(ANNUAIRE)
+        .query({ filiere: 'logiciel' })
+        .set(sponsor.entetes)
+        .expect(200);
+      expect((parFiliere.body as { meta: { total: number } }).meta.total).toBe(
+        1,
+      );
+
+      const parNom = await request(app.getHttpServer())
+        .get(ANNUAIRE)
+        .query({ recherche: 'awa' })
+        .set(sponsor.entetes)
+        .expect(200);
+      expect((parNom.body as { meta: { total: number } }).meta.total).toBe(1);
+
+      const introuvable = await request(app.getHttpServer())
+        .get(ANNUAIRE)
+        .query({ recherche: 'personne de ce nom' })
+        .set(sponsor.entetes)
+        .expect(200);
+      expect((introuvable.body as { meta: { total: number } }).meta.total).toBe(
+        0,
+      );
+    });
+
+    it('signale un compte SPONSOR sans fiche partenaire sur ses quotas', async () => {
+      const orphelin = await creerCompteAuthentifie(app, {
+        role: Role.SPONSOR,
+      });
+
+      await request(app.getHttpServer())
+        .get(`${ANNUAIRE}/quotas`)
+        .set(orphelin.entetes)
+        .expect(404);
+    });
+
+    it('signale un partenaire inconnu à la remise à zéro', async () => {
+      await request(app.getHttpServer())
+        .post(
+          `${ANNUAIRE}/sponsors/00000000-0000-4000-8000-000000000000/reinitialiser-quotas`,
+        )
+        .set(admin.entetes)
+        .expect(404);
+    });
+
+    it('refuse la remise à zéro à un partenaire', async () => {
+      const sponsor = await sponsorAccredite();
+
+      await request(app.getHttpServer())
+        .post(`${ANNUAIRE}/sponsors/${sponsor.sponsor.id}/reinitialiser-quotas`)
+        .set(sponsor.entetes)
+        .expect(403);
+    });
+
+    it('signale une fiche inconnue', async () => {
+      const sponsor = await sponsorAccredite();
+
+      await request(app.getHttpServer())
+        .get(`${ANNUAIRE}/00000000-0000-4000-8000-000000000000`)
+        .set(sponsor.entetes)
+        .expect(404);
+    });
+
+    it('poursuit la mise à jour même si l’ancienne pièce ne peut être supprimée', async () => {
+      // Le profil doit refléter ce que la personne a demandé, quitte à laisser
+      // un objet orphelin qu'une purge ramassera.
+      await publierFiche();
+      jest
+        .spyOn(app.get(STOCKAGE), 'supprimer')
+        .mockRejectedValueOnce(new Error('stockage injoignable'));
+
+      const reponse = await request(app.getHttpServer())
+        .put(MOI)
+        .set(finissant.entetes)
+        .send({ cvUrl: 'cv/nouveau.pdf' })
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({ cvUrl: 'cv/nouveau.pdf' });
+    });
+  });
 });
