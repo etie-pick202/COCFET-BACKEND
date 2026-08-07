@@ -27,12 +27,12 @@ export enum Environment {
 export const LONGUEUR_MINIMALE_SECRET = 32;
 
 /** Valeurs d'exemple : elles figurent dans le dépôt, donc elles sont publiques. */
-const VALEURS_INTERDITES = [
+const VALEURS_INTERDITES = new Set([
   'change-me-access-secret',
   'change-me-refresh-secret',
   'secret',
   'changeme',
-];
+]);
 
 class EnvironmentVariables {
   @IsEnum(Environment)
@@ -81,7 +81,7 @@ function verifierCoherence(
   }
 
   for (const cle of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
-    if (VALEURS_INTERDITES.includes(config[cle])) {
+    if (VALEURS_INTERDITES.has(config[cle])) {
       erreurs.push(
         `  - ${cle} reprend une valeur d'exemple du dépôt, donc publiquement ` +
           'connue. Générez-en une avec « openssl rand -base64 48 ».',
