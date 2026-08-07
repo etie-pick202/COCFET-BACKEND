@@ -76,6 +76,40 @@ export class MailService {
     });
   }
 
+  /** Part vers la **nouvelle** adresse : c'est elle qu'il faut prouver. */
+  async envoyerConfirmationNouvelleAdresse(
+    to: string,
+    prenom: string,
+    lienConfirmation: string,
+  ): Promise<void> {
+    await this.send(
+      to,
+      'Confirmez votre nouvelle adresse — COCFET',
+      'changement-email',
+      { prenom, lienConfirmation },
+    );
+  }
+
+  /**
+   * Prévient l'ancienne adresse qu'un changement a été demandé.
+   *
+   * C'est le filet qui permet au titulaire légitime de réagir : sans lui, une
+   * prise de contrôle du compte se terminerait par un changement d'identifiant
+   * dont il ne saurait rien.
+   */
+  async envoyerAlerteChangementEmail(
+    to: string,
+    prenom: string,
+    nouvelleAdresse: string,
+  ): Promise<void> {
+    await this.send(
+      to,
+      'Changement d’adresse demandé — COCFET',
+      'alerte-changement-email',
+      { prenom, nouvelleAdresse },
+    );
+  }
+
   async envoyerInvitationSponsor(
     to: string,
     nomSponsor: string,

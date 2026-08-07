@@ -11,6 +11,7 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
   ApiNoContentResponse,
   ApiNotFoundResponse,
@@ -23,12 +24,19 @@ import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { MetaPagination } from '../../common/pagination';
 import {
+  LIMITE_ENVOI_EMAIL,
+  LimiteDebit,
+} from '../../common/guards/limite-debit.decorator';
+import {
   ApiErreursAuthentification,
   ApiErreurValidation,
   ApiReponsePaginee,
   ReponseErreurDto,
+  ReponseMessageDto,
 } from '../../common/swagger';
+import { AuthService } from '../auth/auth.service';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { DemanderChangementEmailDto } from '../auth/dto/changement-email.dto';
 import {
   ChangerMotDePasseDto,
   exposerUtilisateur,
@@ -47,7 +55,10 @@ type Requete = Request & { user: { id: string; role: Role } };
 @ApiErreurValidation()
 @Controller('utilisateurs')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
 
   // ─────────────────────────────  Son compte  ───────────────────────────
   // Déclarés avant « :id » : sinon « moi » serait interprété comme un
@@ -112,6 +123,48 @@ export class UserController {
     @Body() dto: ChangerMotDePasseDto,
   ): Promise<void> {
     return this.userService.changerMotDePasse(requete.user.id, dto);
+  }
+
+  @LimiteDebit(LIMITE_ENVOI_EMAIL)
+  @Patch('moi/email')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Demander un changement d’adresse',
+    description:
+      'Le mot de passe actuel est exigé : sans lui, un jeton volé suffirait à ' +
+      's’approprier le compte en basculant son identifiant de connexion, puis ' +
+      'en demandant une réinitialisation. Rien ne change tant que la nouvelle ' +
+      'boîte n’a pas répondu — la connexion continue de se faire avec ' +
+      'l’ancienne adresse. Celle-ci reçoit une alerte.',
+  })
+  @ApiAcceptedResponse({
+    description: 'Lien de confirmation envoyé à la nouvelle adresse.',
+    type: ReponseMessageDto,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Mot de passe incorrect.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Adresse déjà utilisée.',
+    type: ReponseErreurDto,
+  })
+  async demanderChangementEmail(
+    @Req() requete: Requete,
+    @Body() dto: DemanderChangementEmailDto,
+  ): Promise<ReponseMessageDto> {
+    await this.authService.demanderChangementEmail(
+      requete.user.id,
+      dto.email,
+      dto.motDePasse,
+    );
+
+    return {
+      message:
+        'Un lien de confirmation vient d’être envoyé à votre nouvelle adresse.',
+    };
   }
 
   // ───────────────────────────  Administration  ─────────────────────────

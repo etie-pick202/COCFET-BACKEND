@@ -33,10 +33,10 @@ import {
   AffecterMembreDto,
   BureauPublic,
   CreerPosteDto,
+  MembreExpose,
   MettreAJourMembreDto,
   MettreAJourPosteDto,
 } from './dto/bureau.dto';
-import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
 
 @ApiTags('Bureau COCFET')
@@ -149,10 +149,15 @@ export class BureauController {
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
   @Get(':generationId/membres')
-  @ApiOperation({ summary: 'Composition d’un mandat' })
+  @ApiOperation({
+    summary: 'Composition d’un mandat',
+    description:
+      'Chaque titulaire est projeté champ par champ : la réponse porte de quoi ' +
+      'l’identifier et le recontacter, jamais l’entité de compte entière.',
+  })
   @ApiOkResponse({
     description: 'Les postes pourvus pour ce mandat.',
-    type: [MembreBureau],
+    type: [MembreExpose],
   })
   @ApiNotFoundResponse({
     description: 'Génération inconnue.',
@@ -160,8 +165,8 @@ export class BureauController {
   })
   listerMembres(
     @Param('generationId', ParseUUIDPipe) generationId: string,
-  ): Promise<MembreBureau[]> {
-    return this.bureauService.listerMembres(generationId);
+  ): Promise<MembreExpose[]> {
+    return this.bureauService.composition(generationId);
   }
 
   @ApiBearerAuth()
@@ -175,7 +180,7 @@ export class BureauController {
       'de ceux qui la vivent. C’est ainsi que le bureau sortant constitue le ' +
       'bureau entrant.',
   })
-  @ApiCreatedResponse({ description: 'Le membre affecté.', type: MembreBureau })
+  @ApiCreatedResponse({ description: 'Le membre affecté.', type: MembreExpose })
   @ApiResponse({
     status: 400,
     description: 'Compte d’une autre promotion, ou adresse non confirmée.',
@@ -193,7 +198,7 @@ export class BureauController {
   affecter(
     @Param('generationId', ParseUUIDPipe) generationId: string,
     @Body() dto: AffecterMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     return this.bureauService.affecter(generationId, dto);
   }
 
@@ -201,7 +206,7 @@ export class BureauController {
   @Roles(Role.ADMIN)
   @Patch('membres/:id')
   @ApiOperation({ summary: 'Modifier la présentation d’un membre' })
-  @ApiOkResponse({ description: 'Le membre mis à jour.', type: MembreBureau })
+  @ApiOkResponse({ description: 'Le membre mis à jour.', type: MembreExpose })
   @ApiNotFoundResponse({
     description: 'Membre inconnu.',
     type: ReponseErreurDto,
@@ -209,7 +214,7 @@ export class BureauController {
   mettreAJourMembre(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     return this.bureauService.mettreAJourMembre(id, dto);
   }
 
