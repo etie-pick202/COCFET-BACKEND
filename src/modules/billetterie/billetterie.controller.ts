@@ -13,6 +13,7 @@ import {
   Req,
 } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiNoContentResponse,
@@ -30,6 +31,7 @@ import {
   ApiErreurValidation,
   ApiReponsePaginee,
   ReponseErreurDto,
+  ReponseMessageDto,
 } from '../../common/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserService } from '../user/user.service';
@@ -150,6 +152,40 @@ export class BilletterieController {
     @Req() requete: Requete,
   ): Promise<void> {
     return this.billetterieService.annuler(id, requete.user.id);
+  }
+
+  @Post('billets/:id/renvoyer')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Se faire renvoyer son billet par email',
+    description:
+      'Un email se perd ou part en indésirable. Sans ce recours, récupérer ' +
+      'son billet supposerait d’annuler puis de se réinscrire — donc de ' +
+      'repayer. Le QR reste identique : il dérive du code d’entrée, qui ne ' +
+      'change pas.',
+  })
+  @ApiAcceptedResponse({
+    description: 'Envoi pris en compte.',
+    type: ReponseMessageDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Billet inconnu, ou appartenant à un autre compte.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Billet annulé, ou pas encore payé.',
+    type: ReponseErreurDto,
+  })
+  async renvoyer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() requete: Requete,
+  ): Promise<ReponseMessageDto> {
+    await this.billetterieService.renvoyerBillet(id, requete.user.id);
+
+    return {
+      message: 'Votre billet vient d’être renvoyé à l’adresse de votre compte.',
+    };
   }
 
   @Roles(Role.ADMIN)

@@ -123,14 +123,64 @@ export class MailService {
     );
   }
 
+  /**
+   * Envoie le billet, QR code compris.
+   *
+   * L'image voyage **dans** le message, référencée par `cid:` : une URL
+   * distante serait bloquée par défaut chez Gmail et Outlook, et le
+   * destinataire arriverait à l'entrée avec un cadre vide. Le code d'entrée
+   * figure aussi en toutes lettres dans le gabarit, comme recours.
+   */
+  async envoyerBillet(
+    to: string,
+    prenom: string,
+    billet: {
+      titre: string;
+      dateDebut: Date;
+      lieu: string;
+      codeBillet: string;
+      qrPng: Buffer;
+    },
+  ): Promise<void> {
+    await this.send(
+      to,
+      `Votre billet — ${billet.titre}`,
+      'billet',
+      {
+        prenom,
+        titre: billet.titre,
+        dateDebut: billet.dateDebut.toLocaleString('fr-FR', {
+          dateStyle: 'full',
+          timeStyle: 'short',
+        }),
+        lieu: billet.lieu,
+        codeBillet: billet.codeBillet,
+      },
+      [
+        {
+          filename: `billet-${billet.codeBillet}.png`,
+          content: billet.qrPng,
+          cid: 'qrbillet',
+        },
+      ],
+    );
+  }
+
   private async send(
     to: string,
     subject: string,
     template: string,
     context: Record<string, unknown>,
+    attachments?: { filename: string; content: Buffer; cid: string }[],
   ): Promise<void> {
     try {
-      await this.mailerService.sendMail({ to, subject, template, context });
+      await this.mailerService.sendMail({
+        to,
+        subject,
+        template,
+        context,
+        ...(attachments ? { attachments } : {}),
+      });
     } catch (error) {
       // Un échec d'envoi ne doit pas faire échouer l'action métier appelante.
       this.logger.error(

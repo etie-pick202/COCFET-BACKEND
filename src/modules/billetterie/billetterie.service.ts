@@ -16,6 +16,7 @@ import {
   TypeEvenement,
 } from '../evenement/entities/evenement.entity';
 import { EvenementService } from '../evenement/evenement.service';
+import { MailService } from '../mail/mail.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -26,6 +27,7 @@ import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
 import { User } from '../user/entities/user.entity';
 import { SInscrireDto, FiltreInscriptionDto } from './dto/billetterie.dto';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
+import { enUrlDeDonnees, genererQrBillet } from './qr-billet';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
@@ -45,6 +47,7 @@ export class BilletterieService {
     private readonly inscriptions: Repository<Inscription>,
     private readonly evenementService: EvenementService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly transactionService: TransactionService,
@@ -112,6 +115,13 @@ export class BilletterieService {
       }
 
       await this.notifierInscription(user, evenement, inscription);
+
+      // Un événement gratuit, ou un paiement abouti dès l'appel, confirme
+      // l'inscription sans qu'aucun webhook ne passe : le billet doit être
+      // émis ici, sans quoi ces deux cas n'en recevraient jamais.
+      if (inscription.statut === StatutInscription.CONFIRMEE) {
+        await this.emettreBillet({ ...inscription, user, evenement });
+      }
 
       return this.trouverBillet(inscription.id, user.id);
     } catch (erreur) {
@@ -302,6 +312,38 @@ export class BilletterieService {
       message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}.`,
       lien: `/billets/${inscription.id}`,
     });
+
+    // Après la mise à jour conditionnelle : un webhook rejoué n'affecte aucune
+    // ligne, sort plus haut, et ne renvoie donc pas un second billet.
+    await this.emettreBillet(inscription);
+  }
+
+  /**
+   * Renvoie le billet à la demande.
+   *
+   * Un email se perd, atterrit en indésirable, ou part vers une adresse que la
+   * personne ne relève plus. Sans ce recours, le seul moyen de récupérer son
+   * billet serait d'annuler puis de se réinscrire — donc de repayer.
+   */
+  async renvoyerBillet(inscriptionId: string, userId: string): Promise<void> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id: inscriptionId, user: { id: userId } },
+      relations: { user: true, evenement: true },
+    });
+
+    if (!inscription) {
+      throw new NotFoundException("Ce billet n'existe pas.");
+    }
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      throw new ConflictException('Ce billet a été annulé.');
+    }
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      throw new ConflictException(
+        "Ce billet n'est pas encore payé : il n'y a rien à envoyer.",
+      );
+    }
+
+    await this.emettreBillet(inscription);
   }
 
   async trouverBillet(id: string, userId: string): Promise<Inscription> {
@@ -406,6 +448,51 @@ export class BilletterieService {
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
       });
+
+      // Reporté sur l'objet en mémoire : l'appelant décide d'émettre le billet
+      // à partir de lui, et le laisser périmé priverait de billet quiconque
+      // paie sans passer par le webhook.
+      inscription.statut = StatutInscription.CONFIRMEE;
+      inscription.statutPaiement = StatutPaiement.COMPLETE;
+    }
+  }
+
+  /**
+   * Émet le billet : QR code enregistré, puis envoi par email.
+   *
+   * **Ne lève jamais.** Dès la confirmation, la place est payée et le code est
+   * en base : le scan à l'entrée le reconnaîtra, email reçu ou non. Laisser
+   * une panne SMTP remonter ferait échouer l'inscription — donc rendre la
+   * place et supprimer le billet — pour un incident qui n'appartient ni à la
+   * personne inscrite, ni à son paiement.
+   *
+   * Le QR est régénéré à chaque appel : il dérive du seul code du billet, qui
+   * ne change pas, et un renvoi produit donc exactement la même image.
+   */
+  private async emettreBillet(inscription: Inscription): Promise<void> {
+    try {
+      const png = await genererQrBillet(inscription.codeBillet);
+
+      await this.inscriptions.update(inscription.id, {
+        qrCode: enUrlDeDonnees(png),
+      });
+
+      await this.mailService.envoyerBillet(
+        inscription.user.email,
+        inscription.user.firstName,
+        {
+          titre: inscription.evenement.titre,
+          dateDebut: inscription.evenement.dateDebut,
+          lieu: inscription.evenement.lieu,
+          codeBillet: inscription.codeBillet,
+          qrPng: png,
+        },
+      );
+    } catch (erreur) {
+      this.logger.error(
+        `Émission du billet ${inscription.codeBillet} impossible : l'inscription reste valide.`,
+        erreur,
+      );
     }
   }
 
