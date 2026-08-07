@@ -3,9 +3,8 @@ import { MethodePaiement, StatutPaiement } from '../enums/paiement.enum';
 /**
  * Contrat que doit respecter tout prestataire de paiement mobile.
  *
- * La billetterie et la boutique ne connaissent que cette interface. Le compte
- * NotchPay n'étant pas encore ouvert, l'implémentation réelle viendra plus
- * tard sans qu'aucun appelant n'ait à changer.
+ * La billetterie et la boutique ne connaissent que cette interface : changer
+ * de prestataire se joue dans un adaptateur, sans qu'aucun appelant bouge.
  */
 export interface PasserellePaiement {
   /**
@@ -20,14 +19,30 @@ export interface PasserellePaiement {
   verifier(reference: string): Promise<ResultatPaiement>;
 
   /**
-   * Valide la signature d'un webhook et en extrait l'état du paiement.
+   * Authentifie une notification et en rend l'état **faisant foi**.
    *
-   * Lève si la signature est absente ou fausse. Le corps **brut** est exigé :
-   * un corps déjà désérialisé puis resérialisé ne produit plus la même
-   * signature.
+   * Asynchrone à dessein. Tous les prestataires ne signent pas leur corps :
+   * quand l'authentification ne repose que sur un secret partagé en en-tête,
+   * celui-ci prouve seulement que l'appelant le connaît — pas que *ce
+   * corps-là* vient bien du prestataire. L'adaptateur doit alors reposer la
+   * question au prestataire, ce qui suppose un appel réseau.
+   *
+   * Le corps **brut** reste exigé : là où la signature porte sur les octets,
+   * désérialiser puis resérialiser réordonne les clés et l'invalide.
    */
-  interpreterWebhook(corpsBrut: Buffer, signature?: string): EvenementPaiement;
+  interpreterWebhook(
+    corpsBrut: Buffer,
+    entetes: EntetesWebhook,
+  ): Promise<EvenementPaiement>;
 }
+
+/**
+ * En-têtes utiles à l'authentification d'une notification.
+ *
+ * Passés en bloc plutôt qu'un par un : chaque prestataire nomme le sien, et
+ * le contrôleur n'a pas à connaître celui du moment.
+ */
+export type EntetesWebhook = Record<string, string | string[] | undefined>;
 
 export interface DemandePaiement {
   reference: string;
