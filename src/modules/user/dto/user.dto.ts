@@ -178,6 +178,17 @@ export class UtilisateurExpose {
 }
 
 export function exposerUtilisateur(user: User): UtilisateurExpose {
+  // `passwordHash` n'est plus chargé par défaut. Non chargé, il vaut
+  // `undefined` et non `null` : le déduire donnerait « ce compte a un mot de
+  // passe » sur un sponsor qui n'en a pas encore, ou l'inverse, sans que rien
+  // ne le signale. On préfère échouer bruyamment que répondre au hasard.
+  if ((user.passwordHash as string | null | undefined) === undefined) {
+    throw new Error(
+      'exposerUtilisateur a reçu un compte sans son empreinte : chargez-le ' +
+        'via UserService.trouverOuEchouer, update ou lister.',
+    );
+  }
+
   return {
     id: user.id,
     email: user.email,

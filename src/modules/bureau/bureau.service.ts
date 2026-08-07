@@ -12,6 +12,8 @@ import {
   AffecterMembreDto,
   BureauPublic,
   CreerPosteDto,
+  exposerMembre,
+  MembreExpose,
   MembrePublic,
   MettreAJourMembreDto,
   MettreAJourPosteDto,
@@ -97,7 +99,7 @@ export class BureauService {
   async affecter(
     generationId: string,
     dto: AffecterMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     const generation = await this.trouverGeneration(generationId);
 
     if (generation.archivedAt) {
@@ -137,7 +139,7 @@ export class BureauService {
       );
     }
 
-    return this.membres.save(
+    const enregistre = await this.membres.save(
       this.membres.create({
         generation,
         poste,
@@ -145,15 +147,17 @@ export class BureauService {
         presentation: dto.presentation ?? null,
       }),
     );
+
+    return exposerMembre(enregistre);
   }
 
   async mettreAJourMembre(
     id: string,
     dto: MettreAJourMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     await this.trouverMembre(id);
     await this.membres.update(id, dto);
-    return this.trouverMembre(id);
+    return exposerMembre(await this.trouverMembre(id));
   }
 
   async retirer(id: string): Promise<void> {
@@ -168,12 +172,20 @@ export class BureauService {
     await this.membres.delete(id);
   }
 
+  /** Usage interne : entités brutes, jamais renvoyées telles quelles. */
   listerMembres(generationId: string): Promise<MembreBureau[]> {
     return this.membres.find({
       where: { generation: { id: generationId } },
       relations: { poste: true, user: true },
       order: { poste: { ordre: 'ASC' } },
     });
+  }
+
+  /** Composition d'un mandat, telle que l'administration la consulte. */
+  async composition(generationId: string): Promise<MembreExpose[]> {
+    const membres = await this.listerMembres(generationId);
+
+    return membres.map(exposerMembre);
   }
 
   /**

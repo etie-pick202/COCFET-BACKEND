@@ -147,7 +147,9 @@ export class AuthService {
   }
 
   async connecter(email: string, motDePasse: string): Promise<PaireJetons> {
-    const user = await this.userService.findByEmail(normaliserEmail(email));
+    const user = await this.userService.findByEmailPourConnexion(
+      normaliserEmail(email),
+    );
 
     // Une comparaison est effectuée même sans compte, pour que le temps de
     // réponse ne trahisse pas l'existence de l'adresse.
@@ -180,7 +182,9 @@ export class AuthService {
       throw new UnauthorizedException('Session expirée.');
     }
 
-    const user = await this.userService.findById(charge.sub);
+    const user = await this.userService.findByIdPourRafraichissement(
+      charge.sub,
+    );
     if (!user?.refreshTokenHash || !user.isActive) {
       throw new UnauthorizedException('Session expirée.');
     }

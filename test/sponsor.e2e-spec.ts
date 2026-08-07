@@ -16,6 +16,7 @@ import {
   CompteDeTest,
   creerCompteAuthentifie,
   purgerUtilisateurs,
+  relireAvecEmpreintes,
 } from './utils/authentification';
 
 /**
@@ -140,8 +141,11 @@ describe('Sponsors (e2e)', () => {
       const reponse = await inviter().expect(201);
       const email = (reponse.body as { email: string }).email;
 
-      const compte = await users.findOne({ where: { email } });
-      expect(compte).toMatchObject({
+      const compte = await users.findOneOrFail({ where: { email } });
+      // Empreinte redemandée : `select: false` la rendrait `undefined`, et
+      // l'assertion « pas de mot de passe » passerait sans rien prouver.
+      const avecEmpreintes = await relireAvecEmpreintes(app, compte.id);
+      expect(avecEmpreintes).toMatchObject({
         role: Role.SPONSOR,
         passwordHash: null,
         emailVerifieLe: null,
