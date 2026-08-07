@@ -14,6 +14,7 @@ minimumReleaseAgeExclude:
   - brace-expansion@2.1.4
   - brace-expansion@5.0.9
   - fast-uri@3.1.5
+  - nanoid@3.3.18
 
 # CVE dans des dépendances transitives que nous ne contrôlons pas directement
 # (principalement via l'arbre mjml de @nestjs-modules/mailer). On force les
@@ -39,6 +40,13 @@ overrides:
   # v10 repond a une contrainte differente et forcer un changement de majeure
   # casserait @cucumber/messages@26.
   uuid@^11.0.0: '>=11.1.1'
+  # nanoid : un generateur personnalise recevant une taille nulle boucle
+  # indefiniment (GHSA-2v37-7h3g-55p8). Remonte par postcss, dans l'arbre mjml
+  # de @nestjs-modules/mailer — donc au rendu des emails.
+  # Version EXACTE, et scope a la branche v3 que postcss demande (^3.3.16) :
+  # « >=3.3.17 » resout vers la 6.x — verifie — qui est ESM pur et que
+  # postcss, en CommonJS, ne sait pas charger.
+  nanoid@^3.3.16: '3.3.18'
 
 # GHSA-mh99-v99m-4gvg (CVE-2026-14257, brace-expansion) : l'avis déclare
 # « vulnérable <=5.0.7 », ce qui marque à tort les rétroportages 1.1.17 et
