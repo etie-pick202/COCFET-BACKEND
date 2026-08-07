@@ -95,12 +95,26 @@ export class DesignerLogoDto {
 }
 
 /** Vue publique d'un membre : ni adresse, ni identifiant de compte. */
-export interface MembrePublic {
+export class MembrePublic {
+  @ApiProperty({ example: 'Président' })
   poste: string;
+
+  @ApiProperty({ example: 1, description: 'Ordre protocolaire d’affichage.' })
   ordre: number;
+
+  @ApiProperty({ example: 'Awa' })
   prenom: string;
+
+  @ApiProperty({ example: 'Ngassa' })
   nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
   avatar: string | null;
+
+  @ApiProperty({ nullable: true })
   presentation: string | null;
 }
 
@@ -114,23 +128,57 @@ export interface MembrePublic {
  * ce qui sort est ce qui est nommé ici, et rien d'autre ne peut s'y glisser
  * quand une colonne sera ajoutée à `User`.
  */
-export interface MembreExpose {
+export class PosteDuMembre {
+  @ApiProperty({ format: 'uuid' })
   id: string;
-  poste: { id: string; nom: string; ordre: number };
-  /**
-   * Le titulaire vu par l'administration : de quoi l'identifier et le
-   * recontacter. Volontairement plus étroit que `UtilisateurExpose`, dont les
-   * champs calculés — `aUnMotDePasse`, `emailVerifie` — relèvent de la gestion
-   * des comptes et n'ont rien à faire dans la composition d'un bureau.
-   */
-  membre: {
-    id: string;
-    email: string;
-    prenom: string;
-    nom: string;
-    avatar: string | null;
-    promotion: number | null;
-  };
+
+  @ApiProperty({ example: 'Président' })
+  nom: string;
+
+  @ApiProperty({ example: 1, description: 'Ordre protocolaire d’affichage.' })
+  ordre: number;
+}
+
+/**
+ * Le titulaire vu par l'administration : de quoi l'identifier et le
+ * recontacter. Volontairement plus étroit que `UtilisateurExpose`, dont les
+ * champs calculés — `aUnMotDePasse`, `emailVerifie` — relèvent de la gestion
+ * des comptes et n'ont rien à faire dans la composition d'un bureau.
+ */
+export class TitulaireExpose {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
+  email: string;
+
+  @ApiProperty({ example: 'Etienne' })
+  prenom: string;
+
+  @ApiProperty({ example: 'Mayack' })
+  nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
+  avatar: string | null;
+
+  @ApiProperty({ example: 2027, nullable: true })
+  promotion: number | null;
+}
+
+export class MembreExpose {
+  @ApiProperty({ format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ type: PosteDuMembre })
+  poste: PosteDuMembre;
+
+  @ApiProperty({ type: TitulaireExpose })
+  membre: TitulaireExpose;
+
+  @ApiProperty({ nullable: true })
   presentation: string | null;
 }
 
@@ -155,11 +203,25 @@ export function exposerMembre(membre: MembreBureau): MembreExpose {
 }
 
 /** Ce que le frontend affiche sur la page « Le bureau ». */
-export interface BureauPublic {
+export class BureauPublic {
+  @ApiProperty({ example: 2027 })
   annee: number;
+
+  @ApiProperty({ example: 'ATLAS', description: 'Nom du bureau.' })
   nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Logo désigné pour la plateforme.',
+  })
   logo: string | null;
+
+  @ApiProperty({ example: '#0F172A' })
   couleurPrimaire: string;
+
+  @ApiProperty({ example: '#D4AF37' })
   couleurSecondaire: string;
+
+  @ApiProperty({ type: [MembrePublic] })
   membres: MembrePublic[];
 }

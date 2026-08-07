@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, JoinColumn, ManyToOne, Unique } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Generation } from '../../generation/entities/generation.entity';
@@ -19,10 +20,12 @@ import { PosteBureau } from './poste-bureau.entity';
 export class MembreBureau extends BaseEntity {
   @ManyToOne(() => Generation, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'generation_id' })
+  @ApiProperty({ required: false })
   generation: Generation;
 
   @ManyToOne(() => PosteBureau, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'poste_id' })
+  @ApiProperty({ required: false })
   poste: PosteBureau;
 
   /**
@@ -32,9 +35,11 @@ export class MembreBureau extends BaseEntity {
    */
   @ManyToOne(() => User, { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'user_id' })
+  @ApiProperty({ required: false })
   user: User;
 
   /** Mot de la personne sur son rôle, affiché sur la page du bureau. */
   @Column({ type: 'text', nullable: true })
+  @ApiProperty({ nullable: true })
   presentation: string | null;
 }

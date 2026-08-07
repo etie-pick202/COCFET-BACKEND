@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { ApiProperty } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import { Role } from '../../common/enums/role.enum';
@@ -22,8 +23,19 @@ import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 
-export interface PaireJetons {
+export class PaireJetons {
+  @ApiProperty({
+    description:
+      'À présenter en en-tête « Authorization: Bearer … ». Courte durée de vie.',
+  })
   accessToken: string;
+
+  @ApiProperty({
+    description:
+      'Sert uniquement à obtenir un nouveau jeton d’accès. Chaque ' +
+      'rafraîchissement invalide le précédent : rejouer un ancien jeton coupe ' +
+      'toutes les sessions, le vol étant l’explication la plus probable.',
+  })
   refreshToken: string;
 }
 

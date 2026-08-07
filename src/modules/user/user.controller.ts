@@ -12,6 +12,9 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -19,6 +22,12 @@ import {
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { MetaPagination } from '../../common/pagination';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ApiReponsePaginee,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import {
   ChangerMotDePasseDto,
@@ -34,6 +43,8 @@ type Requete = Request & { user: { id: string; role: Role } };
 
 @ApiTags('Utilisateurs')
 @ApiBearerAuth()
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller('utilisateurs')
 export class UserController {
   constructor(private readonly userService: UserService) {}
@@ -50,6 +61,10 @@ export class UserController {
       'construite champ par champ : ni empreinte de mot de passe, ni jeton de ' +
       'rafraîchissement ne peuvent s’y glisser.',
   })
+  @ApiOkResponse({
+    description: 'Le compte du porteur du jeton.',
+    type: UtilisateurExpose,
+  })
   async monProfil(@Req() requete: Requete): Promise<UtilisateurExpose> {
     return exposerUtilisateur(
       await this.userService.trouverOuEchouer(requete.user.id),
@@ -63,6 +78,10 @@ export class UserController {
       'Prénom, nom et photo seulement. Le rôle ouvrirait l’administration, la ' +
       'promotion détermine le tarif campus, et le statut de finissant décide ' +
       'de l’appartenance à l’annuaire : aucun des trois ne se déclare.',
+  })
+  @ApiOkResponse({
+    description: 'Le compte mis à jour.',
+    type: UtilisateurExpose,
   })
   async mettreAJourMonProfil(
     @Req() requete: Requete,
@@ -82,7 +101,12 @@ export class UserController {
       'verrouiller le compte de son propriétaire. Les autres sessions sont ' +
       'ensuite coupées.',
   })
-  @ApiResponse({ status: 401, description: 'Mot de passe actuel incorrect.' })
+  @ApiNoContentResponse({ description: 'Mot de passe changé.' })
+  @ApiResponse({
+    status: 401,
+    description: 'Mot de passe actuel incorrect.',
+    type: ReponseErreurDto,
+  })
   changerMonMotDePasse(
     @Req() requete: Requete,
     @Body() dto: ChangerMotDePasseDto,
@@ -100,6 +124,7 @@ export class UserController {
       'Filtres sur le rôle, la promotion, le statut de finissant et l’activité, ' +
       'plus une recherche sur le nom et l’adresse.',
   })
+  @ApiReponsePaginee(UtilisateurExpose, 'Page de comptes.')
   async lister(
     @Query() filtre: FiltreUtilisateurDto,
   ): Promise<{ donnees: UtilisateurExpose[]; meta: MetaPagination }> {
@@ -114,6 +139,11 @@ export class UserController {
   @Roles(Role.ADMIN)
   @Get(':id')
   @ApiOperation({ summary: 'Consulter un compte' })
+  @ApiOkResponse({ description: 'Le compte demandé.', type: UtilisateurExpose })
+  @ApiNotFoundResponse({
+    description: 'Compte inconnu.',
+    type: ReponseErreurDto,
+  })
   async trouver(
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<UtilisateurExpose> {
@@ -130,9 +160,18 @@ export class UserController {
       'administrateur ne peut ni se retirer son rôle, ni se désactiver, ni ' +
       'retirer le rôle du dernier administrateur restant.',
   })
+  @ApiOkResponse({
+    description: 'Le compte mis à jour.',
+    type: UtilisateurExpose,
+  })
   @ApiResponse({
     status: 403,
     description: 'Opération qui rendrait la plateforme ingérable.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Compte inconnu.',
+    type: ReponseErreurDto,
   })
   async administrer(
     @Param('id', ParseUUIDPipe) id: string,

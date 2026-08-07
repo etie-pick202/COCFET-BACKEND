@@ -130,9 +130,27 @@ export class FiltreEvenementDto extends PaginationDto {
 }
 
 /** Ce que l'API renvoie en plus de l'entité, calculé pour le demandeur. */
-export interface EvenementAvecTarif {
+export class EvenementAvecTarif {
+  @ApiProperty({
+    example: 5000,
+    description:
+      'En FCFA. Ne découle pas du rôle mais de la promotion : un ancien reste ' +
+      'STUDENT et paie pourtant le tarif externe.',
+  })
   prixApplicable: number;
+
+  @ApiProperty({
+    description: 'Vrai si le demandeur bénéficie du tarif campus.',
+  })
   tarifCampus: boolean;
+
+  @ApiProperty({
+    example: 42,
+    nullable: true,
+    description: 'Nul quand la capacité est illimitée.',
+  })
   placesRestantes: number | null;
+
+  @ApiProperty()
   complet: boolean;
 }
