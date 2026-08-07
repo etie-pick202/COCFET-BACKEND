@@ -19,7 +19,13 @@ import {
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { MetaPagination } from '../../common/pagination';
+import {
+  LIMITE_ENVOI_EMAIL,
+  LimiteDebit,
+} from '../../common/guards/limite-debit.decorator';
+import { AuthService } from '../auth/auth.service';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { DemanderChangementEmailDto } from '../auth/dto/changement-email.dto';
 import {
   ChangerMotDePasseDto,
   exposerUtilisateur,
@@ -36,7 +42,10 @@ type Requete = Request & { user: { id: string; role: Role } };
 @ApiBearerAuth()
 @Controller('utilisateurs')
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly authService: AuthService,
+  ) {}
 
   // ─────────────────────────────  Son compte  ───────────────────────────
   // Déclarés avant « :id » : sinon « moi » serait interprété comme un
@@ -88,6 +97,36 @@ export class UserController {
     @Body() dto: ChangerMotDePasseDto,
   ): Promise<void> {
     return this.userService.changerMotDePasse(requete.user.id, dto);
+  }
+
+  @LimiteDebit(LIMITE_ENVOI_EMAIL)
+  @Patch('moi/email')
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ApiOperation({
+    summary: 'Demander un changement d’adresse',
+    description:
+      'Le mot de passe actuel est exigé : sans lui, un jeton volé suffirait à ' +
+      's’approprier le compte en basculant son identifiant de connexion, puis ' +
+      'en demandant une réinitialisation. Rien ne change tant que la nouvelle ' +
+      'boîte n’a pas répondu — la connexion continue de se faire avec ' +
+      'l’ancienne adresse. Celle-ci reçoit une alerte.',
+  })
+  @ApiResponse({ status: 401, description: 'Mot de passe incorrect.' })
+  @ApiResponse({ status: 409, description: 'Adresse déjà utilisée.' })
+  async demanderChangementEmail(
+    @Req() requete: Requete,
+    @Body() dto: DemanderChangementEmailDto,
+  ): Promise<{ message: string }> {
+    await this.authService.demanderChangementEmail(
+      requete.user.id,
+      dto.email,
+      dto.motDePasse,
+    );
+
+    return {
+      message:
+        'Un lien de confirmation vient d’être envoyé à votre nouvelle adresse.',
+    };
   }
 
   // ───────────────────────────  Administration  ─────────────────────────

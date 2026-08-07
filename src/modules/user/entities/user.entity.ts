@@ -51,6 +51,16 @@ export class User extends BaseEntity {
   @Column({ name: 'email_verifie_le', type: 'timestamptz', nullable: true })
   emailVerifieLe: Date | null;
 
+  /**
+   * Adresse demandée, en attente de confirmation.
+   *
+   * Elle ne remplace `email` qu'une fois le lien suivi : tant que la nouvelle
+   * boîte n'a pas répondu, la connexion continue de se faire avec l'ancienne.
+   * Une bascule immédiate enfermerait dehors quiconque se trompe d'adresse.
+   */
+  @Column({ name: 'email_en_attente', type: 'varchar', nullable: true })
+  emailEnAttente: string | null;
+
   @Column({ name: 'refresh_token_hash', type: 'varchar', nullable: true })
   refreshTokenHash: string | null;
 
