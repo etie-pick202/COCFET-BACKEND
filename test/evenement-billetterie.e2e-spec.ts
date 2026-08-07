@@ -11,7 +11,10 @@ import {
   Inscription,
   StatutInscription,
 } from './../src/modules/billetterie/entities/inscription.entity';
+import * as jsQR from 'jsqr';
+import { PNG } from 'pngjs';
 import {
+  ControleAcces,
   Evenement,
   StatutEvenement,
   TypeEvenement,
@@ -85,6 +88,13 @@ describe('Événements et billetterie (e2e)', () => {
       .post(`${EVENEMENTS}/${id}/inscription`)
       .set(compte.entetes)
       .send(corps);
+
+  /** Presente une valeur au controle : code fixe ou jeton tournant. */
+  const scanner = (code: string, compte: CompteDeTest) =>
+    request(app.getHttpServer())
+      .post(`${BILLETS}/scanner`)
+      .set(compte.entetes)
+      .send({ codeBillet: code });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -473,12 +483,6 @@ describe('Événements et billetterie (e2e)', () => {
   });
 
   describe('contrôle à l’entrée', () => {
-    const scanner = (code: string, compte: CompteDeTest) =>
-      request(app.getHttpServer())
-        .post(`${BILLETS}/scanner`)
-        .set(compte.entetes)
-        .send({ codeBillet: code });
-
     it('valide un billet une fois, et une seule', async () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
@@ -853,6 +857,18 @@ describe('Événements et billetterie (e2e)', () => {
   });
 
   describe('émission du billet', () => {
+    /** Relit l'image servie comme le ferait un lecteur à l'entrée. */
+    const lireQr = (dataUrl: string): string | null => {
+      const png = PNG.sync.read(
+        Buffer.from(dataUrl.replace(/^data:image\/png;base64,/, ''), 'base64'),
+      );
+
+      return (
+        jsQR.default(Uint8ClampedArray.from(png.data), png.width, png.height)
+          ?.data ?? null
+      );
+    };
+
     it('génère le QR code et envoie le billet à la confirmation', async () => {
       const id = await creerEtPublier();
 
@@ -934,6 +950,87 @@ describe('Événements et billetterie (e2e)', () => {
         .post(`${BILLETS}/${billet.id}/renvoyer`)
         .set(finissant.entetes)
         .expect(409);
+    });
+
+    it('n’émet aucun billet quand l’événement ne filtre pas l’entrée', async () => {
+      const id = await creerEtPublier({ controleAcces: ControleAcces.AUCUN });
+
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      // Fabriquer un billet ferait croire à un contrôle qui n'existe pas.
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+
+      await request(app.getHttpServer())
+        .get(`${BILLETS}/${billet.id}/qr`)
+        .set(finissant.entetes)
+        .expect(409);
+
+      await scanner(billet.codeBillet, admin).expect(400);
+    });
+
+    it('sert un code tournant, et refuse le code fixe à l’entrée', async () => {
+      const id = await creerEtPublier({
+        controleAcces: ControleAcces.QR_TOURNANT,
+      });
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      // Rien n'est gravé ni envoyé : l'image ne vaut que trente secondes.
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+      const [, , contenu] = faussaireMail.envoyerBillet.mock.calls[0] as [
+        string,
+        string,
+        { qrPng: Buffer | null },
+      ];
+      expect(contenu.qrPng).toBeNull();
+
+      const code = await request(app.getHttpServer())
+        .get(`${BILLETS}/${billet.id}/qr`)
+        .set(finissant.entetes)
+        .expect(200);
+      const servi = code.body as {
+        qrCode: string;
+        tournant: boolean;
+        expireDans: number;
+      };
+
+      expect(servi.tournant).toBe(true);
+      expect(servi.expireDans).toBeGreaterThan(0);
+
+      // Le code d'entrée seul ne suffit plus : c'est toute la raison d'être
+      // de l'option. Sans ce refus, une capture d'écran ferait entrer.
+      await scanner(billet.codeBillet, admin).expect(400);
+
+      // Le jeton lu dans l'image, lui, ouvre — et une seule fois.
+      const jeton = lireQr(servi.qrCode);
+      expect(jeton).not.toBe(billet.codeBillet);
+      await scanner(jeton!, admin).expect(201);
+      await scanner(jeton!, admin).expect(409);
+    });
+
+    it('renouvelle le code servi d’une fenêtre à l’autre', async () => {
+      const id = await creerEtPublier({
+        controleAcces: ControleAcces.QR_TOURNANT,
+      });
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string };
+
+      const servi = async () => {
+        const r = await request(app.getHttpServer())
+          .get(`${BILLETS}/${billet.id}/qr`)
+          .set(finissant.entetes)
+          .expect(200);
+        return lireQr((r.body as { qrCode: string }).qrCode);
+      };
+
+      // Dans la même fenêtre, la valeur ne bouge pas : le porteur ne voit pas
+      // son écran clignoter à chaque rafraîchissement.
+      expect(await servi()).toBe(await servi());
     });
 
     it('laisse l’inscription valide quand l’envoi échoue', async () => {

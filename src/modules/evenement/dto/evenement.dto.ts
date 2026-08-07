@@ -13,7 +13,11 @@ import {
   MinLength,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/pagination';
-import { StatutEvenement, TypeEvenement } from '../entities/evenement.entity';
+import {
+  ControleAcces,
+  StatutEvenement,
+  TypeEvenement,
+} from '../entities/evenement.entity';
 
 export class CreerEvenementDto {
   @ApiProperty({ example: 'Gala des finissants 2027' })
@@ -81,6 +85,20 @@ export class CreerEvenementDto {
   @Min(0)
   @IsOptional()
   capaciteMax?: number;
+
+  @ApiPropertyOptional({
+    enum: ControleAcces,
+    default: ControleAcces.QR_FIXE,
+    description:
+      'AUCUN : aucun billet n’est émis, l’inscription sert à compter. ' +
+      'QR_FIXE : billet envoyé par email, présentable hors ligne. ' +
+      'QR_TOURNANT : code renouvelé toutes les 30 s dans l’application, ni ' +
+      'téléchargeable ni envoyé — une capture d’écran transmise arrive ' +
+      'périmée, au prix d’exiger du réseau à l’entrée.',
+  })
+  @IsEnum(ControleAcces)
+  @IsOptional()
+  controleAcces?: ControleAcces;
 
   @ApiPropertyOptional({ description: 'Clé de l’objet dans le stockage.' })
   @IsString()

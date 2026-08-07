@@ -37,6 +37,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserService } from '../user/user.service';
 import { BilletterieService } from './billetterie.service';
 import {
+  CodeBillet,
   FiltreInscriptionDto,
   ScannerBilletDto,
   SInscrireDto,
@@ -152,6 +153,34 @@ export class BilletterieController {
     @Req() requete: Requete,
   ): Promise<void> {
     return this.billetterieService.annuler(id, requete.user.id);
+  }
+
+  @Get('billets/:id/qr')
+  @ApiOperation({
+    summary: 'Obtenir le code à présenter à l’entrée',
+    description:
+      'La forme dépend du régime de l’événement. Sur `QR_FIXE`, c’est le ' +
+      'même code que celui reçu par email. Sur `QR_TOURNANT`, le code ne vaut ' +
+      'que trente secondes : `expireDans` dit quand le redemander, et ' +
+      'l’image ne doit être ni mise en cache ni enregistrée. Sur `AUCUN`, ' +
+      'il n’y a rien à présenter et la route refuse.',
+  })
+  @ApiOkResponse({ description: 'Le code du moment.', type: CodeBillet })
+  @ApiNotFoundResponse({
+    description: 'Billet inconnu, ou appartenant à un autre compte.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Billet annulé, pas encore payé, ou événement sans contrôle d’entrée.',
+    type: ReponseErreurDto,
+  })
+  codeDuBillet(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() requete: Requete,
+  ): Promise<CodeBillet> {
+    return this.billetterieService.qrDuBillet(id, requete.user.id);
   }
 
   @Post('billets/:id/renvoyer')
