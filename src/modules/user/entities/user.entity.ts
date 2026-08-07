@@ -13,8 +13,21 @@ export class User extends BaseEntity {
    * Nul tant que le compte n'a pas de mot de passe : c'est le cas d'un sponsor
    * créé par l'administration, entre l'invitation et son activation. Un compte
    * dans cet état ne peut pas se connecter.
+   *
+   * `select: false` : l'entité User est chargée en relation depuis le bureau,
+   * les notifications, les billets et les fiches sponsor, et ces réponses la
+   * sérialisent telle quelle. Sans cette option, l'empreinte part dans le JSON
+   * à chaque fois — et il suffit d'une nouvelle relation `user` ajoutée
+   * ailleurs pour rouvrir la fuite. La refermer ici la referme partout, y
+   * compris pour le code qui n'est pas encore écrit. Les rares lectures qui en
+   * ont besoin la redemandent explicitement (voir `UserService`).
    */
-  @Column({ name: 'password_hash', type: 'varchar', nullable: true })
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    nullable: true,
+    select: false,
+  })
   passwordHash: string | null;
 
   @Column({ name: 'first_name' })
@@ -51,7 +64,13 @@ export class User extends BaseEntity {
   @Column({ name: 'email_verifie_le', type: 'timestamptz', nullable: true })
   emailVerifieLe: Date | null;
 
-  @Column({ name: 'refresh_token_hash', type: 'varchar', nullable: true })
+  /** Jamais chargée par défaut, pour la même raison que `passwordHash`. */
+  @Column({
+    name: 'refresh_token_hash',
+    type: 'varchar',
+    nullable: true,
+    select: false,
+  })
   refreshTokenHash: string | null;
 
   /** Désactivation par l'administration, indépendante de la vérification. */

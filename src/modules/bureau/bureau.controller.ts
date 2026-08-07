@@ -24,10 +24,10 @@ import {
   AffecterMembreDto,
   BureauPublic,
   CreerPosteDto,
+  MembreExpose,
   MettreAJourMembreDto,
   MettreAJourPosteDto,
 } from './dto/bureau.dto';
-import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
 
 @ApiTags('Bureau COCFET')
@@ -106,11 +106,16 @@ export class BureauController {
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
   @Get(':generationId/membres')
-  @ApiOperation({ summary: 'Composition d’un mandat' })
+  @ApiOperation({
+    summary: 'Composition d’un mandat',
+    description:
+      'Chaque titulaire est projeté champ par champ : la réponse porte de quoi ' +
+      'l’identifier et le recontacter, jamais l’entité de compte entière.',
+  })
   listerMembres(
     @Param('generationId', ParseUUIDPipe) generationId: string,
-  ): Promise<MembreBureau[]> {
-    return this.bureauService.listerMembres(generationId);
+  ): Promise<MembreExpose[]> {
+    return this.bureauService.composition(generationId);
   }
 
   @ApiBearerAuth()
@@ -135,7 +140,7 @@ export class BureauController {
   affecter(
     @Param('generationId', ParseUUIDPipe) generationId: string,
     @Body() dto: AffecterMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     return this.bureauService.affecter(generationId, dto);
   }
 
@@ -146,7 +151,7 @@ export class BureauController {
   mettreAJourMembre(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourMembreDto,
-  ): Promise<MembreBureau> {
+  ): Promise<MembreExpose> {
     return this.bureauService.mettreAJourMembre(id, dto);
   }
 

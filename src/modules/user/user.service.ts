@@ -42,17 +42,44 @@ export class UserService {
     return this.users.findOne({ where: { email } });
   }
 
+  /**
+   * Lecture par adresse **avec l'empreinte du mot de passe**.
+   *
+   * Réservée à la connexion, qui est le seul endroit ayant besoin de comparer.
+   * Séparée de `findByEmail` pour que le cas courant reste sans empreinte : un
+   * appelant qui n'en a pas besoin ne peut pas la laisser fuir par mégarde.
+   */
+  findByEmailPourConnexion(email: string): Promise<User | null> {
+    return this.users
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash')
+      .where('u.email = :email', { email })
+      .getOne();
+  }
+
+  /**
+   * Lecture par identifiant **avec l'empreinte du refresh token**.
+   *
+   * Réservée à la rotation des jetons, seul endroit qui compare l'empreinte
+   * stockée à celle du jeton présenté.
+   */
+  findByIdPourRafraichissement(id: string): Promise<User | null> {
+    return this.users
+      .createQueryBuilder('u')
+      .addSelect('u.refreshTokenHash')
+      .where('u.id = :id', { id })
+      .getOne();
+  }
+
   create(data: Partial<User>): Promise<User> {
     return this.users.save(this.users.create(data));
   }
 
   async update(id: string, data: Partial<User>): Promise<User> {
     await this.users.update(id, data);
-    const user = await this.findById(id);
-    if (!user) {
-      throw new NotFoundException("Cet utilisateur n'existe pas.");
-    }
-    return user;
+    // Relu par `trouverOuEchouer` et non `findById` : le résultat part vers
+    // `exposerUtilisateur`, qui a besoin de savoir si un mot de passe existe.
+    return this.trouverOuEchouer(id);
   }
 
   async supprimer(id: string): Promise<void> {
@@ -65,8 +92,19 @@ export class UserService {
 
   // ────────────────────────────  Son profil  ────────────────────────────
 
+  /**
+   * Charge un compte destiné à être exposé ou à confirmer son mot de passe.
+   *
+   * L'empreinte est redemandée : `exposerUtilisateur` en déduit `aUnMotDePasse`
+   * et `changerMotDePasse` la compare. Elle ne ressort jamais pour autant — la
+   * projection est une liste d'inclusion, elle ne recopie que ce qu'elle nomme.
+   */
   async trouverOuEchouer(id: string): Promise<User> {
-    const user = await this.findById(id);
+    const user = await this.users
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash')
+      .where('u.id = :id', { id })
+      .getOne();
 
     if (!user) {
       throw new NotFoundException("Cet utilisateur n'existe pas.");
@@ -134,7 +172,11 @@ export class UserService {
 
   async lister(filtre: FiltreUtilisateurDto): Promise<ResultatPagine<User>> {
     const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'createdAt');
-    const requete = this.users.createQueryBuilder('u');
+    // Empreinte redemandée pour `aUnMotDePasse`, jamais recopiée dans la
+    // réponse : le contrôleur projette chaque ligne via `exposerUtilisateur`.
+    const requete = this.users
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash');
 
     if (filtre.role) {
       requete.andWhere('u.role = :role', { role: filtre.role });
