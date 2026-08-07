@@ -6,11 +6,13 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
+  ControleAcces,
   Evenement,
   StatutEvenement,
   TypeEvenement,
@@ -25,8 +27,18 @@ import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
 import { User } from '../user/entities/user.entity';
-import { SInscrireDto, FiltreInscriptionDto } from './dto/billetterie.dto';
+import {
+  CodeBillet,
+  FiltreInscriptionDto,
+  SInscrireDto,
+} from './dto/billetterie.dto';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
+import {
+  emettreJetonBillet,
+  estJetonTournant,
+  lireJetonBillet,
+  secondesAvantRotation,
+} from './jeton-billet';
 import { enUrlDeDonnees, genererQrBillet } from './qr-billet';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
@@ -42,6 +54,17 @@ const STATUTS_ACTIFS = new Set([
 export class BilletterieService {
   private readonly logger = new Logger(BilletterieService.name);
 
+  /**
+   * Clé de signature des codes tournants.
+   *
+   * Dérivée de la clé d'accès à défaut d'une clé dédiée : réutiliser
+   * `JWT_ACCESS_SECRET` tel quel ferait signer deux choses différentes par la
+   * même valeur, et un jeton de billet deviendrait matière à attaquer les
+   * jetons de session. Le passage par HMAC avec une étiquette distincte donne
+   * une clé indépendante, sans variable de plus à poser au déploiement.
+   */
+  private readonly secretQr: string;
+
   constructor(
     @InjectRepository(Inscription)
     private readonly inscriptions: Repository<Inscription>,
@@ -51,7 +74,16 @@ export class BilletterieService {
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly transactionService: TransactionService,
-  ) {}
+    config: ConfigService,
+  ) {
+    // `||` et non `??` : une variable posée mais vide doit retomber sur la
+    // dérivation, sinon les billets seraient signés avec une clé vide.
+    this.secretQr =
+      config.get<string>('QR_SECRET') ||
+      createHmac('sha256', config.getOrThrow<string>('JWT_ACCESS_SECRET'))
+        .update('billet-qr-tournant')
+        .digest('hex');
+  }
 
   /**
    * Inscrit une personne à un événement.
@@ -232,7 +264,20 @@ export class BilletterieService {
    * elle-même : deux scans simultanés du même code ne peuvent pas réussir tous
    * les deux, et le second reçoit un refus explicite.
    */
-  async scanner(codeBillet: string): Promise<Inscription> {
+  async scanner(presente: string): Promise<Inscription> {
+    const tournant = estJetonTournant(presente);
+    const codeBillet = tournant
+      ? lireJetonBillet(presente, this.secretQr)
+      : presente;
+
+    if (!codeBillet) {
+      // Jeton mal formé, périmé ou mal signé : le même refus dans les trois
+      // cas. Distinguer aiderait à en fabriquer un.
+      throw new BadRequestException(
+        'Ce code n’est plus valide : faites-le régénérer dans l’application.',
+      );
+    }
+
     const inscription = await this.inscriptions.findOne({
       where: { codeBillet },
       relations: { user: true, evenement: true },
@@ -240,6 +285,23 @@ export class BilletterieService {
 
     if (!inscription) {
       throw new NotFoundException('Billet inconnu.');
+    }
+    const controle = inscription.evenement.controleAcces;
+
+    if (controle === ControleAcces.AUCUN) {
+      // Accepter un scan ici laisserait croire à un contrôle que l'événement
+      // n'a pas : le refus dit franchement qu'il n'y a rien à vérifier.
+      throw new BadRequestException(
+        'Cet événement ne filtre pas l’entrée : il n’y a pas de billet à valider.',
+      );
+    }
+    if (controle === ControleAcces.QR_TOURNANT && !tournant) {
+      // Sans ce refus, l'option ne servirait à rien : le code fixe figure en
+      // clair dans le jeton tournant, et le lire suffirait à entrer avec une
+      // capture d'écran — exactement ce que l'option est censée empêcher.
+      throw new BadRequestException(
+        'Cet événement exige le code tournant affiché dans l’application.',
+      );
     }
     if (inscription.statut === StatutInscription.ANNULEE) {
       throw new ConflictException('Ce billet a été annulé.');
@@ -342,8 +404,63 @@ export class BilletterieService {
         "Ce billet n'est pas encore payé : il n'y a rien à envoyer.",
       );
     }
+    if (inscription.evenement.controleAcces === ControleAcces.AUCUN) {
+      throw new ConflictException(
+        'Cet événement ne filtre pas l’entrée : aucun billet n’a été émis.',
+      );
+    }
 
     await this.emettreBillet(inscription);
+  }
+
+  /**
+   * Code d'entrée à présenter, sous la forme qu'exige l'événement.
+   *
+   * Toujours servi par l'API et jamais figé côté client : sur un événement à
+   * code tournant, c'est ce qui garantit que l'image affichée n'a que trente
+   * secondes de validité.
+   */
+  async qrDuBillet(id: string, userId: string): Promise<CodeBillet> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id, user: { id: userId } },
+      relations: { evenement: true },
+    });
+
+    if (!inscription) {
+      throw new NotFoundException("Ce billet n'existe pas.");
+    }
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      throw new ConflictException('Ce billet a été annulé.');
+    }
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      throw new ConflictException("Ce billet n'est pas encore payé.");
+    }
+
+    const controle = inscription.evenement.controleAcces;
+
+    if (controle === ControleAcces.AUCUN) {
+      throw new ConflictException(
+        'Cet événement ne filtre pas l’entrée : aucun code n’est à présenter.',
+      );
+    }
+
+    if (controle === ControleAcces.QR_FIXE) {
+      return {
+        qrCode:
+          inscription.qrCode ??
+          enUrlDeDonnees(await genererQrBillet(inscription.codeBillet)),
+        tournant: false,
+        expireDans: null,
+      };
+    }
+
+    const jeton = emettreJetonBillet(inscription.codeBillet, this.secretQr);
+
+    return {
+      qrCode: enUrlDeDonnees(await genererQrBillet(jeton)),
+      tournant: true,
+      expireDans: secondesAvantRotation(),
+    };
   }
 
   async trouverBillet(id: string, userId: string): Promise<Inscription> {
@@ -470,12 +587,23 @@ export class BilletterieService {
    * ne change pas, et un renvoi produit donc exactement la même image.
    */
   private async emettreBillet(inscription: Inscription): Promise<void> {
-    try {
-      const png = await genererQrBillet(inscription.codeBillet);
+    const controle = inscription.evenement.controleAcces;
 
-      await this.inscriptions.update(inscription.id, {
-        qrCode: enUrlDeDonnees(png),
-      });
+    try {
+      // Seul le régime fixe grave un QR : sous `QR_TOURNANT` l'image ne vaut
+      // que trente secondes et se redemande, sous `AUCUN` il n'y a rien à
+      // contrôler. Dans les deux cas, stocker une image donnerait à croire
+      // qu'elle ouvre une porte.
+      const png =
+        controle === ControleAcces.QR_FIXE
+          ? await genererQrBillet(inscription.codeBillet)
+          : null;
+
+      if (png) {
+        await this.inscriptions.update(inscription.id, {
+          qrCode: enUrlDeDonnees(png),
+        });
+      }
 
       await this.mailService.envoyerBillet(
         inscription.user.email,
@@ -486,6 +614,9 @@ export class BilletterieService {
           lieu: inscription.evenement.lieu,
           codeBillet: inscription.codeBillet,
           qrPng: png,
+          // Le gabarit dit alors quoi faire à l'entrée : présenter l'image,
+          // ouvrir l'application, ou simplement venir.
+          modeAcces: controle,
         },
       );
     } catch (erreur) {

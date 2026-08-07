@@ -1,6 +1,15 @@
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable, Logger } from '@nestjs/common';
 
+/**
+ * Régime de contrôle à l'entrée, décrit ici en union de chaînes.
+ *
+ * Le service de mail n'importe pas l'énumération du module événement : il
+ * n'écrit que du texte, et lui faire connaître le domaine le rendrait
+ * dépendant d'un module qu'il n'a aucune raison de charger.
+ */
+export type ModeAcces = 'AUCUN' | 'QR_FIXE' | 'QR_TOURNANT';
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -139,12 +148,16 @@ export class MailService {
       dateDebut: Date;
       lieu: string;
       codeBillet: string;
-      qrPng: Buffer;
+      /** Absent quand l'événement ne remet pas d'image à conserver. */
+      qrPng: Buffer | null;
+      modeAcces: ModeAcces;
     },
   ): Promise<void> {
     await this.send(
       to,
-      `Votre billet — ${billet.titre}`,
+      billet.modeAcces === 'AUCUN'
+        ? `Inscription confirmée — ${billet.titre}`
+        : `Votre billet — ${billet.titre}`,
       'billet',
       {
         prenom,
@@ -155,14 +168,22 @@ export class MailService {
         }),
         lieu: billet.lieu,
         codeBillet: billet.codeBillet,
+        // Trois variables plutôt qu'une : Handlebars ne compare pas, il teste
+        // la véracité. Toutes sont passées, le mode strict faisant échouer le
+        // rendu sur une variable citée mais absente.
+        avecImage: billet.qrPng !== null,
+        tournant: billet.modeAcces === 'QR_TOURNANT',
+        sansControle: billet.modeAcces === 'AUCUN',
       },
-      [
-        {
-          filename: `billet-${billet.codeBillet}.png`,
-          content: billet.qrPng,
-          cid: 'qrbillet',
-        },
-      ],
+      billet.qrPng
+        ? [
+            {
+              filename: `billet-${billet.codeBillet}.png`,
+              content: billet.qrPng,
+              cid: 'qrbillet',
+            },
+          ]
+        : undefined,
     );
   }
 
