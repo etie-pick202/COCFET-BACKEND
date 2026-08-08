@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { BilletterieService } from '../billetterie/billetterie.service';
-import { Transaction } from './entities/transaction.entity';
+import { CommandeService } from '../commande/commande.service';
+import { OrigineTransaction, Transaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import { PasserellePaiement } from './ports/passerelle-paiement';
 import { ReconciliationService } from './reconciliation.service';
@@ -25,6 +26,7 @@ describe('ReconciliationService', () => {
     ({
       reference: 'COCFET-0001',
       referenceExterne: 'trx_1',
+      origine: OrigineTransaction.EVENEMENT,
       statut: StatutPaiement.EN_ATTENTE,
       createdAt: new Date(Date.now() - minutes * 60_000),
       ...surcharge,
@@ -51,6 +53,12 @@ describe('ReconciliationService', () => {
         confirmerPaiement,
         echouerPaiement,
       } as unknown as BilletterieService,
+      // Les transactions de ces cas portent l'origine EVENEMENT : le double de
+      // la boutique n'est là que pour satisfaire l'injection.
+      {
+        confirmerPaiement: jest.fn(),
+        echouerPaiement: jest.fn(),
+      } as unknown as CommandeService,
       {
         get: (cle: string) =>
           cle === 'PAIEMENT_DELAI_GRACE_MINUTES' ? GRACE : EXPIRATION,

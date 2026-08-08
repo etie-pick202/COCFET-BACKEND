@@ -10,9 +10,16 @@
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
-  "//": "maxWorkers a 1 : chaque fichier monte l'application, qui joue les migrations au demarrage. En parallele, deux instances tentent de creer les memes tables et l'une echoue ; elles partagent en outre la meme base. testTimeout a 30 s : monter l'application et jouer les migrations depasse les 5 s par defaut des que le code est instrumente pour la couverture, et les suites passaient en local pour echouer sous --coverage. Jest n'accepte qu'une seule cle de commentaire, d'ou leur regroupement ici.",
+  "//": "maxWorkers a 1 : chaque fichier monte l'application, qui joue les migrations au demarrage. En parallele, deux instances tentent de creer les memes tables et l'une echoue ; elles partagent en outre la meme base. testTimeout a 30 s : monter l'application et jouer les migrations depasse les 5 s par defaut des que le code est instrumente pour la couverture, et les suites passaient en local pour echouer sous --coverage. Jest n'accepte qu'une seule cle de commentaire, d'ou leur regroupement ici. testPathIgnorePatterns : rootDir remonte a la racine du depot, ou « .claude/worktrees » peut contenir des copies de travail du meme projet. Sans cette exclusion, jest y decouvre les memes suites, les execute contre la meme base, et les deux exemplaires se purgent mutuellement en plein milieu — les echecs paraissent alors venir du code teste.",
   "maxWorkers": 1,
-  "setupFiles": ["<rootDir>/test/setup-e2e.ts"],
+  "testPathIgnorePatterns": [
+    "/node_modules/",
+    "/\\.claude/",
+    "/dist/"
+  ],
+  "setupFiles": [
+    "<rootDir>/test/setup-e2e.ts"
+  ],
   "testTimeout": 30000,
   "collectCoverageFrom": [
     "src/**/*.ts"
