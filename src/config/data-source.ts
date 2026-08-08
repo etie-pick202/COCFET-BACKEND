@@ -1,3 +1,8 @@
+// Charge le fichier .env avant tout : le CLI TypeORM s'exécute hors de Nest,
+// et personne d'autre ne le lit pour lui. `dotenv` est pour cette raison une
+// dépendance de production et non de développement — cette source de données
+// tourne dans l'image, à chaque déploiement, pour jouer les migrations. L'y
+// oublier faisait échouer la commande de release sur « Cannot find module ».
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { optionsTls } from './tls.config';
