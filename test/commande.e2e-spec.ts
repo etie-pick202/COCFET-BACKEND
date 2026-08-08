@@ -14,7 +14,10 @@ import {
 } from './../src/modules/commande/entities/commande.entity';
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { MailService } from './../src/modules/mail/mail.service';
-import { MethodePaiement } from './../src/modules/paiement/enums/paiement.enum';
+import {
+  MethodePaiement,
+  StatutPaiement,
+} from './../src/modules/paiement/enums/paiement.enum';
 import {
   CompteDeTest,
   creerCompteAuthentifie,
@@ -23,11 +26,16 @@ import {
 
 const PRODUITS = '/api/v1/produits';
 const COMMANDES = '/api/v1/commandes';
+const WEBHOOK = '/api/v1/webhooks/fapshi';
+
+/** Secret par defaut de la passerelle factice, impose par setup-e2e. */
+const SECRET_WEBHOOK = 'secret-de-developpement';
 const ANNEE_ACTIVE = 2027;
 
 /** Numéros du bac à sable Fapshi, repris par la passerelle factice. */
 const PAIEMENT_ACCEPTE = '+237670000000';
 const PAIEMENT_EN_ATTENTE = '+237677123456';
+const PAIEMENT_REFUSE = '+237670000001';
 
 describe('Commandes (e2e)', () => {
   let app: INestApplication<App>;
@@ -86,7 +94,9 @@ describe('Commandes (e2e)', () => {
       .useValue(faussaireMail)
       .compile();
 
-    app = moduleFixture.createNestApplication();
+    // rawBody : le controleur de webhook exige le corps brut, comme en
+    // production. Sans lui, la notification echoue avant tout traitement.
+    app = moduleFixture.createNestApplication({ rawBody: true });
     app.setGlobalPrefix('api/v1');
     app.useGlobalPipes(
       new ValidationPipe({
@@ -278,6 +288,118 @@ describe('Commandes (e2e)', () => {
     });
   });
 
+  describe('paiement', () => {
+    /** Notification au format de la passerelle factice. */
+    const notifier = (reference: string, statut: StatutPaiement) =>
+      request(app.getHttpServer())
+        .post(WEBHOOK)
+        .set('Content-Type', 'application/json')
+        .set('x-wh-secret', SECRET_WEBHOOK)
+        .send(
+          JSON.stringify({ reference, referenceExterne: 'trx_simule', statut }),
+        );
+
+    /** Commande laissee en attente de paiement. */
+    const commandeEnAttente = async (
+      stock = 5,
+    ): Promise<{ id: string; produitId: string }> => {
+      const produitId = await creerProduit({ stock });
+      const reponse = await commander(
+        [{ produitId, quantite: 2 }],
+        finissant,
+        PAIEMENT_EN_ATTENTE,
+      ).expect(201);
+
+      return { id: (reponse.body as { id: string }).id, produitId };
+    };
+
+    it('confirme la commande sur notification du prestataire', async () => {
+      // Le webhook doit aiguiller vers la boutique et non vers la
+      // billetterie : sans cela, il chercherait un billet qu'il ne trouverait
+      // pas, et la commande resterait en attente indefiniment.
+      const { id } = await commandeEnAttente();
+
+      await notifier(id, StatutPaiement.COMPLETE).expect(200);
+
+      await expect(commandes.findOneByOrFail({ id })).resolves.toMatchObject({
+        statut: StatutCommande.PAYEE,
+        statutPaiement: StatutPaiement.COMPLETE,
+      });
+    });
+
+    it('ne confirme qu’une fois une notification repetee', async () => {
+      const { id } = await commandeEnAttente();
+
+      await notifier(id, StatutPaiement.COMPLETE).expect(200);
+      const second = await notifier(id, StatutPaiement.COMPLETE).expect(200);
+
+      expect(second.body).toEqual({ recu: true, traite: false });
+    });
+
+    it('annule et rend le stock sur un refus', async () => {
+      const { id, produitId } = await commandeEnAttente(5);
+
+      await expect(
+        produits.findOneByOrFail({ id: produitId }),
+      ).resolves.toMatchObject({ stock: 3 });
+
+      await notifier(id, StatutPaiement.ECHOUE).expect(200);
+
+      await expect(commandes.findOneByOrFail({ id })).resolves.toMatchObject({
+        statut: StatutCommande.ANNULEE,
+        statutPaiement: StatutPaiement.ECHOUE,
+      });
+      await expect(
+        produits.findOneByOrFail({ id: produitId }),
+      ).resolves.toMatchObject({ stock: 5 });
+    });
+
+    it('ne laisse ni commande ni stock immobilise quand le paiement est refuse', async () => {
+      // Refus des l'appel : tout doit etre defait, sans quoi une commande
+      // orpheline resterait visible et le stock bloque.
+      const produitId = await creerProduit({ stock: 4 });
+
+      await commander(
+        [{ produitId, quantite: 2 }],
+        finissant,
+        PAIEMENT_REFUSE,
+      ).expect(400);
+
+      await expect(commandes.count()).resolves.toBe(0);
+      await expect(
+        produits.findOneByOrFail({ id: produitId }),
+      ).resolves.toMatchObject({ stock: 4 });
+    });
+  });
+
+  describe('administration', () => {
+    it('liste toutes les commandes, tous comptes confondus', async () => {
+      const produitId = await creerProduit();
+      await commander([{ produitId, quantite: 1 }], finissant).expect(201);
+      await commander([{ produitId, quantite: 1 }], autre).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COMMANDES}/toutes`)
+        .set(admin.entetes)
+        .expect(200);
+
+      expect((reponse.body as { meta: { total: number } }).meta.total).toBe(2);
+    });
+
+    it('filtre par statut', async () => {
+      const produitId = await creerProduit();
+      await commander([{ produitId, quantite: 1 }], finissant).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COMMANDES}/toutes`)
+        .query({ statut: StatutCommande.ANNULEE })
+        .set(admin.entetes)
+        .expect(200);
+
+      expect((reponse.body as { meta: { total: number } }).meta.total).toBe(0);
+    });
+  });
+
   describe('workflow', () => {
     const commandePayee = async (): Promise<string> => {
       const id = await creerProduit();
@@ -344,6 +466,26 @@ describe('Commandes (e2e)', () => {
         .delete(`${COMMANDES}/${id}`)
         .set(finissant.entetes)
         .expect(204);
+
+      await expect(
+        produits.findOneByOrFail({ id: produitId }),
+      ).resolves.toMatchObject({ stock: 5 });
+    });
+
+    it('reste sans effet sur une commande deja annulee', async () => {
+      const produitId = await creerProduit({ stock: 5 });
+      const reponse = await commander([{ produitId, quantite: 2 }]).expect(201);
+      const id = (reponse.body as { id: string }).id;
+
+      const annuler = () =>
+        request(app.getHttpServer())
+          .delete(`${COMMANDES}/${id}`)
+          .set(finissant.entetes)
+          .expect(204);
+
+      await annuler();
+      // Le second appel ne doit pas rendre le stock une seconde fois.
+      await annuler();
 
       await expect(
         produits.findOneByOrFail({ id: produitId }),
