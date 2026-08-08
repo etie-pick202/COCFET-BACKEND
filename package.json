@@ -33,8 +33,8 @@
     "migration:show": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js migration:show -d ./src/config/data-source.ts",
     "seed": "ts-node -r tsconfig-paths/register ./src/seed/seed.ts",
     "test:e2e:cov": "jest --config ./test/jest-e2e.json --coverage",
-    "migration:run:prod": "typeorm migration:run -d ./dist/config/data-source.js",
-    "migration:show:prod": "typeorm migration:show -d ./dist/config/data-source.js",
+    "migration:run:prod": "node node_modules/typeorm/cli.js migration:run -d dist/config/data-source.js",
+    "migration:show:prod": "node node_modules/typeorm/cli.js migration:show -d dist/config/data-source.js",
     "openapi": "ts-node -r tsconfig-paths/register ./src/openapi.ts"
   },
   "dependencies": {
@@ -55,6 +55,7 @@
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
+    "dotenv": "^17.4.2",
     "handlebars": "^4.7.8",
     "helmet": "^8.0.0",
     "nodemailer": "^9.0.3",
@@ -85,7 +86,6 @@
     "@types/pngjs": "^6.0.5",
     "@types/qrcode": "^1.5.6",
     "@types/supertest": "^7.0.0",
-    "dotenv": "^17.4.2",
     "eslint": "^9.18.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-prettier": "^5.2.2",
