@@ -22,7 +22,16 @@ COPY . .
 RUN pnpm run build
 
 # Retire les dépendances de développement de node_modules avant la copie.
-RUN pnpm prune --prod
+#
+# `--ignore-scripts` n'est pas cosmétique : sans lui, pnpm rejoue le script
+# `prepare` **après** avoir supprimé les devDependencies, et ce script appelle
+# husky — qui vient précisément de disparaître. La construction échoue alors
+# sur « sh: husky: not found », à la toute dernière étape.
+#
+# À ne surtout pas ajouter à l'installation ci-dessus : bcrypt y compile son
+# binding natif par un script d'installation, et l'ignorer produirait une image
+# dont l'authentification tombe au premier hachage de mot de passe.
+RUN pnpm prune --prod --ignore-scripts
 
 # ---------- Étape 2 : image d'exécution ----------
 FROM node:22-alpine AS runtime
