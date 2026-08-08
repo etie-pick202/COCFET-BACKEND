@@ -532,7 +532,7 @@ Taux de présence par événement, à partir des billets scannés.
 
 ### 7. Paiement Mobile Money
 
-Intégration NotchPay (Orange Money, MTN MoMo). L'idempotence et la vérification de signature sont ici des sujets de sécurité, pas de confort.
+Intégration Fapshi (Orange Money, MTN MoMo). L'idempotence et la vérification de signature sont ici des sujets de sécurité, pas de confort.
 
 | Récit | Pts | Priorité | Phase |
 |---|---|---|---|
@@ -548,7 +548,7 @@ Intégration NotchPay (Orange Money, MTN MoMo). L'idempotence et la vérificatio
 
 **Initier un paiement**
 
-Intégrer NotchPay pour lancer un paiement Mobile Money et créer la `Transaction` associée.
+Intégrer Fapshi pour lancer un paiement Mobile Money et créer la `Transaction` associée.
 
 - La transaction est créée avant l'appel au prestataire
 - `reference` est renseignée et unique
@@ -559,7 +559,7 @@ Intégrer NotchPay pour lancer un paiement Mobile Money et créer la `Transactio
 
 Sans vérification, n'importe qui peut appeler l'endpoint et faire passer une commande en payée. Le risque est déjà signalé dans `docs/SECRETS.md`.
 
-- La signature est vérifiée avec `NOTCHPAY_WEBHOOK_SECRET`
+- L'origine est authentifiée par `x-wh-secret`, et le statut revérifié auprès du prestataire — Fapshi ne signant pas le corps de ses notifications
 - Une signature absente ou invalide renvoie 401 sans aucun traitement
 - La comparaison résiste aux attaques temporelles
 - Les rejets sont journalisés

@@ -43,3 +43,8 @@ prisma/*.db
 
 # Fichiers téléversés en local, quand les identifiants R2 sont absents
 /var
+
+# Specification OpenAPI : produite par « pnpm run openapi », jamais versionnee.
+# Elle derive integralement du code — la suivre ferait vivre deux sources de
+# verite, et chaque revue porterait un diff genere.
+openapi.json

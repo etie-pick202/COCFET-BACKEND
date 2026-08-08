@@ -9,6 +9,14 @@ export enum TypeJeton {
   REINITIALISATION_MOT_DE_PASSE = 'REINITIALISATION_MOT_DE_PASSE',
   /** Créé par l'administration : vaut définition du mot de passe ET vérification. */
   INVITATION_SPONSOR = 'INVITATION_SPONSOR',
+  /**
+   * Confirme la possession d'une **nouvelle** adresse.
+   *
+   * Le lien part vers l'adresse demandée, jamais vers l'actuelle : c'est le
+   * seul moyen de prouver que la personne y a bien accès avant d'en faire son
+   * identifiant de connexion.
+   */
+  CHANGEMENT_EMAIL = 'CHANGEMENT_EMAIL',
 }
 
 /**

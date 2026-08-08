@@ -147,6 +147,27 @@ export function enteteDe(accessToken: string): {
 }
 
 /**
+ * Relit un compte **avec ses empreintes**.
+ *
+ * `passwordHash` et `refreshTokenHash` sont en `select: false` : une lecture
+ * ordinaire les rend `undefined`, ce qui n'est pas ce qu'un test veut vérifier
+ * quand il s'assure qu'une empreinte a bien été écrite ou effacée. C'est le
+ * seul endroit des tests qui les redemande, et il est réservé aux assertions
+ * portant sur la base — jamais sur une réponse HTTP.
+ */
+export async function relireAvecEmpreintes(
+  app: INestApplication,
+  id: string,
+): Promise<User> {
+  return app
+    .get<Repository<User>>(getRepositoryToken(User))
+    .createQueryBuilder('u')
+    .addSelect(['u.passwordHash', 'u.refreshTokenHash'])
+    .where('u.id = :id', { id })
+    .getOneOrFail();
+}
+
+/**
  * Vide les tables touchées par les fixtures.
  *
  * `DELETE` et non `TRUNCATE` : les tests partagent une base avec des données

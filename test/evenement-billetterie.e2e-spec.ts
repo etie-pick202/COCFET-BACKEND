@@ -11,7 +11,10 @@ import {
   Inscription,
   StatutInscription,
 } from './../src/modules/billetterie/entities/inscription.entity';
+import * as jsQR from 'jsqr';
+import { PNG } from 'pngjs';
 import {
+  ControleAcces,
   Evenement,
   StatutEvenement,
   TypeEvenement,
@@ -49,6 +52,7 @@ describe('Événements et billetterie (e2e)', () => {
     envoyerVerificationEmail: jest.fn().mockResolvedValue(undefined),
     envoyerTentativeInscription: jest.fn().mockResolvedValue(undefined),
     envoyerInvitationSponsor: jest.fn().mockResolvedValue(undefined),
+    envoyerBillet: jest.fn().mockResolvedValue(undefined),
   };
 
   const dans = (jours: number) =>
@@ -84,6 +88,13 @@ describe('Événements et billetterie (e2e)', () => {
       .post(`${EVENEMENTS}/${id}/inscription`)
       .set(compte.entetes)
       .send(corps);
+
+  /** Presente une valeur au controle : code fixe ou jeton tournant. */
+  const scanner = (code: string, compte: CompteDeTest) =>
+    request(app.getHttpServer())
+      .post(`${BILLETS}/scanner`)
+      .set(compte.entetes)
+      .send({ codeBillet: code });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -318,7 +329,8 @@ describe('Événements et billetterie (e2e)', () => {
     });
 
     it('rend la place quand le paiement est refusé', async () => {
-      // La passerelle factice refuse tout numéro se terminant par 0.
+      // Numéro d'échec du bac à sable Fapshi, repris par la passerelle
+      // factice : le même numéro donne la même issue des deux côtés.
       const id = await creerEtPublier({
         type: TypeEvenement.PAYANT,
         prixCampus: 5000,
@@ -328,7 +340,7 @@ describe('Événements et billetterie (e2e)', () => {
 
       await sInscrire(id, finissant, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000000',
+        telephone: '+237690000001',
       }).expect(400);
 
       await expect(
@@ -339,7 +351,7 @@ describe('Événements et billetterie (e2e)', () => {
       // La place est donc bien disponible pour quelqu'un d'autre.
       await sInscrire(id, ancien, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000002',
+        telephone: '+237690000002',
       }).expect(201);
     });
 
@@ -352,7 +364,7 @@ describe('Événements et billetterie (e2e)', () => {
 
       const reponse = await sInscrire(id, ancien, {
         methodePaiement: MethodePaiement.ORANGE_MONEY,
-        telephone: '+237699000002',
+        telephone: '+237690000002',
       }).expect(201);
 
       expect((reponse.body as { prix: number }).prix).toBe(15000);
@@ -472,12 +484,6 @@ describe('Événements et billetterie (e2e)', () => {
   });
 
   describe('contrôle à l’entrée', () => {
-    const scanner = (code: string, compte: CompteDeTest) =>
-      request(app.getHttpServer())
-        .post(`${BILLETS}/scanner`)
-        .set(compte.entetes)
-        .send({ codeBillet: code });
-
     it('valide un billet une fois, et une seule', async () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
@@ -806,7 +812,7 @@ describe('Événements et billetterie (e2e)', () => {
     });
 
     it('refuse le scan d’un billet resté impayé', async () => {
-      // La passerelle factice laisse en attente tout numéro finissant par 1.
+      // Numéro hors des listes du bac à sable : le paiement reste en attente.
       const id = await creerEtPublier({
         type: TypeEvenement.PAYANT,
         prixCampus: 5000,
@@ -814,7 +820,7 @@ describe('Événements et billetterie (e2e)', () => {
       });
       const reponse = await sInscrire(id, finissant, {
         methodePaiement: MethodePaiement.MTN_MOMO,
-        telephone: '+237699000001',
+        telephone: '+237677123456',
       }).expect(201);
 
       const billet = reponse.body as { statut: string; codeBillet: string };
@@ -848,6 +854,210 @@ describe('Événements et billetterie (e2e)', () => {
         .get(`${EVENEMENTS}/${id}/inscriptions`)
         .set(finissant.entetes)
         .expect(403);
+    });
+  });
+
+  describe('émission du billet', () => {
+    /** Relit l'image servie comme le ferait un lecteur à l'entrée. */
+    const lireQr = (dataUrl: string): string | null => {
+      const png = PNG.sync.read(
+        Buffer.from(dataUrl.replace(/^data:image\/png;base64,/, ''), 'base64'),
+      );
+
+      return (
+        jsQR.default(Uint8ClampedArray.from(png.data), png.width, png.height)
+          ?.data ?? null
+      );
+    };
+
+    it('génère le QR code et envoie le billet à la confirmation', async () => {
+      const id = await creerEtPublier();
+
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      const enregistre = await inscriptions.findOneByOrFail({ id: billet.id });
+      expect(enregistre.qrCode).toMatch(/^data:image\/png;base64,/);
+
+      expect(faussaireMail.envoyerBillet).toHaveBeenCalledTimes(1);
+      const [destinataire, , contenu] = faussaireMail.envoyerBillet.mock
+        .calls[0] as [string, string, { codeBillet: string; qrPng: Buffer }];
+
+      expect(destinataire).toBe(finissant.user.email);
+      expect(contenu.codeBillet).toBe(billet.codeBillet);
+      expect(Buffer.isBuffer(contenu.qrPng)).toBe(true);
+    });
+
+    it('n’émet aucun billet tant que le paiement est en attente', async () => {
+      const id = await creerEtPublier({
+        type: TypeEvenement.PAYANT,
+        prixCampus: 5000,
+        prixExterne: 10_000,
+      });
+
+      // Numéro hors des listes du bac à sable : le paiement reste en
+      // attente, comme un webhook qui n'arrive pas. La place est réservée, le
+      // billet ne vaut pas encore droit d'entrée — donc pas de QR, pas d'email.
+      const reponse = await sInscrire(id, finissant, {
+        methodePaiement: MethodePaiement.MTN_MOMO,
+        telephone: '677123456',
+      }).expect(201);
+      const billet = reponse.body as { id: string; statut: string };
+
+      expect(billet.statut).toBe(StatutInscription.EN_ATTENTE);
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+      expect(faussaireMail.envoyerBillet).not.toHaveBeenCalled();
+    });
+
+    it('renvoie le billet à la demande', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      jest.clearAllMocks();
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(finissant.entetes)
+        .expect(202);
+
+      expect(faussaireMail.envoyerBillet).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuse de renvoyer le billet d’autrui', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string };
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(ancien.entetes)
+        .expect(404);
+    });
+
+    it('refuse de renvoyer un billet annulé', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string };
+
+      await request(app.getHttpServer())
+        .delete(`${BILLETS}/${billet.id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      await request(app.getHttpServer())
+        .post(`${BILLETS}/${billet.id}/renvoyer`)
+        .set(finissant.entetes)
+        .expect(409);
+    });
+
+    it('n’émet aucun billet quand l’événement ne filtre pas l’entrée', async () => {
+      const id = await creerEtPublier({ controleAcces: ControleAcces.AUCUN });
+
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      // Fabriquer un billet ferait croire à un contrôle qui n'existe pas.
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+
+      await request(app.getHttpServer())
+        .get(`${BILLETS}/${billet.id}/qr`)
+        .set(finissant.entetes)
+        .expect(409);
+
+      await scanner(billet.codeBillet, admin).expect(400);
+    });
+
+    it('sert un code tournant, et refuse le code fixe à l’entrée', async () => {
+      const id = await creerEtPublier({
+        controleAcces: ControleAcces.QR_TOURNANT,
+      });
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      // Rien n'est gravé ni envoyé : l'image ne vaut que trente secondes.
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ qrCode: null });
+      const [, , contenu] = faussaireMail.envoyerBillet.mock.calls[0] as [
+        string,
+        string,
+        { qrPng: Buffer | null },
+      ];
+      expect(contenu.qrPng).toBeNull();
+
+      const code = await request(app.getHttpServer())
+        .get(`${BILLETS}/${billet.id}/qr`)
+        .set(finissant.entetes)
+        .expect(200);
+      const servi = code.body as {
+        qrCode: string;
+        tournant: boolean;
+        expireDans: number;
+      };
+
+      expect(servi.tournant).toBe(true);
+      expect(servi.expireDans).toBeGreaterThan(0);
+
+      // Le code d'entrée seul ne suffit plus : c'est toute la raison d'être
+      // de l'option. Sans ce refus, une capture d'écran ferait entrer.
+      await scanner(billet.codeBillet, admin).expect(400);
+
+      // Le jeton lu dans l'image, lui, ouvre — et une seule fois.
+      const jeton = lireQr(servi.qrCode);
+      expect(jeton).not.toBe(billet.codeBillet);
+      await scanner(jeton!, admin).expect(201);
+      await scanner(jeton!, admin).expect(409);
+    });
+
+    it('sert un jeton qui désigne le bon billet, à chaque appel', async () => {
+      const id = await creerEtPublier({
+        controleAcces: ControleAcces.QR_TOURNANT,
+      });
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+
+      const servi = async () => {
+        const r = await request(app.getHttpServer())
+          .get(`${BILLETS}/${billet.id}/qr`)
+          .set(finissant.entetes)
+          .expect(200);
+        const corps = r.body as { qrCode: string; expireDans: number };
+        return { jeton: lireQr(corps.qrCode), expireDans: corps.expireDans };
+      };
+
+      // Deux appels rapprochés tombent presque toujours dans la même fenêtre
+      // — mais « presque » ne fait pas un test. À cheval sur une bascule, les
+      // deux jetons diffèrent légitimement, et exiger leur égalité rend
+      // l'assertion dépendante de l'horloge. Ce qui est éprouvé ici ne l'est
+      // pas : chaque appel désigne le bon billet et annonce une échéance
+      // plausible. La stabilité au sein d'une fenêtre est prouvée à horloge
+      // figée dans jeton-billet.spec.ts, là où elle se démontre vraiment.
+      for (const { jeton, expireDans } of [await servi(), await servi()]) {
+        expect(jeton?.split('.')).toHaveLength(3);
+        expect(jeton?.split('.')[0]).toBe(billet.codeBillet);
+        expect(expireDans).toBeGreaterThan(0);
+        expect(expireDans).toBeLessThanOrEqual(30);
+      }
+    });
+
+    it('laisse l’inscription valide quand l’envoi échoue', async () => {
+      const id = await creerEtPublier();
+      faussaireMail.envoyerBillet.mockRejectedValueOnce(new Error('SMTP mort'));
+
+      // Le cœur du récit : la place est payée et le code est en base. Une
+      // panne SMTP ne doit pas rendre la place ni supprimer le billet.
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; statut: string };
+
+      expect(billet.statut).toBe(StatutInscription.CONFIRMEE);
+      await expect(
+        inscriptions.findOneByOrFail({ id: billet.id }),
+      ).resolves.toMatchObject({ statut: StatutInscription.CONFIRMEE });
     });
   });
 });

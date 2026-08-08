@@ -14,18 +14,30 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiNoContentResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
-  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
+import {
+  ApiErreursAuthentification,
+  ApiErreurValidation,
+  ApiReponsePaginee,
+  ReponseErreurDto,
+} from '../../common/swagger';
 import { Roles } from '../auth/decorators/roles.decorator';
 import {
+  CompteNonLuesDto,
   DiffuserNotificationDto,
   FiltreNotificationDto,
   MettreAJourPreferenceDto,
+  PreferenceExposee,
+  ResultatDiffusionDto,
+  ResultatMarquageDto,
 } from './dto/notification.dto';
 import { Notification } from './entities/notification.entity';
 import { NotificationService } from './notification.service';
@@ -35,6 +47,8 @@ type RequeteAuthentifiee = Request & { user: { id: string } };
 
 @ApiTags('Notifications')
 @ApiBearerAuth()
+@ApiErreursAuthentification()
+@ApiErreurValidation()
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly notificationService: NotificationService) {}
@@ -46,6 +60,7 @@ export class NotificationController {
       "L'identifiant vient du jeton, jamais d'un paramètre : personne ne peut " +
       'lire les notifications de quelqu’un d’autre.',
   })
+  @ApiReponsePaginee(Notification, 'Page de notifications du porteur du jeton.')
   lister(
     @Req() requete: RequeteAuthentifiee,
     @Query() filtre: FiltreNotificationDto,
@@ -58,6 +73,10 @@ export class NotificationController {
     summary: 'Compter ses notifications non lues',
     description: 'Destiné à la pastille de l’interface.',
   })
+  @ApiOkResponse({
+    description: 'Le compte des non lues.',
+    type: CompteNonLuesDto,
+  })
   async compter(
     @Req() requete: RequeteAuthentifiee,
   ): Promise<{ nonLues: number }> {
@@ -69,7 +88,11 @@ export class NotificationController {
   @Patch(':id/lu')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Marquer une notification comme lue' })
-  @ApiResponse({ status: 404, description: 'Notification introuvable.' })
+  @ApiNoContentResponse({ description: 'Notification marquée comme lue.' })
+  @ApiNotFoundResponse({
+    description: 'Notification introuvable.',
+    type: ReponseErreurDto,
+  })
   marquerLu(
     @Req() requete: RequeteAuthentifiee,
     @Param('id', ParseUUIDPipe) id: string,
@@ -79,6 +102,10 @@ export class NotificationController {
 
   @Patch('tout-lu')
   @ApiOperation({ summary: 'Tout marquer comme lu' })
+  @ApiOkResponse({
+    description: 'Le nombre de notifications marquées.',
+    type: ResultatMarquageDto,
+  })
   async marquerToutLu(
     @Req() requete: RequeteAuthentifiee,
   ): Promise<{ misAJour: number }> {
@@ -90,6 +117,11 @@ export class NotificationController {
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Supprimer une notification' })
+  @ApiNoContentResponse({ description: 'Notification supprimée.' })
+  @ApiNotFoundResponse({
+    description: 'Notification introuvable.',
+    type: ReponseErreurDto,
+  })
   supprimer(
     @Req() requete: RequeteAuthentifiee,
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,13 +136,20 @@ export class NotificationController {
       'Tous les types sont renvoyés, y compris ceux jamais réglés : une ' +
       'préférence absente vaut « activée ».',
   })
-  preferences(@Req() requete: RequeteAuthentifiee) {
+  @ApiOkResponse({
+    description: 'Un réglage par type de notification.',
+    type: [PreferenceExposee],
+  })
+  preferences(
+    @Req() requete: RequeteAuthentifiee,
+  ): Promise<PreferenceExposee[]> {
     return this.notificationService.preferencesDe(requete.user.id);
   }
 
   @Patch('preferences')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Régler un type de notification' })
+  @ApiNoContentResponse({ description: 'Préférence enregistrée.' })
   mettreAJourPreference(
     @Req() requete: RequeteAuthentifiee,
     @Body() dto: MettreAJourPreferenceDto,
@@ -127,6 +166,10 @@ export class NotificationController {
       'statut de finissant : une liste libre de destinataires ouvrirait la ' +
       'porte à des envois de masse arbitraires. Les comptes non vérifiés ou ' +
       'désactivés sont exclus.',
+  })
+  @ApiOkResponse({
+    description: 'Le nombre de destinataires touchés.',
+    type: ResultatDiffusionDto,
   })
   async diffuser(
     @Body() dto: DiffuserNotificationDto,

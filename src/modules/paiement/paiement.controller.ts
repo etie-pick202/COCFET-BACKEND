@@ -16,20 +16,6 @@ import type { PasserellePaiement } from './ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
 
-/**
- * En-têtes susceptibles de porter la signature.
- *
- * ⚠️ Le nom exact est à confirmer contre l'API réelle. En accepter plusieurs
- * évite qu'une différence de casse ou de préfixe fasse rejeter en bloc des
- * notifications légitimes — l'échec serait silencieux côté client, et se
- * traduirait par des billets payés jamais confirmés.
- */
-const ENTETES_SIGNATURE = [
-  'x-notch-signature',
-  'x-notchpay-signature',
-  'notch-signature',
-];
-
 /** Le corps brut, préservé par `rawBody: true` au démarrage. */
 type RequeteWebhook = Request & { rawBody?: Buffer };
 
@@ -49,34 +35,38 @@ export class PaiementController {
    * Notification de paiement.
    *
    * Route publique : l'appelant est le prestataire, qui n'a pas de compte chez
-   * nous. **C'est la signature qui tient lieu d'authentification** — sans elle,
-   * n'importe qui pourrait déclarer une commande payée.
+   * nous. L'en-tête `x-wh-secret` tient lieu d'authentification — mais il ne
+   * couvre que l'appelant, jamais le contenu. **L'état retenu est donc
+   * redemandé à Fapshi** par l'adaptateur : ce corps ne sert qu'à désigner la
+   * transaction, et une notification forgée ne mène nulle part.
    *
    * Répond toujours 200 après un traitement réussi, y compris sur un rejeu :
    * un code d'erreur relancerait les tentatives du prestataire pour une
    * notification que nous avons déjà prise en compte.
    */
   @Public()
-  @Post('notchpay')
+  @Post('fapshi')
   @HttpCode(HttpStatus.OK)
   @ApiExcludeEndpoint()
-  async notchpay(
+  async fapshi(
     @Req() requete: RequeteWebhook,
   ): Promise<{ recu: true; traite: boolean }> {
     const corpsBrut = requete.rawBody;
     if (!corpsBrut?.length) {
-      // Sans corps brut, la signature ne peut pas être vérifiée : mieux vaut
-      // refuser que valider sur un corps resérialisé, dont l'ordre des clés a
-      // changé.
+      // Le corps brut reste exigé : c'est lui qui porte la transaction à
+      // désigner, et le conserver garde la porte ouverte à un prestataire qui
+      // signerait ses octets.
       this.logger.error(
         'Webhook reçu sans corps brut : vérifiez « rawBody: true » au démarrage.',
       );
       throw new Error('Corps brut indisponible.');
     }
 
-    const evenement = this.passerelle.interpreterWebhook(
+    // L'adaptateur authentifie puis **redemande** l'état au prestataire : le
+    // corps reçu ne fait pas foi, il ne fait que désigner la transaction.
+    const evenement = await this.passerelle.interpreterWebhook(
       corpsBrut,
-      this.signature(requete),
+      requete.headers,
     );
 
     // Le dédoublonnage précède l'effet de bord : le prestataire renvoie la
@@ -91,15 +81,5 @@ export class PaiementController {
     }
 
     return { recu: true, traite: nouveau };
-  }
-
-  private signature(requete: RequeteWebhook): string | undefined {
-    for (const entete of ENTETES_SIGNATURE) {
-      const valeur = requete.headers[entete];
-      if (typeof valeur === 'string' && valeur.length > 0) {
-        return valeur;
-      }
-    }
-    return undefined;
   }
 }

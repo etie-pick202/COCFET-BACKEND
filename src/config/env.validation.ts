@@ -27,12 +27,12 @@ export enum Environment {
 export const LONGUEUR_MINIMALE_SECRET = 32;
 
 /** Valeurs d'exemple : elles figurent dans le dépôt, donc elles sont publiques. */
-const VALEURS_INTERDITES = [
+const VALEURS_INTERDITES = new Set([
   'change-me-access-secret',
   'change-me-refresh-secret',
   'secret',
   'changeme',
-];
+]);
 
 class EnvironmentVariables {
   @IsEnum(Environment)
@@ -49,6 +49,19 @@ class EnvironmentVariables {
   @IsString()
   @MinLength(LONGUEUR_MINIMALE_SECRET)
   JWT_REFRESH_SECRET: string;
+
+  /**
+   * Signature des codes de billet tournants.
+   *
+   * Facultatif : à défaut, la clé est dérivée de `JWT_ACCESS_SECRET`, ce qui
+   * évite une variable de plus à poser au déploiement sans réutiliser telle
+   * quelle une clé qui signe déjà autre chose. La renseigner permet de la faire
+   * tourner sans invalider les sessions ouvertes.
+   */
+  @IsString()
+  @MinLength(LONGUEUR_MINIMALE_SECRET)
+  @IsOptional()
+  QR_SECRET?: string;
 
   @IsString()
   @IsOptional()
@@ -81,7 +94,7 @@ function verifierCoherence(
   }
 
   for (const cle of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
-    if (VALEURS_INTERDITES.includes(config[cle])) {
+    if (VALEURS_INTERDITES.has(config[cle])) {
       erreurs.push(
         `  - ${cle} reprend une valeur d'exemple du dépôt, donc publiquement ` +
           'connue. Générez-en une avec « openssl rand -base64 48 ».',

@@ -7,9 +7,14 @@ import { PasserellePaiementFactice } from './passerelle-paiement-factice';
 describe('PasserellePaiementFactice', () => {
   let passerelle: PasserellePaiementFactice;
 
+  const SECRET = 'secret-de-developpement';
+
   const config = {
     get: (_cle: string, defaut: string) => defaut,
   } as unknown as ConfigService;
+
+  /** En-têtes tels que Fapshi les envoie : un secret, pas une signature. */
+  const entetes = (secret = SECRET) => ({ 'x-wh-secret': secret });
 
   const demande = (
     surcharge: Partial<DemandePaiement> = {},
@@ -17,7 +22,7 @@ describe('PasserellePaiementFactice', () => {
     reference: 'COCFET-0001',
     montant: 5000,
     methode: MethodePaiement.MTN_MOMO,
-    telephone: '+237699000002',
+    telephone: '+237670000000',
     description: 'Billet gala',
     ...surcharge,
   });
@@ -34,8 +39,12 @@ describe('PasserellePaiementFactice', () => {
   });
 
   it.each([
-    ['+237699000000', StatutPaiement.ECHOUE],
-    ['+237699000001', StatutPaiement.EN_ATTENTE],
+    // Numéros du bac à sable Fapshi : le même numéro donne la même issue en
+    // local et contre le prestataire.
+    ['670000001', StatutPaiement.ECHOUE],
+    ['+237690000001', StatutPaiement.ECHOUE],
+    ['690000002', StatutPaiement.COMPLETE],
+    ['677123456', StatutPaiement.EN_ATTENTE],
   ])('rend %s reproductible', async (telephone, attendu) => {
     const resultat = await passerelle.initier(demande({ telephone }));
 
@@ -57,32 +66,28 @@ describe('PasserellePaiementFactice', () => {
     expect(second).toEqual(premier);
   });
 
-  it('rejette un webhook non signé', () => {
+  it('rejette une notification sans secret', async () => {
     const corps = Buffer.from(JSON.stringify({ reference: 'COCFET-0001' }));
 
-    expect(() => passerelle.interpreterWebhook(corps)).toThrow(
+    await expect(passerelle.interpreterWebhook(corps, {})).rejects.toThrow(
       BadRequestException,
     );
   });
 
-  it('rejette un webhook dont le corps a été modifié après signature', () => {
-    // Le scénario réel : un attaquant rejoue une notification légitime en
-    // remplaçant le statut par COMPLETE.
-    const legitime = Buffer.from(
-      JSON.stringify({ reference: 'A', statut: StatutPaiement.ECHOUE }),
-    );
-    const signature = passerelle.signer(legitime);
-    const falsifie = Buffer.from(
+  it('rejette une notification au mauvais secret', async () => {
+    // Le scénario réel : quelqu'un poste un « paiement réussi » sans
+    // connaître le secret posé sur le tableau de bord.
+    const corps = Buffer.from(
       JSON.stringify({ reference: 'A', statut: StatutPaiement.COMPLETE }),
     );
 
-    expect(() => passerelle.interpreterWebhook(falsifie, signature)).toThrow(
-      BadRequestException,
-    );
+    await expect(
+      passerelle.interpreterWebhook(corps, entetes('mauvais-secret')),
+    ).rejects.toThrow(BadRequestException);
   });
 
-  it('accepte un webhook correctement signé et met l’intention à jour', async () => {
-    await passerelle.initier(demande({ telephone: '+237699000001' }));
+  it('accepte une notification authentifiée et met l’intention à jour', async () => {
+    await passerelle.initier(demande({ telephone: '677123456' }));
 
     const corps = Buffer.from(
       JSON.stringify({
@@ -91,10 +96,7 @@ describe('PasserellePaiementFactice', () => {
         statut: StatutPaiement.COMPLETE,
       }),
     );
-    const evenement = passerelle.interpreterWebhook(
-      corps,
-      passerelle.signer(corps),
-    );
+    const evenement = await passerelle.interpreterWebhook(corps, entetes());
 
     expect(evenement.statut).toBe(StatutPaiement.COMPLETE);
     await expect(passerelle.verifier('COCFET-0001')).resolves.toMatchObject({
