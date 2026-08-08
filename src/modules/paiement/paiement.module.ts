@@ -6,6 +6,7 @@ import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
 import { PasserellePaiementFactice } from './adaptateurs/passerelle-paiement-factice';
 import { Transaction } from './entities/transaction.entity';
 import { PaiementController } from './paiement.controller';
+import { ReconciliationService } from './reconciliation.service';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
 
@@ -36,6 +37,7 @@ const VARIABLES_FAPSHI = [
   controllers: [PaiementController],
   providers: [
     TransactionService,
+    ReconciliationService,
     {
       provide: PASSERELLE_PAIEMENT,
       inject: [ConfigService],
