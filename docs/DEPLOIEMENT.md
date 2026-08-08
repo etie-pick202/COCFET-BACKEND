@@ -79,16 +79,24 @@ Configurer donc une commande de release, jouée une seule fois avant le
 basculement :
 
 ```bash
-pnpm run migration:run:prod
+node node_modules/typeorm/cli.js migration:run -d dist/config/data-source.js
 ```
 
-Render l'appelle *Pre-Deploy Command*, Railway *Release Command*, Fly.io
+Render l'appelle *Pre-Deploy Command*, Railway *Pre-Deploy Command*, Fly.io
 `[deploy] release_command`.
+
+⚠️ **Pas `pnpm run migration:run:prod` dans le conteneur.** L'image
+d'exécution ne contient ni pnpm ni corepack — ils n'existent que dans l'étape
+de compilation, et n'ont rien à faire dans une image de production. La
+commande ci-dessus appelle le CLI TypeORM directement, par un chemin qui, lui,
+existe bien dans l'image. Les scripts `migration:*:prod` du `package.json`
+suivent désormais la même forme, pour qu'un copier-coller depuis l'un ou
+l'autre fonctionne.
 
 En vérifier l'état à tout moment :
 
 ```bash
-pnpm run migration:show:prod
+node node_modules/typeorm/cli.js migration:show -d dist/config/data-source.js
 ```
 
 ## Vérifications après la première mise en ligne
