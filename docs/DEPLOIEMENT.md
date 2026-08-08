@@ -25,7 +25,7 @@ un simple VPS savent tous en construire un. Le choix d'hébergeur se ramène don
 ## Étape 1 — Domaine
 
 Nécessaire pour trois choses à la fois : l'URL de l'API, l'URL publique que
-NotchPay appellera pour ses webhooks, et surtout SPF/DKIM sur le domaine
+Fapshi appellera pour ses webhooks, et surtout SPF/DKIM sur le domaine
 d'envoi des mails.
 
 Sans SPF ni DKIM, les messages de vérification partent en spam chez Gmail et
@@ -61,7 +61,7 @@ le tableau de bord de l'hébergeur.
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | générés, distincts par environnement |
 | `MAIL_*` | Brevo — déjà dans les environnements GitHub |
 | `R2_*` | Cloudflare — déjà dans les environnements GitHub |
-| `NOTCHPAY_*` | à la mise en service du paiement |
+| `FAPSHI_BASE_URL`, `FAPSHI_API_USER`, `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET` | Fapshi — service **live** en staging et production, bac à sable en local |
 | `UPSTASH_REDIS_REST_*` | recommandé : sans eux, la limitation de débit se désactive |
 
 `CORS_ORIGIN` mérite attention : une valeur trop large annule la protection.

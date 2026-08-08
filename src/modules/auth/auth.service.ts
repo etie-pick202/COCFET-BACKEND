@@ -1,11 +1,13 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService, JwtSignOptions } from '@nestjs/jwt';
+import { ApiProperty } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
 import { Role } from '../../common/enums/role.enum';
@@ -22,8 +24,19 @@ import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 
-export interface PaireJetons {
+export class PaireJetons {
+  @ApiProperty({
+    description:
+      'À présenter en en-tête « Authorization: Bearer … ». Courte durée de vie.',
+  })
   accessToken: string;
+
+  @ApiProperty({
+    description:
+      'Sert uniquement à obtenir un nouveau jeton d’accès. Chaque ' +
+      'rafraîchissement invalide le précédent : rejouer un ancien jeton coupe ' +
+      'toutes les sessions, le vol étant l’explication la plus probable.',
+  })
   refreshToken: string;
 }
 
@@ -135,7 +148,9 @@ export class AuthService {
   }
 
   async connecter(email: string, motDePasse: string): Promise<PaireJetons> {
-    const user = await this.userService.findByEmail(normaliserEmail(email));
+    const user = await this.userService.findByEmailPourConnexion(
+      normaliserEmail(email),
+    );
 
     // Une comparaison est effectuée même sans compte, pour que le temps de
     // réponse ne trahisse pas l'existence de l'adresse.
@@ -168,7 +183,9 @@ export class AuthService {
       throw new UnauthorizedException('Session expirée.');
     }
 
-    const user = await this.userService.findById(charge.sub);
+    const user = await this.userService.findByIdPourRafraichissement(
+      charge.sub,
+    );
     if (!user?.refreshTokenHash || !user.isActive) {
       throw new UnauthorizedException('Session expirée.');
     }
@@ -236,6 +253,123 @@ export class AuthService {
       // Changer de mot de passe met fin aux sessions ouvertes ailleurs.
       refreshTokenHash: null,
     });
+
+    return this.ouvrirSession(misAJour);
+  }
+
+  /**
+   * Demande le remplacement de l'adresse de connexion.
+   *
+   * Le mot de passe actuel est exigé. Sans lui, un jeton volé — ou un poste
+   * laissé ouvert — suffirait à s'approprier le compte : il suffirait de
+   * basculer l'identifiant sur une adresse que l'on contrôle, puis de demander
+   * une réinitialisation de mot de passe.
+   *
+   * Rien ne change tant que la nouvelle boîte n'a pas répondu : la connexion
+   * continue de se faire avec l'ancienne adresse. Une bascule immédiate
+   * enfermerait dehors quiconque se trompe en saisissant.
+   */
+  async demanderChangementEmail(
+    userId: string,
+    nouvelEmail: string,
+    motDePasse: string,
+  ): Promise<void> {
+    const user = await this.userService.trouverOuEchouer(userId);
+
+    if (!user.passwordHash) {
+      throw new BadRequestException(
+        "Ce compte n'a pas encore de mot de passe : suivez d'abord le lien reçu.",
+      );
+    }
+    if (!(await bcrypt.compare(motDePasse, user.passwordHash))) {
+      throw new UnauthorizedException('Le mot de passe est incorrect.');
+    }
+
+    const normalise = normaliserEmail(nouvelEmail);
+
+    if (normalise === user.email) {
+      throw new BadRequestException('C’est déjà votre adresse actuelle.');
+    }
+
+    const occupe = await this.userService.findByEmail(normalise);
+    if (occupe) {
+      // Un message franc, contrairement à l'inscription : la personne est
+      // authentifiée, elle ne découvre donc rien qu'elle ne puisse déjà
+      // apprendre en tentant de s'inscrire.
+      throw new ConflictException('Cette adresse est déjà utilisée.');
+    }
+
+    await this.userService.update(userId, { emailEnAttente: normalise });
+
+    const jeton = await this.jetonService.emettre(
+      user,
+      TypeJeton.CHANGEMENT_EMAIL,
+    );
+
+    await this.mailService.envoyerConfirmationNouvelleAdresse(
+      normalise,
+      user.firstName,
+      this.lienFrontal('changement-email', jeton),
+    );
+
+    // L'ancienne adresse est prévenue : c'est ce qui permet au titulaire
+    // légitime de réagir si la demande ne vient pas de lui.
+    await this.mailService.envoyerAlerteChangementEmail(
+      user.email,
+      user.firstName,
+      normalise,
+    );
+  }
+
+  /**
+   * Confirme la nouvelle adresse et la rend effective.
+   *
+   * Les attributs campus sont **recalculés** : l'adresse est ce qui atteste
+   * l'appartenance à une promotion, et prouver la possession d'une adresse
+   * institutionnelle vaut exactement ce que vaut la vérification initiale.
+   *
+   * Les rôles ADMIN et SPONSOR ne bougent pas : ils viennent du bureau ou d'un
+   * partenariat, pas d'un nom de domaine. Sans cette réserve, un membre du
+   * bureau perdrait ses droits en changeant d'adresse.
+   */
+  async confirmerChangementEmail(jeton: string): Promise<PaireJetons> {
+    const user = await this.jetonService.consommer(
+      jeton,
+      TypeJeton.CHANGEMENT_EMAIL,
+    );
+
+    if (!user?.emailEnAttente) {
+      throw new BadRequestException('Lien invalide ou expiré.');
+    }
+
+    // Vérifié à nouveau ici : l'adresse a pu être prise entre la demande et la
+    // confirmation, et l'index unique ferait échouer la mise à jour sans que
+    // la personne comprenne pourquoi.
+    const occupe = await this.userService.findByEmail(user.emailEnAttente);
+    if (occupe) {
+      await this.userService.update(user.id, { emailEnAttente: null });
+      throw new ConflictException(
+        'Cette adresse a été prise entre-temps. Recommencez avec une autre.',
+      );
+    }
+
+    const campus = await this.attributsCampus(user.emailEnAttente);
+    const conserveSonRole =
+      user.role === Role.ADMIN || user.role === Role.SPONSOR;
+
+    const misAJour = await this.userService.update(user.id, {
+      email: user.emailEnAttente,
+      emailEnAttente: null,
+      emailVerifieLe: new Date(),
+      promotion: campus.promotion,
+      isFinissant: campus.isFinissant,
+      ...(conserveSonRole ? {} : { role: campus.role }),
+      // L'identifiant de connexion change : les sessions ouvertes ailleurs
+      // n'ont plus lieu d'être.
+      refreshTokenHash: null,
+    });
+
+    this.logger.log(`Adresse de connexion changée pour ${misAJour.id}.`);
 
     return this.ouvrirSession(misAJour);
   }

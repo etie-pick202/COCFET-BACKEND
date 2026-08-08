@@ -70,7 +70,7 @@
 
 ### 2.10 Paiement
 
-- **La signature des webhooks NotchPay est vérifiée systématiquement** avec `NOTCHPAY_WEBHOOK_SECRET`. Sans cette vérification, n'importe qui peut appeler l'endpoint et faire passer une commande en « payée ».
+- **Les notifications de paiement Fapshi sont authentifiées puis revérifiées.** L'en-tête `x-wh-secret` filtre l'appelant, mais Fapshi ne signant pas le corps, le statut annoncé n'est jamais cru : l'adaptateur le redemande par `GET /payment-status/:transId`. Sans cette double barrière, n'importe qui peut appeler l'endpoint et faire passer une commande en « payée ».
 - La comparaison de signature doit résister aux attaques temporelles (comparaison à temps constant).
 - Les webhooks sont **idempotents** : `Transaction.reference` porte un index unique et sert de clé. Un prestataire de paiement rejoue ses webhooks ; sans idempotence, un paiement est encaissé deux fois.
 - Le montant est toujours recalculé côté serveur. **Jamais de prix reçu du client.**

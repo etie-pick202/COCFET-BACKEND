@@ -8,7 +8,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
+  ApiNoContentResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiResponse,
   ApiTags,
@@ -19,8 +22,14 @@ import {
   LIMITE_ENVOI_EMAIL,
   LimiteDebit,
 } from '../../common/guards/limite-debit.decorator';
+import {
+  ApiErreurValidation,
+  ReponseErreurDto,
+  ReponseMessageDto,
+} from '../../common/swagger';
 import { Public } from './decorators/public.decorator';
 import { ConnexionDto } from './dto/connexion.dto';
+import { ConfirmerChangementEmailDto } from './dto/changement-email.dto';
 import { DefinirMotDePasseDto } from './dto/definir-mot-de-passe.dto';
 import { DemandeReinitialisationDto } from './dto/demande-reinitialisation.dto';
 import { InscriptionDto } from './dto/inscription.dto';
@@ -37,6 +46,15 @@ const REPONSE_NEUTRE = {
 };
 
 @ApiTags('authentification')
+@ApiErreurValidation()
+@ApiResponse({
+  status: 429,
+  description:
+    'Plafond de requêtes atteint — toutes les routes de ce groupe sont ' +
+    'limitées, l’authentification étant la cible naturelle du bourrage ' +
+    'd’identifiants.',
+  type: ReponseErreurDto,
+})
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -52,7 +70,10 @@ export class AuthController {
       "révéler la différence permettrait d'énumérer les comptes existants. " +
       'Le compte reste inutilisable tant que le lien reçu par email n’a pas été suivi.',
   })
-  @ApiResponse({ status: 202, description: 'Demande prise en compte.' })
+  @ApiAcceptedResponse({
+    description: 'Demande prise en compte.',
+    type: ReponseMessageDto,
+  })
   async inscription(@Body() dto: InscriptionDto): Promise<{ message: string }> {
     await this.authService.inscrire(
       dto.email,
@@ -74,6 +95,15 @@ export class AuthController {
       'seule preuve que la boîte appartient bien à la personne inscrite. ' +
       'Ouvre directement une session.',
   })
+  @ApiOkResponse({
+    description: 'Compte activé, session ouverte.',
+    type: PaireJetons,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Jeton inconnu, déjà utilisé ou expiré.',
+    type: ReponseErreurDto,
+  })
   verifierEmail(@Body() dto: VerifierEmailDto): Promise<PaireJetons> {
     return this.authService.verifierEmail(dto.jeton);
   }
@@ -83,6 +113,10 @@ export class AuthController {
   @Post('verification-email/renvoyer')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Renvoyer le lien de confirmation' })
+  @ApiAcceptedResponse({
+    description: 'Demande prise en compte.',
+    type: ReponseMessageDto,
+  })
   async renvoyerVerification(
     @Body() dto: DemandeReinitialisationDto,
   ): Promise<{ message: string }> {
@@ -100,7 +134,12 @@ export class AuthController {
       "Un échec renvoie toujours le même message, qu'il s'agisse d'une adresse " +
       "inconnue, d'un mot de passe erroné ou d'un compte non confirmé.",
   })
-  @ApiResponse({ status: 401, description: 'Identifiants invalides.' })
+  @ApiOkResponse({ description: 'Session ouverte.', type: PaireJetons })
+  @ApiResponse({
+    status: 401,
+    description: 'Identifiants invalides.',
+    type: ReponseErreurDto,
+  })
   connexion(@Body() dto: ConnexionDto): Promise<PaireJetons> {
     return this.authService.connecter(dto.email, dto.motDePasse);
   }
@@ -114,6 +153,15 @@ export class AuthController {
     description:
       'Chaque renouvellement invalide le jeton précédent. Rejouer un ancien ' +
       'jeton révoque toutes les sessions : le vol est alors la cause la plus probable.',
+  })
+  @ApiOkResponse({
+    description: 'Nouvelle paire de jetons.',
+    type: PaireJetons,
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Jeton de rafraîchissement invalide, expiré ou déjà rejoué.',
+    type: ReponseErreurDto,
   })
   rafraichir(@Body() dto: RafraichirDto): Promise<PaireJetons> {
     return this.authService.rafraichir(dto.refreshToken);
@@ -129,6 +177,12 @@ export class AuthController {
       'Invalide le refresh token côté serveur : la déconnexion ne repose pas ' +
       'sur le seul oubli du jeton par le client. Idempotent.',
   })
+  @ApiNoContentResponse({ description: 'Session close.' })
+  @ApiResponse({
+    status: 401,
+    description: 'Jeton absent, expiré ou invalide.',
+    type: ReponseErreurDto,
+  })
   async deconnexion(@Req() requete: Request): Promise<void> {
     const utilisateur = requete.user as { id: string };
     await this.authService.deconnecter(utilisateur.id);
@@ -142,6 +196,10 @@ export class AuthController {
     summary: 'Demander une réinitialisation',
     description:
       "La réponse ne dit pas si l'adresse est connue, pour la même raison qu'à l'inscription.",
+  })
+  @ApiAcceptedResponse({
+    description: 'Demande prise en compte.',
+    type: ReponseMessageDto,
   })
   async motDePasseOublie(
     @Body() dto: DemandeReinitialisationDto,
@@ -158,6 +216,15 @@ export class AuthController {
     summary: 'Définir un nouveau mot de passe',
     description: 'Met fin aux sessions ouvertes ailleurs.',
   })
+  @ApiOkResponse({
+    description: 'Mot de passe changé, session ouverte.',
+    type: PaireJetons,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Jeton inconnu, déjà utilisé ou expiré.',
+    type: ReponseErreurDto,
+  })
   reinitialiserMotDePasse(
     @Body() dto: DefinirMotDePasseDto,
   ): Promise<PaireJetons> {
@@ -170,6 +237,25 @@ export class AuthController {
 
   @Public()
   @LimiteDebit(LIMITE_AUTHENTIFICATION)
+  @Post('email/confirmer')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Confirmer une nouvelle adresse',
+    description:
+      'Le lien part vers l’adresse demandée : le suivre prouve qu’on y a ' +
+      'accès. Les attributs de promotion sont alors recalculés — l’adresse est ' +
+      'ce qui atteste l’appartenance. Les rôles ADMIN et SPONSOR ne bougent ' +
+      'pas : ils viennent du bureau ou d’un partenariat, pas d’un domaine.',
+  })
+  @ApiResponse({ status: 409, description: 'Adresse prise entre-temps.' })
+  confirmerChangementEmail(
+    @Body() dto: ConfirmerChangementEmailDto,
+  ): Promise<PaireJetons> {
+    return this.authService.confirmerChangementEmail(dto.jeton);
+  }
+
+  @Public()
+  @LimiteDebit(LIMITE_AUTHENTIFICATION)
   @Post('invitation/activer')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
@@ -177,6 +263,15 @@ export class AuthController {
     description:
       "Le sponsor choisit lui-même son mot de passe : le bureau n'en génère " +
       "ni n'en transmet aucun. Le clic vaut également confirmation de l’adresse.",
+  })
+  @ApiOkResponse({
+    description: 'Accès activé, session ouverte.',
+    type: PaireJetons,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invitation inconnue, déjà activée ou expirée.',
+    type: ReponseErreurDto,
   })
   activerInvitation(@Body() dto: DefinirMotDePasseDto): Promise<PaireJetons> {
     return this.authService.definirMotDePasse(

@@ -14,6 +14,7 @@ import {
   CompteDeTest,
   creerCompteAuthentifie,
   purgerUtilisateurs,
+  relireAvecEmpreintes,
 } from './utils/authentification';
 
 const UTILISATEURS = '/api/v1/utilisateurs';
@@ -156,9 +157,7 @@ describe('Utilisateurs et profils (e2e)', () => {
         .send({ motDePasseActuel: MOT_DE_PASSE, nouveauMotDePasse: NOUVEAU })
         .expect(204);
 
-      const misAJour = await users.findOneOrFail({
-        where: { id: compte.user.id },
-      });
+      const misAJour = await relireAvecEmpreintes(app, compte.user.id);
       expect(await bcrypt.compare(NOUVEAU, misAJour.passwordHash!)).toBe(true);
       // Le changement de mot de passe est souvent la réaction à un accès
       // suspect : laisser les autres sessions ouvertes le viderait de son sens.
@@ -262,9 +261,7 @@ describe('Utilisateurs et profils (e2e)', () => {
         .send({ isActive: false })
         .expect(200);
 
-      const compte = await users.findOneOrFail({
-        where: { id: etudiant.user.id },
-      });
+      const compte = await relireAvecEmpreintes(app, etudiant.user.id);
       expect(compte.isActive).toBe(false);
       // Désactiver sans couper la session laisserait le compte agir jusqu'à
       // l'expiration de son jeton d'accès.
