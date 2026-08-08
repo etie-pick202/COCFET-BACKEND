@@ -70,6 +70,15 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   CORS_ORIGIN?: string;
+
+  /**
+   * Clé de l'API HTTP Brevo. Présente, elle l'emporte sur les variables
+   * `MAIL_*` : l'envoi passe alors en HTTPS plutôt qu'en SMTP, seul moyen de
+   * sortir depuis un hébergeur qui filtre les ports SMTP.
+   */
+  @IsString()
+  @IsOptional()
+  BREVO_API_KEY?: string;
 }
 
 /**

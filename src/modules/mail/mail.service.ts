@@ -135,10 +135,15 @@ export class MailService {
   /**
    * Envoie le billet, QR code compris.
    *
-   * L'image voyage **dans** le message, référencée par `cid:` : une URL
-   * distante serait bloquée par défaut chez Gmail et Outlook, et le
-   * destinataire arriverait à l'entrée avec un cadre vide. Le code d'entrée
-   * figure aussi en toutes lettres dans le gabarit, comme recours.
+   * Le QR voyage **dans** le message, en pièce jointe : une URL distante
+   * serait bloquée par défaut chez Outlook, et le destinataire arriverait à
+   * l'entrée avec un cadre vide.
+   *
+   * Il était auparavant affiché dans le corps via `cid:`. L'API HTTP de Brevo
+   * ne sait pas rattacher une pièce jointe à un `Content-Id` — seul le relais
+   * SMTP le permettait, et il est injoignable depuis l'hébergeur. Le fichier
+   * est donc joint, et le gabarit dirige vers lui. Le code d'entrée figure de
+   * toute façon en toutes lettres, comme recours.
    */
   async envoyerBillet(
     to: string,
@@ -180,34 +185,53 @@ export class MailService {
             {
               filename: `billet-${billet.codeBillet}.png`,
               content: billet.qrPng,
-              cid: 'qrbillet',
             },
           ]
         : undefined,
     );
   }
 
-  private async send(
+  /**
+   * Remet le message au fournisseur **sans faire attendre l'appelant**.
+   *
+   * L'envoi était auparavant attendu dans le chemin de la requête. Quand le
+   * fournisseur ne répondait plus, l'inscription mettait 122 s à répondre — et
+   * répondait quand même « un email vient d'y être envoyé », l'erreur étant
+   * avalée. La panne se déguisait ainsi en lenteur.
+   *
+   * Aucun appelant n'exploite le résultat : l'échec d'un envoi n'a jamais dû
+   * faire échouer l'action métier. On rend donc la main tout de suite, et
+   * l'issue part dans les journaux. Le transport, lui, borne sa propre attente.
+   */
+  private send(
     to: string,
     subject: string,
     template: string,
     context: Record<string, unknown>,
-    attachments?: { filename: string; content: Buffer; cid: string }[],
+    attachments?: { filename: string; content: Buffer }[],
   ): Promise<void> {
-    try {
-      await this.mailerService.sendMail({
+    void this.mailerService
+      .sendMail({
         to,
         subject,
         template,
         context,
         ...(attachments ? { attachments } : {}),
+      })
+      .then(() => {
+        this.logger.log(`Email "${template}" remis au fournisseur pour ${to}.`);
+      })
+      .catch((error: unknown) => {
+        // Journalisé en `error` avec le motif rendu par le transport : c'est
+        // ce message qui dit si la clé est refusée, l'expéditeur non validé ou
+        // le quota dépassé.
+        this.logger.error(
+          `Échec de l'envoi de l'email "${template}" à ${to} : ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
       });
-    } catch (error) {
-      // Un échec d'envoi ne doit pas faire échouer l'action métier appelante.
-      this.logger.error(
-        `Échec de l'envoi de l'email "${template}" à ${to}`,
-        error,
-      );
-    }
+
+    return Promise.resolve();
   }
 }
