@@ -7,7 +7,9 @@ import { Repository } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { FiltreExceptionGlobal } from './../src/common/erreurs/filtre-exception-global';
 import { Role } from './../src/common/enums/role.enum';
+import { BoutiqueService } from './../src/modules/boutique/boutique.service';
 import {
+  CategorieProduit,
   Produit,
   StatutProduit,
 } from './../src/modules/boutique/entities/produit.entity';
@@ -26,6 +28,7 @@ describe('Boutique (e2e)', () => {
   let app: INestApplication<App>;
   let produits: Repository<Produit>;
   let generations: Repository<Generation>;
+  let boutiqueService: BoutiqueService;
 
   let admin: CompteDeTest;
   let finissant: CompteDeTest;
@@ -84,6 +87,7 @@ describe('Boutique (e2e)', () => {
 
     produits = app.get(getRepositoryToken(Produit));
     generations = app.get(getRepositoryToken(Generation));
+    boutiqueService = app.get(BoutiqueService);
   });
 
   beforeEach(async () => {
@@ -176,6 +180,147 @@ describe('Boutique (e2e)', () => {
           description: 'Sans autorisation du bureau.',
         })
         .expect(403);
+    });
+  });
+
+  describe('filtres', () => {
+    it('filtre par catégorie', async () => {
+      await creerProduit({ categorie: CategorieProduit.VETEMENT }).expect(201);
+      await creerProduit({
+        nom: 'Porte-clés',
+        categorie: CategorieProduit.GOODIES,
+      }).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(PRODUITS)
+        .query({ categorie: CategorieProduit.VETEMENT })
+        .expect(200);
+
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('cherche dans le nom et la description', async () => {
+      await creerProduit({ nom: 'Casquette brodée' }).expect(201);
+      await creerProduit({ nom: 'Mug isotherme' }).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(PRODUITS)
+        .query({ recherche: 'casquette' })
+        .expect(200);
+
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+
+    it('ne garde que le commandable sur demande', async () => {
+      await creerProduit({ stock: 0 }).expect(201);
+      await creerProduit({ nom: 'En stock', stock: 4 }).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(PRODUITS)
+        .query({ disponibleSeulement: 'true' })
+        .expect(200);
+
+      const donnees = (reponse.body as { donnees: { nom: string }[] }).donnees;
+      expect(donnees).toHaveLength(1);
+      expect(donnees[0].nom).toBe('En stock');
+    });
+
+    it('laisse l’administration filtrer les retirés', async () => {
+      const id = await creerEtRecuperer();
+      await request(app.getHttpServer())
+        .delete(`${PRODUITS}/${id}`)
+        .set(admin.entetes)
+        .expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .get(PRODUITS)
+        .query({ statut: StatutProduit.RETIRE })
+        .set(admin.entetes)
+        .expect(200);
+
+      expect((reponse.body as { donnees: unknown[] }).donnees).toHaveLength(1);
+    });
+  });
+
+  describe('modification', () => {
+    it('met à jour les champs modifiables', async () => {
+      const id = await creerEtRecuperer();
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${PRODUITS}/${id}`)
+        .set(admin.entetes)
+        .send({ nom: 'Sweat édition limitée', prixExterne: 18_000 })
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({
+        nom: 'Sweat édition limitée',
+        prixExterne: 18_000,
+      });
+    });
+
+    it('refuse un rattachement à un événement inconnu', async () => {
+      await creerProduit({
+        evenementId: '00000000-0000-4000-8000-000000000000',
+      }).expect(404);
+    });
+
+    it('répond 404 sur le stock d’un produit inconnu', async () => {
+      await request(app.getHttpServer())
+        .patch(`${PRODUITS}/00000000-0000-4000-8000-000000000000/stock`)
+        .set(admin.entetes)
+        .send({ quantite: 1 })
+        .expect(404);
+    });
+  });
+
+  describe('réservation de stock', () => {
+    // Ces deux methodes sont le contrat que la commande consommera : leur
+    // atomicite est la garantie contre la survente. Elles sont eprouvees ici
+    // contre la vraie base, seul endroit ou la condition SQL a un sens.
+
+    it('réserve ce qui est disponible, et pas au-delà', async () => {
+      const id = await creerEtRecuperer({ stock: 3 });
+
+      await expect(boutiqueService.reserverStock(id, 2)).resolves.toBe(true);
+      await expect(produits.findOneByOrFail({ id })).resolves.toMatchObject({
+        stock: 1,
+      });
+
+      // Deux de plus alors qu'il n'en reste qu'un : refusé, sans rien écrire.
+      await expect(boutiqueService.reserverStock(id, 2)).resolves.toBe(false);
+      await expect(produits.findOneByOrFail({ id })).resolves.toMatchObject({
+        stock: 1,
+      });
+    });
+
+    it('bascule en rupture quand la réservation vide le stock', async () => {
+      const id = await creerEtRecuperer({ stock: 2 });
+
+      await expect(boutiqueService.reserverStock(id, 2)).resolves.toBe(true);
+      await expect(produits.findOneByOrFail({ id })).resolves.toMatchObject({
+        stock: 0,
+        statut: StatutProduit.RUPTURE,
+      });
+    });
+
+    it('restitue le stock et remet en vente', async () => {
+      const id = await creerEtRecuperer({ stock: 1 });
+      await boutiqueService.reserverStock(id, 1);
+
+      await boutiqueService.libererStock(id, 1);
+
+      await expect(produits.findOneByOrFail({ id })).resolves.toMatchObject({
+        stock: 1,
+        statut: StatutProduit.DISPONIBLE,
+      });
+    });
+
+    it('signale un produit inconnu plutôt que d’ignorer', async () => {
+      await expect(
+        boutiqueService.trouverOuEchouer(
+          '00000000-0000-4000-8000-000000000000',
+        ),
+      ).rejects.toThrow();
     });
   });
 
