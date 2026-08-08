@@ -80,6 +80,15 @@ export class PaiementController {
       await this.billetterieService.confirmerPaiement(evenement.reference);
     }
 
+    // L'échec était jusqu'ici ignoré : l'inscription restait en attente pour
+    // toujours, occupant une place que personne ne paierait.
+    if (nouveau && evenement.statut === StatutPaiement.ECHOUE) {
+      await this.billetterieService.echouerPaiement(
+        evenement.reference,
+        'le paiement a été refusé par l’opérateur.',
+      );
+    }
+
     return { recu: true, traite: nouveau };
   }
 }

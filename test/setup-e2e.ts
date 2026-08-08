@@ -27,3 +27,26 @@ process.env.UPSTASH_REDIS_REST_TOKEN = '';
  * c'est ainsi qu'ils sont éprouvés.
  */
 process.env.TACHES_PLANIFIEES = 'false';
+
+/**
+ * Force la passerelle de paiement factice.
+ *
+ * Un `.env` de développeur porte désormais de vrais identifiants Fapshi — le
+ * bac à sable se configure exactement comme la production, et c'est voulu. La
+ * suite instancierait alors l'adaptateur réel : chaque inscription payante
+ * partirait vers le prestataire, les tests dépendraient du réseau, et le
+ * secret de webhook du développeur ferait échouer toutes les notifications
+ * simulées. Les trois variables sont vidées pour que le double reprenne la
+ * main, comme pour Upstash au-dessus.
+ */
+process.env.FAPSHI_API_USER = '';
+process.env.FAPSHI_API_KEY = '';
+
+/**
+ * Secret connu des tests, qui simulent des notifications signées.
+ *
+ * Vidé plutôt que supprimé, la passerelle factice retomberait sur sa valeur
+ * par défaut ; l'imposer ici rend la suite indépendante du poste sur lequel
+ * elle tourne.
+ */
+process.env.FAPSHI_WEBHOOK_SECRET = 'secret-de-developpement';

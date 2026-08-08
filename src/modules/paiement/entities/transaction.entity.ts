@@ -39,8 +39,22 @@ export class Transaction extends BaseEntity {
   })
   methodePaiement: MethodePaiement | null;
 
-  /** Référence du prestataire (Fapshi), sert de clé d'idempotence des webhooks. */
+  /** Notre référence — le code du billet. Clé d'idempotence des webhooks. */
   @Index({ unique: true })
   @Column()
   reference: string;
+
+  /**
+   * Identifiant de la transaction **chez Fapshi**, renvoyé à l'ouverture.
+   *
+   * Sans lui, aucune réconciliation n'est possible : `GET /payment-status`
+   * s'interroge par cet identifiant, et Fapshi n'offre pas de recherche par
+   * notre propre référence. Un paiement dont le webhook se perdrait resterait
+   * alors en attente pour toujours, la place bloquée et l'argent débité.
+   *
+   * Nul tant que le prestataire n'a pas répondu, et sur les transactions
+   * ouvertes avant l'existence de cette colonne.
+   */
+  @Column({ name: 'reference_externe', type: 'varchar', nullable: true })
+  referenceExterne: string | null;
 }
