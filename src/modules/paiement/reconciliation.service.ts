@@ -2,7 +2,8 @@ import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { BilletterieService } from '../billetterie/billetterie.service';
-import { Transaction } from './entities/transaction.entity';
+import { CommandeService } from '../commande/commande.service';
+import { OrigineTransaction, Transaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import type { PasserellePaiement } from './ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
@@ -61,6 +62,8 @@ export class ReconciliationService {
     private readonly passerelle: PasserellePaiement,
     @Inject(forwardRef(() => BilletterieService))
     private readonly billetterieService: BilletterieService,
+    @Inject(forwardRef(() => CommandeService))
+    private readonly commandeService: CommandeService,
     config: ConfigService,
   ) {
     this.delaiGrace = config.get<number>('PAIEMENT_DELAI_GRACE_MINUTES', 3);
@@ -128,17 +131,14 @@ export class ReconciliationService {
 
     if (statut === StatutPaiement.COMPLETE) {
       await this.appliquer(transaction, statut, () =>
-        this.billetterieService.confirmerPaiement(transaction.reference),
+        this.confirmer(transaction),
       );
       return;
     }
 
     if (statut === StatutPaiement.ECHOUE) {
       await this.appliquer(transaction, statut, () =>
-        this.billetterieService.echouerPaiement(
-          transaction.reference,
-          'le paiement a été refusé par l’opérateur.',
-        ),
+        this.echouer(transaction, 'le paiement a été refusé par l’opérateur.'),
       );
       return;
     }
@@ -147,8 +147,8 @@ export class ReconciliationService {
     // d'abandon est dépassé.
     if (transaction.createdAt < this.ilYA(this.delaiExpiration)) {
       await this.appliquer(transaction, StatutPaiement.ECHOUE, () =>
-        this.billetterieService.echouerPaiement(
-          transaction.reference,
+        this.echouer(
+          transaction,
           `le paiement n’a pas été validé dans les ${this.delaiExpiration} minutes.`,
         ),
       );
@@ -180,6 +180,24 @@ export class ReconciliationService {
       `Réconciliation : ${transaction.reference} passe à ${statut}.`,
     );
     await effet();
+  }
+
+  /**
+   * Oriente l'effet de bord vers le bon domaine.
+   *
+   * La transaction porte son origine : une même vérification confirme un
+   * billet ou une commande, jamais les deux.
+   */
+  private confirmer(transaction: Transaction): Promise<void> {
+    return transaction.origine === OrigineTransaction.BOUTIQUE
+      ? this.commandeService.confirmerPaiement(transaction.reference)
+      : this.billetterieService.confirmerPaiement(transaction.reference);
+  }
+
+  private echouer(transaction: Transaction, motif: string): Promise<void> {
+    return transaction.origine === OrigineTransaction.BOUTIQUE
+      ? this.commandeService.echouerPaiement(transaction.reference, motif)
+      : this.billetterieService.echouerPaiement(transaction.reference, motif);
   }
 
   private ilYA(minutes: number): Date {
