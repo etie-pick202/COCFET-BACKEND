@@ -17,6 +17,11 @@ export const DUREES_VALIDITE_MS: Record<TypeJeton, number> = {
   // Plus long : l'admin et le sponsor ne sont pas synchronisés, et le contact
   // d'une entreprise peut mettre plusieurs jours à traiter son courrier.
   [TypeJeton.INVITATION_SPONSOR]: 7 * 24 * 60 * 60 * 1000,
+  /**
+   * Une heure, comme la reinitialisation : le lien ouvre la prise de controle
+   * de l'identifiant de connexion, et n'a aucune raison de trainer.
+   */
+  [TypeJeton.CHANGEMENT_EMAIL]: 60 * 60 * 1000,
 };
 
 @Injectable()
@@ -76,7 +81,10 @@ export class JetonService {
       relations: { user: true },
     });
 
-    if (!jeton || jeton.consommeLe !== null || jeton.expireLe <= new Date()) {
+    if (!jeton) {
+      return null;
+    }
+    if (jeton.consommeLe !== null || jeton.expireLe <= new Date()) {
       return null;
     }
 

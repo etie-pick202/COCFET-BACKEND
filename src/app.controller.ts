@@ -1,7 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
-import { ApiOperation, ApiTags } from '@nestjs/swagger';
-import { AppService } from './app.service';
-import type { HealthStatus } from './app.service';
+import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { AppService, HealthStatus } from './app.service';
 import { Public } from './modules/auth/decorators/public.decorator';
 
 @ApiTags('health')
@@ -12,6 +11,7 @@ export class AppController {
   @Public()
   @Get()
   @ApiOperation({ summary: "État de santé de l'API" })
+  @ApiOkResponse({ description: "L'API répond.", type: HealthStatus })
   getHealth(): HealthStatus {
     return this.appService.getHealth();
   }

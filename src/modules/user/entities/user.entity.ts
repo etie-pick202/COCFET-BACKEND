@@ -1,3 +1,4 @@
+import { ApiHideProperty, ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Role } from '../../../common/enums/role.enum';
@@ -7,26 +8,51 @@ export class User extends BaseEntity {
   /** Toujours stocké sous forme normalisée (voir `normaliserEmail`). */
   @Index({ unique: true })
   @Column()
+  @ApiProperty({ example: 'etienne.mayack@2027.ucac-icam.com' })
   email: string;
 
   /**
    * Nul tant que le compte n'a pas de mot de passe : c'est le cas d'un sponsor
    * créé par l'administration, entre l'invitation et son activation. Un compte
    * dans cet état ne peut pas se connecter.
+   *
+   * `select: false` : l'entité User est chargée en relation depuis le bureau,
+   * les notifications, les billets et les fiches sponsor, et ces réponses la
+   * sérialisent telle quelle. Sans cette option, l'empreinte part dans le JSON
+   * à chaque fois — et il suffit d'une nouvelle relation `user` ajoutée
+   * ailleurs pour rouvrir la fuite. La refermer ici la referme partout, y
+   * compris pour le code qui n'est pas encore écrit. Les rares lectures qui en
+   * ont besoin la redemandent explicitement (voir `UserService`).
    */
-  @Column({ name: 'password_hash', type: 'varchar', nullable: true })
+  @Column({
+    name: 'password_hash',
+    type: 'varchar',
+    nullable: true,
+    select: false,
+  })
+  // `@ApiHideProperty` retire le champ de la documentation ; `select: false` le
+  // retire des réponses. Les deux sont nécessaires : le premier seul laisserait
+  // l'empreinte circuler sans qu'elle soit documentée.
+  @ApiHideProperty()
   passwordHash: string | null;
 
   @Column({ name: 'first_name' })
+  @ApiProperty({ example: 'Etienne' })
   firstName: string;
 
   @Column({ name: 'last_name' })
+  @ApiProperty({ example: 'Mayack' })
   lastName: string;
 
   @Column({ type: 'enum', enum: Role, default: Role.VISITOR })
+  @ApiProperty({ enum: Role })
   role: Role;
 
   @Column({ type: 'varchar', nullable: true })
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
   avatar: string | null;
 
   /**
@@ -34,6 +60,7 @@ export class User extends BaseEntity {
    * Entier, pour être comparable directement à `Generation.annee`.
    */
   @Column({ type: 'int', nullable: true })
+  @ApiProperty({ example: 2027, nullable: true })
   promotion: number | null;
 
   /**
@@ -41,6 +68,7 @@ export class User extends BaseEntity {
    * saisi, et recalculé au changement de génération.
    */
   @Column({ name: 'is_finissant', default: false })
+  @ApiProperty()
   isFinissant: boolean;
 
   /**
@@ -49,12 +77,35 @@ export class User extends BaseEntity {
    * appartient bien à la personne qui s'inscrit.
    */
   @Column({ name: 'email_verifie_le', type: 'timestamptz', nullable: true })
+  @ApiProperty({ format: 'date-time', nullable: true })
   emailVerifieLe: Date | null;
 
-  @Column({ name: 'refresh_token_hash', type: 'varchar', nullable: true })
+  /**
+   * Adresse demandée, en attente de confirmation.
+   *
+   * Elle ne remplace `email` qu'une fois le lien suivi : tant que la nouvelle
+   * boîte n'a pas répondu, la connexion continue de se faire avec l'ancienne.
+   * Une bascule immédiate enfermerait dehors quiconque se trompe d'adresse.
+   */
+  @Column({ name: 'email_en_attente', type: 'varchar', nullable: true })
+  @ApiProperty({
+    nullable: true,
+    description: 'Adresse demandée, tant que sa boîte n’a pas confirmé.',
+  })
+  emailEnAttente: string | null;
+
+  /** Jamais chargée par défaut, pour la même raison que `passwordHash`. */
+  @Column({
+    name: 'refresh_token_hash',
+    type: 'varchar',
+    nullable: true,
+    select: false,
+  })
+  @ApiHideProperty()
   refreshTokenHash: string | null;
 
   /** Désactivation par l'administration, indépendante de la vérification. */
   @Column({ name: 'is_active', default: true })
+  @ApiProperty()
   isActive: boolean;
 }
