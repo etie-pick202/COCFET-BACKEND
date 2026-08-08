@@ -266,6 +266,62 @@ describe('Webhook de paiement (e2e)', () => {
     });
   });
 
+  describe('paiement refuse', () => {
+    it('annule l’inscription et rend la place', async () => {
+      // Ce chemin n'existait pas : le webhook ne traitait que les paiements
+      // reussis, et un refus laissait la place occupee par un billet que
+      // personne ne paierait — l'evenement affichant complet sans l'etre.
+      const code = await inscriptionEnAttente();
+      const corps = notifier(code, StatutPaiement.ECHOUE);
+
+      const avant = await evenements.findOneOrFail({
+        where: { titre: 'Gala payant' },
+      });
+      expect(avant.inscriptionsActuelles).toBe(1);
+
+      await request(app.getHttpServer())
+        .post(WEBHOOK)
+        .set('Content-Type', 'application/json')
+        .set('x-wh-secret', SECRET_WEBHOOK)
+        .send(corps.toString('utf8'))
+        .expect(200);
+
+      await expect(
+        inscriptions.findOne({ where: { codeBillet: code } }),
+      ).resolves.toMatchObject({
+        statut: StatutInscription.ANNULEE,
+        statutPaiement: StatutPaiement.ECHOUE,
+      });
+
+      await expect(
+        evenements.findOne({ where: { id: avant.id } }),
+      ).resolves.toMatchObject({ inscriptionsActuelles: 0 });
+    });
+
+    it('ne libere pas deux fois la meme place', async () => {
+      // La reconciliation peut croiser un webhook : la seconde transition
+      // n'affecte aucune ligne, et le compteur ne descend pas sous zero.
+      const code = await inscriptionEnAttente();
+      const corps = notifier(code, StatutPaiement.ECHOUE);
+
+      const envoyer = () =>
+        request(app.getHttpServer())
+          .post(WEBHOOK)
+          .set('Content-Type', 'application/json')
+          .set('x-wh-secret', SECRET_WEBHOOK)
+          .send(corps.toString('utf8'))
+          .expect(200);
+
+      await envoyer();
+      await envoyer();
+
+      const evenement = await evenements.findOneOrFail({
+        where: { titre: 'Gala payant' },
+      });
+      expect(evenement.inscriptionsActuelles).toBe(0);
+    });
+  });
+
   describe('rejeu', () => {
     it('ne traite qu’une fois une notification répétée', async () => {
       // Le prestataire renvoie délibérément la même notification : c'est son

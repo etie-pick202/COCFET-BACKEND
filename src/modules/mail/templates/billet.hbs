@@ -34,18 +34,17 @@
     </table>
 
     {{#if avecImage}}
-      <p style="text-align: center">
-        <img
-          src="cid:qrbillet"
-          alt="QR code du billet {{codeBillet}}"
-          width="260"
-          height="260"
-          style="border: 1px solid #e5e7eb; border-radius: 8px"
-        />
+      <p
+        style="background:#f3f4f6;border-left:4px solid #6b7280;padding:12px 16px"
+      >
+        <strong>Votre QR code est joint à ce message</strong>
+        (fichier
+        <em>billet-{{codeBillet}}.png</em>). Enregistrez-le sur votre téléphone
+        avant de venir : le réseau n’est pas garanti à l’entrée.
       </p>
       <p style="color: #6b7280; font-size: 13px">
-        La référence écrite plus haut vaut le QR : si votre messagerie n’affiche
-        pas les images, dictez-la à l’accueil. Ce billet n’est valable qu’une
+        La référence écrite plus haut vaut le QR : si vous ne pouvez pas ouvrir
+        la pièce jointe, dictez-la à l’accueil. Ce billet n’est valable qu’une
         fois — ne le publiez pas, quiconque le présenterait entrerait à votre
         place.
       </p>

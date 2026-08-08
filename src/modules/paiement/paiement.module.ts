@@ -2,10 +2,12 @@ import { forwardRef, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BilletterieModule } from '../billetterie/billetterie.module';
+import { CommandeModule } from '../commande/commande.module';
 import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
 import { PasserellePaiementFactice } from './adaptateurs/passerelle-paiement-factice';
 import { Transaction } from './entities/transaction.entity';
 import { PaiementController } from './paiement.controller';
+import { ReconciliationService } from './reconciliation.service';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
 
@@ -32,10 +34,12 @@ const VARIABLES_FAPSHI = [
   imports: [
     TypeOrmModule.forFeature([Transaction]),
     forwardRef(() => BilletterieModule),
+    forwardRef(() => CommandeModule),
   ],
   controllers: [PaiementController],
   providers: [
     TransactionService,
+    ReconciliationService,
     {
       provide: PASSERELLE_PAIEMENT,
       inject: [ConfigService],

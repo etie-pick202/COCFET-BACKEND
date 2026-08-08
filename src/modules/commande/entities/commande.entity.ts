@@ -1,3 +1,4 @@
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import {
@@ -20,12 +21,17 @@ export enum StatutCommande {
 export class Commande extends BaseEntity {
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
+  @ApiProperty({ required: false })
   user: User;
 
   @OneToMany(() => LigneCommande, (ligne) => ligne.commande, { cascade: true })
+  @ApiProperty({ type: () => [LigneCommande] })
   lignes: LigneCommande[];
 
   @Column({ type: 'int', default: 0 })
+  @ApiProperty({
+    description: 'FCFA. Calcule cote serveur, jamais recu du client.',
+  })
   total: number;
 
   @Column({
@@ -33,6 +39,7 @@ export class Commande extends BaseEntity {
     enum: StatutCommande,
     default: StatutCommande.EN_ATTENTE,
   })
+  @ApiProperty({ enum: StatutCommande })
   statut: StatutCommande;
 
   @Column({
@@ -41,6 +48,7 @@ export class Commande extends BaseEntity {
     enum: MethodePaiement,
     nullable: true,
   })
+  @ApiProperty({ enum: MethodePaiement, nullable: true })
   methodePaiement: MethodePaiement | null;
 
   @Column({
@@ -49,12 +57,15 @@ export class Commande extends BaseEntity {
     enum: StatutPaiement,
     default: StatutPaiement.EN_ATTENTE,
   })
+  @ApiProperty({ enum: StatutPaiement })
   statutPaiement: StatutPaiement;
 
   @Column({ name: 'facture_url', type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
   factureUrl: string | null;
 
   /** Numéro Mobile Money utilisé pour la confirmation du paiement. */
   @Column({ type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
   telephone: string | null;
 }
