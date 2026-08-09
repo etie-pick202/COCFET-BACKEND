@@ -58,6 +58,26 @@ export class StockageR2 implements Stockage {
     );
   }
 
+  /**
+   * Rend les octets d'un objet.
+   *
+   * Le corps arrive en flux : il est agrégé ici, les appelants — logo d'un
+   * email, image d'un PDF — travaillant sur des fichiers de quelques kilo-
+   * octets qu'il serait inutile de leur faire assembler eux-mêmes.
+   */
+  async telecharger(cle: string): Promise<Buffer> {
+    const reponse = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: cle }),
+    );
+
+    const octets = await reponse.Body?.transformToByteArray();
+    if (!octets) {
+      throw new Error(`Objet illisible : ${cle}`);
+    }
+
+    return Buffer.from(octets);
+  }
+
   async supprimer(cle: string): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: cle }),

@@ -71,6 +71,16 @@ export class StockageLocal implements Stockage {
    * Relit un objet après vérification de la signature et de l'échéance.
    * Appelé par le contrôleur, jamais par le code métier.
    */
+  /**
+   * Rend les octets d'un objet, sans passer par la signature d'URL.
+   *
+   * Réservé aux appels internes — recomposer un email ou un PDF. La lecture
+   * signée, elle, reste le seul chemin pour servir un fichier à un client.
+   */
+  async telecharger(cle: string): Promise<Buffer> {
+    return readFile(this.chemin(cle));
+  }
+
   async lire(cle: string, expire: number, signature: string): Promise<Buffer> {
     if (
       !Number.isFinite(expire) ||
