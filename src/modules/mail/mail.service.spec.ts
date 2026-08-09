@@ -99,6 +99,56 @@ describe('MailService', () => {
     await viderLaFile();
   });
 
+  it.each([
+    ['welcome', () => service.sendWelcome('a@b.test', 'Awa')],
+    [
+      'password-reset',
+      () => service.sendPasswordReset('a@b.test', 'Awa', 'https://x.test/mdp'),
+    ],
+    [
+      'verification-email',
+      () =>
+        service.envoyerVerificationEmail('a@b.test', 'Awa', 'https://x.test/v'),
+    ],
+    [
+      'tentative-inscription',
+      () => service.envoyerTentativeInscription('a@b.test', 'Awa'),
+    ],
+    [
+      'notification',
+      () =>
+        service.envoyerNotification('a@b.test', 'Awa', 'Titre', 'Corps', null),
+    ],
+    [
+      'changement-email',
+      () =>
+        service.envoyerConfirmationNouvelleAdresse(
+          'a@b.test',
+          'Awa',
+          'https://x.test/c',
+        ),
+    ],
+    [
+      'alerte-changement-email',
+      () => service.envoyerAlerteChangementEmail('a@b.test', 'Awa', 'n@b.test'),
+    ],
+    [
+      'invitation-sponsor',
+      () =>
+        service.envoyerInvitationSponsor('a@b.test', 'Société', 'https://x/a'),
+    ],
+  ])('habille « %s » de la charte', async (gabarit, envoyer) => {
+    // Aucun appelant n'a à y penser : la charte est posée par `send`, donc
+    // par tous les envois sans exception.
+    await envoyer();
+    await viderLaFile();
+
+    const message = messageRemis(0);
+
+    expect(message.template).toBe(gabarit);
+    expect(message.context.charte).toMatchObject({ nom: 'Promotion ATLAS' });
+  });
+
   it('joint le QR code au billet, sans l’exiger', async () => {
     const billet = {
       titre: 'Gala des finissants',

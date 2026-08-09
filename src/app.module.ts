@@ -20,6 +20,7 @@ import { TableauDeBordModule } from './modules/tableau-de-bord/tableau-de-bord.m
 import { BoutiqueModule } from './modules/boutique/boutique.module';
 import { CommandeModule } from './modules/commande/commande.module';
 import { EvenementModule } from './modules/evenement/evenement.module';
+import { DocumentModule } from './modules/document/document.module';
 import { FileModule } from './modules/file/file.module';
 import { GenerationModule } from './modules/generation/generation.module';
 import { MailModule } from './modules/mail/mail.module';
@@ -79,6 +80,7 @@ import { UserModule } from './modules/user/user.module';
     ActiviteModule,
     MailModule,
     FileModule,
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [
