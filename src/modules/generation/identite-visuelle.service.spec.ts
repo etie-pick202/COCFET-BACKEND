@@ -85,6 +85,33 @@ describe('IdentiteVisuelleService', () => {
     expect(telecharger).not.toHaveBeenCalled();
   });
 
+  it('remplace une couleur qui n’en est pas une', async () => {
+    // La colonne est un `varchar` libre. Posée telle quelle dans un attribut
+    // `style`, une saisie de cette forme porterait autre chose qu'une couleur.
+    trouverActive.mockResolvedValue(
+      mandat({ couleurPrimaire: 'red; background-image: url(//pister.test)' }),
+    );
+
+    const charte = await service.charte();
+
+    expect(charte.couleurPrimaire).toBe('#0F172A');
+    expect(charte.couleurSecondaire).toBe('#ABCDEF');
+  });
+
+  it('choisit un texte lisible sur le fond du mandat', async () => {
+    // Un bureau peut choisir un jaune vif : du blanc dessus ne se lit plus.
+    trouverActive.mockResolvedValue(mandat({ couleurPrimaire: '#FFD400' }));
+    await expect(service.charte()).resolves.toMatchObject({
+      contrastePrimaire: '#111827',
+    });
+
+    service.invalider();
+    trouverActive.mockResolvedValue(mandat({ couleurPrimaire: '#0F172A' }));
+    await expect(service.charte()).resolves.toMatchObject({
+      contrastePrimaire: '#FFFFFF',
+    });
+  });
+
   it('survit à une base indisponible', async () => {
     // Une charte manquante dégrade l'apparence d'un message ; elle ne doit
     // pas empêcher son envoi.

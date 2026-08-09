@@ -1,0 +1,79 @@
+{{!--
+  Chrome commun à tous les messages : en-tête aux couleurs du mandat, carte
+  centrale, pied de page. Les gabarits ne portent plus que leur contenu.
+
+  Aucune image n'est incrustée ici, et c'est délibéré : l'API HTTP de Brevo ne
+  sait pas rattacher une pièce jointe à un `Content-Id`, et Gmail supprime les
+  sources `data:`. Un logo posé par l'un ou l'autre moyen laisserait un cadre
+  vide chez une bonne partie des destinataires. Le mandat se reconnaît donc à
+  son nom et à ses couleurs — le logo, lui, sert aux PDF, où il s'incruste
+  vraiment.
+
+  Mise en page en tableaux et styles en ligne : Outlook ignore `flex`, `grid`
+  et les feuilles de style externes.
+--}}
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{charte.nom}}</title>
+  </head>
+  <body
+    style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.6"
+  >
+    <table
+      role="presentation"
+      width="100%"
+      cellpadding="0"
+      cellspacing="0"
+      style="background:#f3f4f6;padding:24px 12px"
+    >
+      <tr>
+        <td align="center">
+          <table
+            role="presentation"
+            width="100%"
+            cellpadding="0"
+            cellspacing="0"
+            style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden"
+          >
+            <tr>
+              <td
+                style="background:{{charte.couleurPrimaire}};padding:20px 28px"
+              >
+                <span
+                  style="color:{{charte.contrastePrimaire}};font-size:18px;font-weight:bold;letter-spacing:0.5px"
+                  >{{charte.nom}}</span
+                >
+                {{#if charte.annee}}
+                  <span
+                    style="color:{{charte.contrastePrimaire}};font-size:14px;opacity:0.85"
+                  >
+                    — {{charte.annee}}</span
+                  >
+                {{/if}}
+              </td>
+            </tr>
+            <tr>
+              <td style="height:4px;background:{{charte.couleurSecondaire}}">
+                &nbsp;
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px">{{body}}</td>
+            </tr>
+            <tr>
+              <td
+                style="border-top:1px solid #e5e7eb;padding:18px 28px;color:#6b7280;font-size:12px"
+              >
+                Bureau des Finissants de l’UCAC-ICAM. Message automatique,
+                merci de ne pas y répondre.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

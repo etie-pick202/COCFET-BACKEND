@@ -36,13 +36,23 @@ import {
 } from './dto/generation.dto';
 import { Generation } from './entities/generation.entity';
 import { GenerationService } from './generation.service';
+import { IdentiteVisuelleService } from './identite-visuelle.service';
 
 @ApiTags('Générations')
 @ApiErreursAuthentification()
 @ApiErreurValidation()
 @Controller('generations')
 export class GenerationController {
-  constructor(private readonly generationService: GenerationService) {}
+  /**
+   * L'invalidation de la charte est déclenchée ici, et non dans
+   * `GenerationService` : c'est `IdentiteVisuelleService` qui dépend du
+   * service des générations, l'inverse formerait un cycle. Le contrôleur, lui,
+   * voit les deux.
+   */
+  constructor(
+    private readonly generationService: GenerationService,
+    private readonly identiteVisuelle: IdentiteVisuelleService,
+  ) {}
 
   @Public()
   @Get('theme')
@@ -122,11 +132,13 @@ export class GenerationController {
     description: 'Génération archivée, ou année déjà prise.',
     type: ReponseErreurDto,
   })
-  mettreAJour(
+  async mettreAJour(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourGenerationDto,
   ): Promise<Generation> {
-    return this.generationService.mettreAJour(id, dto);
+    const generation = await this.generationService.mettreAJour(id, dto);
+    this.invaliderSiEnCours(generation);
+    return generation;
   }
 
   @ApiBearerAuth()
@@ -152,11 +164,13 @@ export class GenerationController {
     description: 'Génération inconnue.',
     type: ReponseErreurDto,
   })
-  designerLogo(
+  async designerLogo(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DesignerLogoDto,
   ): Promise<Generation> {
-    return this.generationService.designerLogo(id, dto.logo);
+    const generation = await this.generationService.designerLogo(id, dto.logo);
+    this.invaliderSiEnCours(generation);
+    return generation;
   }
 
   @ApiBearerAuth()
@@ -185,8 +199,11 @@ export class GenerationController {
     description: 'Génération archivée.',
     type: ReponseErreurDto,
   })
-  activer(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
-    return this.generationService.activer(id);
+  async activer(@Param('id', ParseUUIDPipe) id: string): Promise<Generation> {
+    const generation = await this.generationService.activer(id);
+    // Toujours : la passation change le mandat, donc la charte.
+    this.identiteVisuelle.invalider();
+    return generation;
   }
 
   @ApiBearerAuth()
@@ -230,5 +247,19 @@ export class GenerationController {
   })
   supprimer(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
     return this.generationService.supprimer(id);
+  }
+
+  /**
+   * Vide le cache de la charte quand le mandat retouché est celui en cours.
+   *
+   * Sans cela, un changement de couleur ou de logo mettrait jusqu'à cinq
+   * minutes à se voir dans les messages — le temps que le cache expire. Une
+   * génération inactive, elle, n'habille rien : inutile de forcer une relecture
+   * de la base et du stockage.
+   */
+  private invaliderSiEnCours(generation: Generation): void {
+    if (generation.isActive) {
+      this.identiteVisuelle.invalider();
+    }
   }
 }

@@ -16,6 +16,14 @@ export interface IdentiteVisuelle {
   annee: number | null;
   couleurPrimaire: string;
   couleurSecondaire: string;
+  /**
+   * Couleur de texte lisible posée sur {@link couleurPrimaire}.
+   *
+   * Un bureau peut choisir un jaune vif : du blanc dessus ne se lit plus. La
+   * couleur est déduite de la luminance du fond plutôt que fixée, pour que le
+   * bandeau reste lisible quel que soit le mandat.
+   */
+  contrastePrimaire: string;
   logo: Buffer | null;
 }
 
@@ -25,8 +33,58 @@ const CHARTE_NEUTRE = {
   annee: null,
   couleurPrimaire: '#0F172A',
   couleurSecondaire: '#D4AF37',
+  contrastePrimaire: '#FFFFFF',
   logo: null,
 } satisfies IdentiteVisuelle;
+
+/** Notation hexadécimale, seule forme acceptée en base comme en sortie. */
+const MOTIF_HEXA = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/**
+ * Ramène une couleur de la base à une valeur hexadécimale sûre.
+ *
+ * La colonne est un `varchar` libre : rien n'empêche d'y trouver
+ * `red; background-image: url(...)`. Posée telle quelle dans un attribut
+ * `style` d'email ou dans un PDF, elle porterait autre chose qu'une couleur.
+ * Une valeur qui n'est pas un hexadécimal est donc remplacée, jamais échappée
+ * — le bureau verra la couleur de repli et corrigera sa saisie.
+ */
+export function normaliserCouleur(
+  valeur: string | null | undefined,
+  repli: string,
+): string {
+  return valeur && MOTIF_HEXA.test(valeur.trim()) ? valeur.trim() : repli;
+}
+
+/**
+ * Rend le noir ou le blanc, selon lequel se lit sur `fond`.
+ *
+ * Suit le calcul de luminance relative du WCAG : un seuil sur la moyenne des
+ * composantes se tromperait sur les verts, que l'œil perçoit bien plus clairs
+ * que les bleus à valeur égale.
+ */
+export function couleurTexteSur(fond: string): string {
+  const hexa = fond.slice(1);
+  const complet =
+    hexa.length === 3
+      ? hexa
+          .split('')
+          .map((c) => c + c)
+          .join('')
+      : hexa;
+
+  const canal = (position: number): number => {
+    const composante =
+      parseInt(complet.slice(position, position + 2), 16) / 255;
+    return composante <= 0.03928
+      ? composante / 12.92
+      : ((composante + 0.055) / 1.055) ** 2.4;
+  };
+
+  const luminance = 0.2126 * canal(0) + 0.7152 * canal(2) + 0.0722 * canal(4);
+
+  return luminance > 0.45 ? '#111827' : '#FFFFFF';
+}
 
 /** Durée de vie du cache, en millisecondes. */
 const DUREE_CACHE = 5 * 60_000;
@@ -94,11 +152,20 @@ export class IdentiteVisuelleService {
       return CHARTE_NEUTRE;
     }
 
+    const couleurPrimaire = normaliserCouleur(
+      generation.couleurPrimaire,
+      CHARTE_NEUTRE.couleurPrimaire,
+    );
+
     return {
       nom: generation.nom,
       annee: generation.annee,
-      couleurPrimaire: generation.couleurPrimaire,
-      couleurSecondaire: generation.couleurSecondaire,
+      couleurPrimaire,
+      couleurSecondaire: normaliserCouleur(
+        generation.couleurSecondaire,
+        CHARTE_NEUTRE.couleurSecondaire,
+      ),
+      contrastePrimaire: couleurTexteSur(couleurPrimaire),
       logo: await this.lireLogo(generation.logo),
     };
   }
