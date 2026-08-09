@@ -43,7 +43,7 @@ function echapper(valeur: ValeurCsv): string {
 
   const texte = String(valeur);
 
-  return /[";\n\r]/.test(texte) ? `"${texte.split('"').join('""')}"` : texte;
+  return /[";\n\r]/.test(texte) ? `"${texte.replaceAll('"', '""')}"` : texte;
 }
 
 /**
