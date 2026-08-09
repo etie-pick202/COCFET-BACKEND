@@ -1,5 +1,6 @@
 import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable, Logger } from '@nestjs/common';
+import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
 
 /**
  * Régime de contrôle à l'entrée, décrit ici en union de chaînes.
@@ -14,7 +15,10 @@ export type ModeAcces = 'AUCUN' | 'QR_FIXE' | 'QR_TOURNANT';
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
-  constructor(private readonly mailerService: MailerService) {}
+  constructor(
+    private readonly mailerService: MailerService,
+    private readonly identiteVisuelle: IdentiteVisuelleService,
+  ) {}
 
   async sendWelcome(to: string, prenom: string): Promise<void> {
     await this.send(to, 'Bienvenue sur COCFET', 'welcome', { prenom });
@@ -202,6 +206,11 @@ export class MailService {
    * Aucun appelant n'exploite le résultat : l'échec d'un envoi n'a jamais dû
    * faire échouer l'action métier. On rend donc la main tout de suite, et
    * l'issue part dans les journaux. Le transport, lui, borne sa propre attente.
+   *
+   * La charte est lue ici, hors du chemin de la requête, et non par chaque
+   * appelant : c'est la seule façon de garantir qu'aucun message ne parte sans
+   * elle. Le service la garde en cache, la lecture est donc gratuite après le
+   * premier envoi, et elle ne lève jamais.
    */
   private send(
     to: string,
@@ -210,14 +219,30 @@ export class MailService {
     context: Record<string, unknown>,
     attachments?: { filename: string; content: Buffer }[],
   ): Promise<void> {
-    void this.mailerService
-      .sendMail({
-        to,
-        subject,
-        template,
-        context,
-        ...(attachments ? { attachments } : {}),
-      })
+    void this.identiteVisuelle
+      .charte()
+      .then((charte) =>
+        this.mailerService.sendMail({
+          to,
+          subject,
+          template,
+          context: {
+            ...context,
+            // Le gabarit commun lit `charte` pour son en-tête et ses boutons.
+            // Le logo en est retiré : il ne s'affiche pas dans un email — voir
+            // l'en-tête de « gabarit.hbs » — et ses octets n'ont rien à faire
+            // dans un contexte de rendu.
+            charte: {
+              nom: charte.nom,
+              annee: charte.annee,
+              couleurPrimaire: charte.couleurPrimaire,
+              couleurSecondaire: charte.couleurSecondaire,
+              contrastePrimaire: charte.contrastePrimaire,
+            },
+          },
+          ...(attachments ? { attachments } : {}),
+        }),
+      )
       .then(() => {
         this.logger.log(`Email "${template}" remis au fournisseur pour ${to}.`);
       })

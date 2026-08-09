@@ -1,0 +1,23 @@
+{{!--
+  Bouton d'action, aux couleurs du mandat.
+
+  Attendu en paramètres de l'appel : {{> bouton lien=... libelle="..."}}. Les
+  passer explicitement plutôt que de les lire dans le contexte évite qu'un
+  gabarit dont la variable porte un autre nom rende un bouton vide.
+
+  Un `<a>` dans un `<table>` plutôt qu'un `<button>` : les clients de messagerie
+  n'exécutent rien, et Outlook n'applique pas `padding` à une balise en ligne.
+--}}
+<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0">
+  <tr>
+    <td
+      style="background:{{charte.couleurPrimaire}};border-radius:6px;padding:12px 22px"
+    >
+      <a
+        href="{{lien}}"
+        style="color:{{charte.contrastePrimaire}};font-weight:bold;text-decoration:none;font-size:15px"
+        >{{libelle}}</a
+      >
+    </td>
+  </tr>
+</table>
