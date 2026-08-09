@@ -9,6 +9,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
+import { ActiviteService } from '../activite/activite.service';
+import { TypeActivite } from '../activite/entities/journal-activite.entity';
 import { BoutiqueService } from '../boutique/boutique.service';
 import { Produit, StatutProduit } from '../boutique/entities/produit.entity';
 import { TypeNotification } from '../notification/entities/notification.entity';
@@ -64,6 +66,7 @@ export class CommandeService {
     private readonly boutiqueService: BoutiqueService,
     private readonly notificationService: NotificationService,
     private readonly transactionService: TransactionService,
+    private readonly activiteService: ActiviteService,
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly dataSource: DataSource,
@@ -273,6 +276,15 @@ export class CommandeService {
       `Votre commande de ${commande.total} FCFA est payée. Vous serez prévenu dès qu’elle sera prête.`,
       commande.id,
     );
+
+    await this.activiteService.journaliser({
+      type: TypeActivite.COMMANDE,
+      message:
+        `${commande.user.firstName} ${commande.user.lastName} a payé une ` +
+        `commande de ${commande.total} FCFA.`,
+      auteur: commande.user,
+      metadata: { commandeId: commande.id, montant: commande.total },
+    });
   }
 
   /**

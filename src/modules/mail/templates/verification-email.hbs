@@ -1,23 +1,14 @@
-<!doctype html>
-<html lang="fr">
-  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6">
-    <h1 style="color: #111827">Confirmez votre adresse</h1>
-    <p>Bonjour {{prenom}},</p>
-    <p>
-      Un compte COCFET vient d'être créé avec cette adresse. Confirmez-la pour
-      pouvoir vous connecter :
-    </p>
-    <p>
-      <a
-        href="{{lienVerification}}"
-        style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none"
-        >Confirmer mon adresse</a
-      >
-    </p>
-    <p>Ce lien est valable 24 heures et ne peut servir qu'une fois.</p>
-    <p style="color:#6b7280;font-size:13px">
-      Si vous n'êtes pas à l'origine de cette inscription, ignorez ce message :
-      aucun compte ne sera activé sans cette confirmation.
-    </p>
-  </body>
-</html>
+<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
+  Confirmez votre adresse
+</h1>
+<p>Bonjour {{prenom}},</p>
+<p>
+  Un compte vient d’être créé avec cette adresse. Confirmez-la pour pouvoir vous
+  connecter :
+</p>
+{{> bouton lien=lienVerification libelle="Confirmer mon adresse"}}
+<p>Ce lien est valable 24 heures et ne peut servir qu’une fois.</p>
+<p style="color:#6b7280;font-size:13px">
+  Si vous n’êtes pas à l’origine de cette inscription, ignorez ce message :
+  aucun compte ne sera activé sans cette confirmation.
+</p>

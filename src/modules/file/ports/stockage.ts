@@ -13,6 +13,16 @@ export interface Stockage {
 
   urlSignee(cle: string, expirationSecondes?: number): Promise<string>;
 
+  /**
+   * Rend les octets d'un objet.
+   *
+   * Nécessaire à tout ce qui recompose un document côté serveur : un logo
+   * joint à un email, une image insérée dans un PDF. Une URL signée ne
+   * conviendrait pas — elle expire, et un email conservé six mois afficherait
+   * un cadre vide.
+   */
+  telecharger(cle: string): Promise<Buffer>;
+
   supprimer(cle: string): Promise<void>;
 }
 

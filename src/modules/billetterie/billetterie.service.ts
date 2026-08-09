@@ -11,6 +11,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomBytes } from 'node:crypto';
 import { Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
+import { ActiviteService } from '../activite/activite.service';
+import { TypeActivite } from '../activite/entities/journal-activite.entity';
 import {
   ControleAcces,
   Evenement,
@@ -74,6 +76,7 @@ export class BilletterieService {
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly transactionService: TransactionService,
+    private readonly activiteService: ActiviteService,
     config: ConfigService,
   ) {
     // `||` et non `??` : une variable posée mais vide doit retomber sur la
@@ -330,6 +333,18 @@ export class BilletterieService {
       );
     }
 
+    await this.activiteService.journaliser({
+      type: TypeActivite.SCAN,
+      message:
+        `${inscription.user.firstName} ${inscription.user.lastName} est entré ` +
+        `à « ${inscription.evenement.titre} ».`,
+      auteur: inscription.user,
+      metadata: {
+        inscriptionId: inscription.id,
+        evenementId: inscription.evenement.id,
+      },
+    });
+
     return this.inscriptions.findOneOrFail({
       where: { id: inscription.id },
       relations: { user: true, evenement: true },
@@ -373,6 +388,21 @@ export class BilletterieService {
       titre: 'Paiement confirmé',
       message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}.`,
       lien: `/billets/${inscription.id}`,
+    });
+
+    await this.activiteService.journaliser({
+      type: TypeActivite.PAIEMENT,
+      message:
+        `${inscription.user.firstName} ${inscription.user.lastName} a payé ` +
+        `son billet pour « ${inscription.evenement.titre} » ` +
+        `(${inscription.prix} FCFA).`,
+      auteur: inscription.user,
+      metadata: {
+        inscriptionId: inscription.id,
+        evenementId: inscription.evenement.id,
+        montant: inscription.prix,
+        codeBillet: inscription.codeBillet,
+      },
     });
 
     // Après la mise à jour conditionnelle : un webhook rejoué n'affecte aucune
