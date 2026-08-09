@@ -381,6 +381,65 @@ export class BilletterieService {
   }
 
   /**
+   * Referme une inscription dont le paiement n'aboutira pas, et rend la place.
+   *
+   * Ce chemin manquait : le webhook ne traitait que les paiements réussis, et
+   * un refus laissait l'inscription en attente indéfiniment — la place
+   * occupée par un billet que personne ne paiera, sur un événement qui
+   * afficherait complet sans l'être.
+   *
+   * Conditionnée au statut courant dans la requête elle-même : une
+   * notification rejouée, ou la réconciliation croisant un webhook, n'affecte
+   * aucune ligne et ne libère donc pas deux fois la même place.
+   */
+  async echouerPaiement(reference: string, motif: string): Promise<void> {
+    const inscription = await this.inscriptions.findOne({
+      where: { codeBillet: reference },
+      relations: { user: true, evenement: true },
+    });
+
+    if (!inscription) {
+      this.logger.warn(
+        `Échec de paiement pour un billet inconnu : ${reference}`,
+      );
+      return;
+    }
+
+    const resultat = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({
+        statut: StatutInscription.ANNULEE,
+        statutPaiement: StatutPaiement.ECHOUE,
+      })
+      .where('id = :id AND statut = :attendu', {
+        id: inscription.id,
+        attendu: StatutInscription.EN_ATTENTE,
+      })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      return;
+    }
+
+    await this.evenementService.libererUnePlace(inscription.evenement.id);
+
+    await this.notificationService.notifier({
+      destinataire: inscription.user,
+      type: TypeNotification.PAIEMENT,
+      titre: 'Paiement non abouti',
+      message:
+        `Votre inscription à « ${inscription.evenement.titre} » a été annulée : ` +
+        `${motif} La place est de nouveau disponible, vous pouvez réessayer.`,
+      lien: `/evenements/${inscription.evenement.id}`,
+    });
+
+    this.logger.log(
+      `Inscription ${inscription.codeBillet} annulée faute de paiement : place rendue.`,
+    );
+  }
+
+  /**
    * Renvoie le billet à la demande.
    *
    * Un email se perd, atterrit en indésirable, ou part vers une adresse que la
@@ -553,6 +612,16 @@ export class BilletterieService {
       telephone: dto.telephone!,
       description: `Billet — ${evenement.titre}`,
     });
+
+    // Conservée avant toute autre chose : sans cet identifiant, la
+    // réconciliation ne pourra jamais interroger le prestataire sur ce
+    // paiement, et un webhook perdu bloquerait la place indéfiniment.
+    if (resultat.referenceExterne) {
+      await this.transactionService.enregistrerReferenceExterne(
+        inscription.codeBillet,
+        resultat.referenceExterne,
+      );
+    }
 
     if (resultat.statut === StatutPaiement.ECHOUE) {
       throw new BadRequestException(

@@ -89,6 +89,41 @@ export class TransactionService {
     return change;
   }
 
+  /**
+   * Conserve l'identifiant rendu par le prestataire à l'ouverture.
+   *
+   * Écrit dans un second temps : la transaction est ouverte **avant** l'appel
+   * au prestataire, pour qu'un webhook arrivant pendant cet appel trouve une
+   * ligne à mettre à jour. L'identifiant n'existe donc pas encore à ce
+   * moment-là.
+   */
+  async enregistrerReferenceExterne(
+    reference: string,
+    referenceExterne: string,
+  ): Promise<void> {
+    await this.transactions.update({ reference }, { referenceExterne });
+  }
+
+  /**
+   * Transactions restées en attente au-delà d'un délai de grâce.
+   *
+   * Le délai évite de courir après un webhook qui n'a simplement pas encore
+   * eu le temps d'arriver : sans lui, la réconciliation interrogerait le
+   * prestataire sur des paiements en cours de validation.
+   *
+   * Les plus anciennes d'abord, et par lots : ce sont elles qui bloquent une
+   * place depuis le plus longtemps, et le prestataire plafonne ses appels.
+   */
+  enAttenteAvant(limite: Date, taille: number): Promise<Transaction[]> {
+    return this.transactions
+      .createQueryBuilder('t')
+      .where('t.statut = :statut', { statut: StatutPaiement.EN_ATTENTE })
+      .andWhere('t.created_at < :limite', { limite })
+      .orderBy('t.created_at', 'ASC')
+      .take(taille)
+      .getMany();
+  }
+
   trouver(reference: string): Promise<Transaction | null> {
     return this.transactions.findOne({
       where: { reference },

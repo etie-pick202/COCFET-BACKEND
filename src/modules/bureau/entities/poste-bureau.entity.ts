@@ -46,4 +46,34 @@ export class PosteBureau extends BaseEntity {
   @Column({ name: 'accorde_administration', default: false })
   @ApiProperty()
   accordeAdministration: boolean;
+
+  /**
+   * Poste dont le titulaire accède aux chiffres de la trésorerie.
+   *
+   * Séparé de l'administration à dessein : administrer la plateforme et
+   * connaître les recettes ne relèvent pas de la même confiance. La chargée
+   * des activités publie des événements sans avoir à savoir combien ils ont
+   * rapporté, et le cloisonnement est appliqué **côté serveur** — appeler
+   * l'API directement ne le contourne pas.
+   */
+  @Column({ name: 'accede_tresorerie', default: false })
+  @ApiProperty({
+    description:
+      'Ouvre les indicateurs financiers et le journal des transactions.',
+  })
+  accedeTresorerie: boolean;
+
+  /**
+   * Poste dont le titulaire peut sortir de l'argent de la caisse.
+   *
+   * Distinct de `accedeTresorerie`, et ce n'est pas une subtilité : lire les
+   * comptes et les vider sont deux risques d'ordres différents. Un poste
+   * d'auditeur ou de commissaire aux comptes doit pouvoir tout consulter sans
+   * jamais pouvoir initier un retrait.
+   */
+  @Column({ name: 'autorise_retrait', default: false })
+  @ApiProperty({
+    description: 'Autorise à initier un retrait vers un compte Mobile Money.',
+  })
+  autoriseRetrait: boolean;
 }

@@ -20,6 +20,7 @@ import {
 } from './dto/bureau.dto';
 import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
+import { AUCUN_PRIVILEGE, PrivilegesMembre } from './privileges';
 
 @Injectable()
 export class BureauService {
@@ -179,6 +180,42 @@ export class BureauService {
       relations: { poste: true, user: true },
       order: { poste: { ordre: 'ASC' } },
     });
+  }
+
+  /**
+   * Privilèges dont dispose une personne, pour le mandat **en cours**.
+   *
+   * La génération active fait partie de la question : un ancien trésorier
+   * garde son historique mais perd ses droits dès la passation, sans qu'on
+   * ait à modifier son compte. Chercher le poste sans filtrer sur le mandat
+   * laisserait les bureaux successifs cumuler les accès à la caisse.
+   *
+   * Le cumul est un « ou » : une personne peut occuper deux postes, et rien
+   * n'oblige à ce que ce soient les mêmes droits.
+   */
+  async privilegesDe(userId: string): Promise<PrivilegesMembre> {
+    const generation = await this.generations.findOne({
+      where: { isActive: true },
+    });
+
+    if (!generation) {
+      // Aucun mandat en cours : personne ne détient de privilège de bureau.
+      return AUCUN_PRIVILEGE;
+    }
+
+    const membres = await this.membres.find({
+      where: { generation: { id: generation.id }, user: { id: userId } },
+      relations: { poste: true },
+    });
+
+    return membres.reduce<PrivilegesMembre>(
+      (cumul, membre) => ({
+        accedeTresorerie:
+          cumul.accedeTresorerie || membre.poste.accedeTresorerie,
+        autoriseRetrait: cumul.autoriseRetrait || membre.poste.autoriseRetrait,
+      }),
+      { ...AUCUN_PRIVILEGE },
+    );
   }
 
   /** Composition d'un mandat, telle que l'administration la consulte. */
