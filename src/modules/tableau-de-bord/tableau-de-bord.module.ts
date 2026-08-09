@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JournalActivite } from '../activite/entities/journal-activite.entity';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Produit } from '../boutique/entities/produit.entity';
 import { BureauModule } from '../bureau/bureau.module';
@@ -35,6 +36,7 @@ import { TresorerieService } from './tresorerie.service';
       Evenement,
       Sponsor,
       User,
+      JournalActivite,
     ]),
     BureauModule,
   ],

@@ -13,6 +13,7 @@ import {
   PointTemporel,
   TableauTresorerie,
 } from './dto/tableau-de-bord.dto';
+import { versCsv } from './export-csv';
 
 /** Longueur des classements. Au-delà, un tableau de bord devient un rapport. */
 const TAILLE_CLASSEMENT = 5;
@@ -85,6 +86,71 @@ export class TresorerieService {
     const page = filtre.page ?? 1;
     const limite = Math.min(filtre.limite ?? 20, 100);
 
+    const requete = this.requeteFiltree(filtre);
+
+    const [donnees, total] = await requete
+      .orderBy('t.createdAt', 'DESC')
+      .skip((page - 1) * limite)
+      .take(limite)
+      .getManyAndCount();
+
+    return {
+      donnees,
+      meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
+    };
+  }
+
+  /**
+   * Export destiné à la trésorerie du bureau.
+   *
+   * Non paginé, à l'inverse du journal : un export tronqué à vingt lignes ne
+   * servirait à rien, et c'est bien la totalité de la période demandée qui
+   * doit se retrouver dans le tableur. Les montants sortent en entiers, sans
+   * séparateur ni symbole — le FCFA n'a pas de sous-unité, et un « 12 000 »
+   * formaté serait relu comme du texte par Excel.
+   */
+  async exporterCsv(filtre: FiltreTransactionDto): Promise<string> {
+    const transactions = await this.requeteFiltree(filtre)
+      .orderBy('t.createdAt', 'DESC')
+      .getMany();
+
+    return versCsv(
+      [
+        'Date',
+        'Reference',
+        'Reference prestataire',
+        'Origine',
+        'Statut',
+        'Methode',
+        'Montant FCFA',
+        'Compte',
+      ],
+      transactions.map((t) => [
+        t.createdAt.toISOString(),
+        t.reference,
+        t.referenceExterne,
+        t.origine,
+        t.statut,
+        t.methodePaiement,
+        t.montant,
+        t.user ? `${t.user.firstName} ${t.user.lastName}` : '',
+      ]),
+    );
+  }
+
+  // ──────────────────────────────  Interne  ─────────────────────────────
+
+  /**
+   * Requête du journal, filtres appliqués.
+   *
+   * Partagée entre la consultation paginée et l'export : c'est la **même**
+   * sélection qui doit alimenter les deux, sans quoi le tableur ne
+   * contiendrait pas ce que l'écran affiche. Deux copies auraient divergé au
+   * premier filtre ajouté d'un seul côté.
+   */
+  private requeteFiltree(
+    filtre: FiltreTransactionDto,
+  ): SelectQueryBuilder<Transaction> {
     const requete = this.transactions
       .createQueryBuilder('t')
       .leftJoinAndSelect('t.user', 'u');
@@ -103,19 +169,8 @@ export class TresorerieService {
       });
     }
 
-    const [donnees, total] = await requete
-      .orderBy('t.createdAt', 'DESC')
-      .skip((page - 1) * limite)
-      .take(limite)
-      .getManyAndCount();
-
-    return {
-      donnees,
-      meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
-    };
+    return requete;
   }
-
-  // ──────────────────────────────  Interne  ─────────────────────────────
 
   private async totaux(periode: PeriodeDto) {
     const compter = async (statut: StatutPaiement): Promise<number> => {

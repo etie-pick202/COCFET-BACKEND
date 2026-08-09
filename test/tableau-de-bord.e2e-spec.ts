@@ -9,6 +9,10 @@ import { FiltreExceptionGlobal } from './../src/common/erreurs/filtre-exception-
 import { Role } from './../src/common/enums/role.enum';
 import { MembreBureau } from './../src/modules/bureau/entities/membre-bureau.entity';
 import { PosteBureau } from './../src/modules/bureau/entities/poste-bureau.entity';
+import {
+  JournalActivite,
+  TypeActivite,
+} from './../src/modules/activite/entities/journal-activite.entity';
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { MailService } from './../src/modules/mail/mail.service';
 import {
@@ -40,6 +44,7 @@ describe('Tableau de bord (e2e)', () => {
   let membres: Repository<MembreBureau>;
   let generations: Repository<Generation>;
   let transactions: Repository<Transaction>;
+  let journal: Repository<JournalActivite>;
 
   let tresoriere: CompteDeTest;
   let chargeeActivites: CompteDeTest;
@@ -115,10 +120,12 @@ describe('Tableau de bord (e2e)', () => {
     membres = app.get(getRepositoryToken(MembreBureau));
     generations = app.get(getRepositoryToken(Generation));
     transactions = app.get(getRepositoryToken(Transaction));
+    journal = app.get(getRepositoryToken(JournalActivite));
   });
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    await journal.createQueryBuilder().delete().execute();
     await transactions.createQueryBuilder().delete().execute();
     await membres.createQueryBuilder().delete().execute();
     await postes.createQueryBuilder().delete().execute();
@@ -147,6 +154,7 @@ describe('Tableau de bord (e2e)', () => {
   });
 
   afterAll(async () => {
+    await journal.createQueryBuilder().delete().execute();
     await transactions.createQueryBuilder().delete().execute();
     await membres.createQueryBuilder().delete().execute();
     await postes.createQueryBuilder().delete().execute();
@@ -337,6 +345,66 @@ describe('Tableau de bord (e2e)', () => {
       expect((parMethode.body as { meta: { total: number } }).meta.total).toBe(
         1,
       );
+    });
+  });
+
+  describe('flux d’activité', () => {
+    const consigner = (type: TypeActivite, message: string) =>
+      journal.save(journal.create({ type, message, user: null }));
+
+    it('rend le journal, du plus récent au plus ancien', async () => {
+      await consigner(TypeActivite.PAIEMENT, 'Un paiement');
+      await consigner(TypeActivite.SCAN, 'Une entrée');
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/activite`)
+        .set(chargeeActivites.entetes)
+        .expect(200);
+
+      const corps = reponse.body as {
+        donnees: { message: string }[];
+        meta: { total: number };
+      };
+      expect(corps.meta.total).toBe(2);
+      expect(corps.donnees[0].message).toBe('Une entrée');
+    });
+
+    it('filtre par type', async () => {
+      await consigner(TypeActivite.PAIEMENT, 'Un paiement');
+      await consigner(TypeActivite.SCAN, 'Une entrée');
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/activite`)
+        .query({ type: TypeActivite.SCAN })
+        .set(chargeeActivites.entetes)
+        .expect(200);
+
+      expect((reponse.body as { meta: { total: number } }).meta.total).toBe(1);
+    });
+  });
+
+  describe('export CSV', () => {
+    it('sert un fichier téléchargeable à la trésorerie', async () => {
+      await encaisser(12_000);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/transactions/export`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      expect(reponse.headers['content-type']).toContain('text/csv');
+      expect(reponse.headers['content-disposition']).toContain(
+        'transactions.csv',
+      );
+      expect(reponse.text).toContain('Montant FCFA');
+      expect(reponse.text).toContain('12000');
+    });
+
+    it('refuse l’export à un poste sans la trésorerie', async () => {
+      await request(app.getHttpServer())
+        .get(`${TABLEAU}/transactions/export`)
+        .set(chargeeActivites.entetes)
+        .expect(403);
     });
   });
 
