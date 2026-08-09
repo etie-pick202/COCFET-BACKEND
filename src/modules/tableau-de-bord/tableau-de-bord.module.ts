@@ -42,5 +42,9 @@ import { TresorerieService } from './tresorerie.service';
   ],
   controllers: [TableauDeBordController],
   providers: [TableauDeBordService, TresorerieService],
+  // Exporte pour le rapport de trésorerie en PDF : il doit reprendre
+  // exactement les chiffres de l'écran, ce qui serait faux si le calcul était
+  // réécrit ailleurs.
+  exports: [TresorerieService],
 })
 export class TableauDeBordModule {}

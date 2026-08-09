@@ -50,3 +50,19 @@ process.env.FAPSHI_API_KEY = '';
  * elle tourne.
  */
 process.env.FAPSHI_WEBHOOK_SECRET = 'secret-de-developpement';
+
+/**
+ * Force le stockage local.
+ *
+ * Un `.env` de developpeur porte de vrais identifiants R2 : la suite
+ * televerserait alors dans le bucket du projet, et chaque execution y
+ * laisserait des PDF de test. Sur un poste sans acces reseau au bucket, la
+ * negociation TLS echoue et les documents ne sont plus ranges du tout — le
+ * symptome ressemble a un bug de la retention alors qu'il s'agit d'un service
+ * externe reellement sollicite. Les quatre variables sont videes pour que
+ * l'adaptateur disque reprenne la main, comme pour Upstash et Fapshi.
+ */
+process.env.R2_ENDPOINT = '';
+process.env.R2_BUCKET = '';
+process.env.R2_ACCESS_KEY_ID = '';
+process.env.R2_SECRET_ACCESS_KEY = '';
