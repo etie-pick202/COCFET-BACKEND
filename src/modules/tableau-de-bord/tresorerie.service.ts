@@ -86,23 +86,7 @@ export class TresorerieService {
     const page = filtre.page ?? 1;
     const limite = Math.min(filtre.limite ?? 20, 100);
 
-    const requete = this.transactions
-      .createQueryBuilder('t')
-      .leftJoinAndSelect('t.user', 'u');
-
-    this.borner(requete, 't', filtre);
-
-    if (filtre.origine) {
-      requete.andWhere('t.origine = :origine', { origine: filtre.origine });
-    }
-    if (filtre.statut) {
-      requete.andWhere('t.statut = :statut', { statut: filtre.statut });
-    }
-    if (filtre.methodePaiement) {
-      requete.andWhere('t.methodePaiement = :methode', {
-        methode: filtre.methodePaiement,
-      });
-    }
+    const requete = this.requeteFiltree(filtre);
 
     const [donnees, total] = await requete
       .orderBy('t.createdAt', 'DESC')
@@ -126,25 +110,9 @@ export class TresorerieService {
    * formaté serait relu comme du texte par Excel.
    */
   async exporterCsv(filtre: FiltreTransactionDto): Promise<string> {
-    const requete = this.transactions
-      .createQueryBuilder('t')
-      .leftJoinAndSelect('t.user', 'u');
-
-    this.borner(requete, 't', filtre);
-
-    if (filtre.origine) {
-      requete.andWhere('t.origine = :origine', { origine: filtre.origine });
-    }
-    if (filtre.statut) {
-      requete.andWhere('t.statut = :statut', { statut: filtre.statut });
-    }
-    if (filtre.methodePaiement) {
-      requete.andWhere('t.methodePaiement = :methode', {
-        methode: filtre.methodePaiement,
-      });
-    }
-
-    const transactions = await requete.orderBy('t.createdAt', 'DESC').getMany();
+    const transactions = await this.requeteFiltree(filtre)
+      .orderBy('t.createdAt', 'DESC')
+      .getMany();
 
     return versCsv(
       [
@@ -171,6 +139,38 @@ export class TresorerieService {
   }
 
   // ──────────────────────────────  Interne  ─────────────────────────────
+
+  /**
+   * Requête du journal, filtres appliqués.
+   *
+   * Partagée entre la consultation paginée et l'export : c'est la **même**
+   * sélection qui doit alimenter les deux, sans quoi le tableur ne
+   * contiendrait pas ce que l'écran affiche. Deux copies auraient divergé au
+   * premier filtre ajouté d'un seul côté.
+   */
+  private requeteFiltree(
+    filtre: FiltreTransactionDto,
+  ): SelectQueryBuilder<Transaction> {
+    const requete = this.transactions
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.user', 'u');
+
+    this.borner(requete, 't', filtre);
+
+    if (filtre.origine) {
+      requete.andWhere('t.origine = :origine', { origine: filtre.origine });
+    }
+    if (filtre.statut) {
+      requete.andWhere('t.statut = :statut', { statut: filtre.statut });
+    }
+    if (filtre.methodePaiement) {
+      requete.andWhere('t.methodePaiement = :methode', {
+        methode: filtre.methodePaiement,
+      });
+    }
+
+    return requete;
+  }
 
   private async totaux(periode: PeriodeDto) {
     const compter = async (statut: StatutPaiement): Promise<number> => {
