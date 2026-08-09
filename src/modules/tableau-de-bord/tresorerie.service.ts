@@ -13,6 +13,7 @@ import {
   PointTemporel,
   TableauTresorerie,
 } from './dto/tableau-de-bord.dto';
+import { versCsv } from './export-csv';
 
 /** Longueur des classements. Au-delà, un tableau de bord devient un rapport. */
 const TAILLE_CLASSEMENT = 5;
@@ -113,6 +114,60 @@ export class TresorerieService {
       donnees,
       meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
     };
+  }
+
+  /**
+   * Export destiné à la trésorerie du bureau.
+   *
+   * Non paginé, à l'inverse du journal : un export tronqué à vingt lignes ne
+   * servirait à rien, et c'est bien la totalité de la période demandée qui
+   * doit se retrouver dans le tableur. Les montants sortent en entiers, sans
+   * séparateur ni symbole — le FCFA n'a pas de sous-unité, et un « 12 000 »
+   * formaté serait relu comme du texte par Excel.
+   */
+  async exporterCsv(filtre: FiltreTransactionDto): Promise<string> {
+    const requete = this.transactions
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.user', 'u');
+
+    this.borner(requete, 't', filtre);
+
+    if (filtre.origine) {
+      requete.andWhere('t.origine = :origine', { origine: filtre.origine });
+    }
+    if (filtre.statut) {
+      requete.andWhere('t.statut = :statut', { statut: filtre.statut });
+    }
+    if (filtre.methodePaiement) {
+      requete.andWhere('t.methodePaiement = :methode', {
+        methode: filtre.methodePaiement,
+      });
+    }
+
+    const transactions = await requete.orderBy('t.createdAt', 'DESC').getMany();
+
+    return versCsv(
+      [
+        'Date',
+        'Reference',
+        'Reference prestataire',
+        'Origine',
+        'Statut',
+        'Methode',
+        'Montant FCFA',
+        'Compte',
+      ],
+      transactions.map((t) => [
+        t.createdAt.toISOString(),
+        t.reference,
+        t.referenceExterne,
+        t.origine,
+        t.statut,
+        t.methodePaiement,
+        t.montant,
+        t.user ? `${t.user.firstName} ${t.user.lastName}` : '',
+      ]),
+    );
   }
 
   // ──────────────────────────────  Interne  ─────────────────────────────

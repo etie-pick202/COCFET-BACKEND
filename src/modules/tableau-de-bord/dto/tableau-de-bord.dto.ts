@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
+import { TypeActivite } from '../../activite/entities/journal-activite.entity';
 import { OrigineTransaction } from '../../paiement/entities/transaction.entity';
 import {
   MethodePaiement,
@@ -35,6 +36,27 @@ export class FiltreTransactionDto extends PeriodeDto {
   @IsEnum(MethodePaiement)
   @IsOptional()
   methodePaiement?: MethodePaiement;
+
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page?: number = 1;
+
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  limite?: number = 20;
+}
+
+export class FiltreActiviteDto extends PeriodeDto {
+  @ApiPropertyOptional({ enum: TypeActivite })
+  @IsEnum(TypeActivite)
+  @IsOptional()
+  type?: TypeActivite;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @Type(() => Number)
