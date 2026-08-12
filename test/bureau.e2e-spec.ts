@@ -45,6 +45,7 @@ describe('Bureau COCFET (e2e)', () => {
     envoyerVerificationEmail: jest.fn().mockResolvedValue(undefined),
     envoyerTentativeInscription: jest.fn().mockResolvedValue(undefined),
     envoyerInvitationSponsor: jest.fn().mockResolvedValue(undefined),
+    envoyerBienvenueAuBureau: jest.fn().mockResolvedValue(undefined),
   };
 
   const idDe = (reponse: { body: unknown }) =>
@@ -210,6 +211,21 @@ describe('Bureau COCFET (e2e)', () => {
 
       await affecter(generation, president, entrant.user.id).expect(201);
       await affecter(generation, tresorier, entrant.user.id).expect(201);
+    });
+
+    it('accueille le membre désigné, poste et mandat nommés', async () => {
+      faussaireMail.envoyerBienvenueAuBureau.mockClear();
+
+      const poste = idDe(await creerPoste('Trésorier').expect(201));
+      const generation = idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+
+      await affecter(generation, poste, entrant.user.id).expect(201);
+
+      expect(faussaireMail.envoyerBienvenueAuBureau).toHaveBeenCalledWith(
+        entrant.user.email,
+        expect.any(String),
+        expect.objectContaining({ poste: 'Trésorier', mandat: 'ATLAS' }),
+      );
     });
 
     it('retire un membre', async () => {

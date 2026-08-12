@@ -123,6 +123,41 @@ export class MailService {
     );
   }
 
+  /**
+   * Accueille un membre fraîchement désigné à un poste du bureau.
+   *
+   * Le message dit le poste **et** le mandat : « Trésorière » seul ne signifie
+   * rien pour qui reçoit trois emails de trois associations. Il prévient aussi
+   * quand le poste ouvre l'administration, et que la session en cours ne porte
+   * pas encore ces droits — sinon la personne conclut à une panne.
+   */
+  async envoyerBienvenueAuBureau(
+    to: string,
+    prenom: string,
+    affectation: {
+      poste: string;
+      mandat: string;
+      annee: number | null;
+      /** Description du poste au catalogue, quand le bureau en a rédigé une. */
+      mission: string | null;
+      administration: boolean;
+    },
+  ): Promise<void> {
+    await this.send(
+      to,
+      `Bienvenue au bureau — ${affectation.poste} ${affectation.mandat}`,
+      'bienvenue-bureau',
+      {
+        prenom,
+        poste: affectation.poste,
+        mandat: affectation.mandat,
+        annee: affectation.annee,
+        mission: affectation.mission,
+        administration: affectation.administration,
+      },
+    );
+  }
+
   async envoyerInvitationSponsor(
     to: string,
     nomSponsor: string,
