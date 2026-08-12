@@ -1,4 +1,11 @@
-import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Evenement } from '../../evenement/entities/evenement.entity';
 import { OptionSondage } from './option-sondage.entity';
@@ -77,7 +84,11 @@ export class Sondage extends BaseEntity {
    * emporter la consultation qui l'a préparé. Les voix exprimées restent une
    * décision du bureau, même si l'événement n'a finalement pas eu lieu.
    */
+  @Index('IDX_sondage_evenement')
   @ManyToOne(() => Evenement, { nullable: true, onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'evenement_id' })
+  @JoinColumn({
+    name: 'evenement_id',
+    foreignKeyConstraintName: 'FK_sondage_evenement',
+  })
   evenement: Evenement | null;
 }

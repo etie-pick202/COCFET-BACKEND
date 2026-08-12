@@ -23,13 +23,25 @@ import { Sondage } from './sondage.entity';
  * entière, il ne l'est plus.
  */
 @Entity('participations_sondage')
-@Index(['sondage', 'user'], { unique: true })
+// Index et contraintes nommés explicitement, du même nom que dans la migration.
+// Laissés à TypeORM, ils porteraient un condensé calculé, et le contrôle de
+// dérive de l'intégration continue verrait un écart à chaque exécution.
+@Index('uq_participation_sondage_user', ['sondage', 'user'], { unique: true })
 export class ParticipationSondage extends BaseEntity {
-  @ManyToOne(() => Sondage, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'sondage_id' })
+  // `nullable: false` : une participation sans sondage ni votant ne veut rien
+  // dire, et une colonne nulle échapperait à l'index unique — c'est exactement
+  // le défaut que cette table corrige.
+  @ManyToOne(() => Sondage, { onDelete: 'CASCADE', nullable: false })
+  @JoinColumn({
+    name: 'sondage_id',
+    foreignKeyConstraintName: 'FK_participation_sondage',
+  })
   sondage: Sondage;
 
-  @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'user_id' })
+  @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: false })
+  @JoinColumn({
+    name: 'user_id',
+    foreignKeyConstraintName: 'FK_participation_user',
+  })
   user: User;
 }
