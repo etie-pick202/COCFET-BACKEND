@@ -92,7 +92,10 @@ export class SondageService {
       // Les options gardent l'ordre de saisie : le bureau les a rangées par
       // préférence, et un ordre changeant d'un appel à l'autre déplacerait les
       // cases à cocher sous le doigt du votant.
-      .addOrderBy('option.created_at', 'ASC')
+      // Nom de **propriété**, non de colonne : le constructeur de requêtes
+      // résout le chemin via les métadonnées de l'entité, et « created_at »
+      // n'y existe pas — la liste répondait 500.
+      .addOrderBy('option.createdAt', 'ASC')
       .skip(filtre.sauter)
       .take(filtre.limite);
 
