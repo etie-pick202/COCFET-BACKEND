@@ -1,7 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
 import type { Stockage } from '../file/ports/stockage';
 import { STOCKAGE } from '../file/ports/stockage';
-import { GenerationService } from './generation.service';
+import { Generation } from './entities/generation.entity';
 
 /**
  * Charte du mandat en cours, prête à être posée sur un document.
@@ -110,8 +112,18 @@ export class IdentiteVisuelleService {
 
   private cache: { valeur: IdentiteVisuelle; expire: number } | null = null;
 
+  /**
+   * Lit le mandat **par le dépôt**, non par `GenerationService`.
+   *
+   * La charte n'a besoin que d'une ligne : le mandat actif. Dépendre du service
+   * complet ferait entrer tout son domaine dans le graphe — il connaît le
+   * bureau, qui a besoin du courrier, qui a besoin de la charte. La boucle
+   * empêchait l'application de démarrer, et aucune référence différée ne la
+   * rendait souhaitable : c'est la dépendance elle-même qui était de trop.
+   */
   constructor(
-    private readonly generationService: GenerationService,
+    @InjectRepository(Generation)
+    private readonly generations: Repository<Generation>,
     @Inject(STOCKAGE) private readonly stockage: Stockage,
   ) {}
 
@@ -132,11 +144,12 @@ export class IdentiteVisuelleService {
   }
 
   private async construire(): Promise<IdentiteVisuelle> {
-    let generation: Awaited<ReturnType<GenerationService['trouverActive']>> =
-      null;
+    let generation: Generation | null = null;
 
     try {
-      generation = await this.generationService.trouverActive();
+      generation = await this.generations.findOne({
+        where: { isActive: true },
+      });
     } catch (erreur) {
       this.logger.warn(
         `Charte indisponible, repli sur les couleurs neutres : ${

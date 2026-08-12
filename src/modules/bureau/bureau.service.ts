@@ -2,11 +2,13 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Generation } from '../generation/entities/generation.entity';
+import { MailService } from '../mail/mail.service';
 import { User } from '../user/entities/user.entity';
 import {
   AffecterMembreDto,
@@ -24,6 +26,8 @@ import { AUCUN_PRIVILEGE, PrivilegesMembre } from './privileges';
 
 @Injectable()
 export class BureauService {
+  private readonly logger = new Logger(BureauService.name);
+
   constructor(
     @InjectRepository(PosteBureau)
     private readonly postes: Repository<PosteBureau>,
@@ -33,6 +37,7 @@ export class BureauService {
     private readonly generations: Repository<Generation>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly mailService: MailService,
   ) {}
 
   // ───────────────────────────────  Postes  ─────────────────────────────
@@ -147,6 +152,26 @@ export class BureauService {
         user,
         presentation: dto.presentation ?? null,
       }),
+    );
+
+    // L'accueil part **après** l'enregistrement, et sans être attendu : le
+    // service de courrier rend la main tout de suite et journalise son issue.
+    // Une panne du fournisseur ne doit pas faire échouer une désignation déjà
+    // écrite en base — le poste serait attribué, et l'API répondrait une erreur.
+    await this.mailService.envoyerBienvenueAuBureau(
+      user.email,
+      user.firstName,
+      {
+        poste: poste.nom,
+        mandat: generation.nom,
+        annee: generation.annee,
+        mission: poste.description,
+        administration: poste.accordeAdministration,
+      },
+    );
+
+    this.logger.log(
+      `${user.email} désigné « ${poste.nom} » du mandat ${generation.nom}.`,
     );
 
     return exposerMembre(enregistre);
