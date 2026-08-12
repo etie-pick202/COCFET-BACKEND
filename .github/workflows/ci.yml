@@ -22,10 +22,21 @@ jobs:
   # chez qui n'a pas installe les dependances. Ce controle-ci est le seul que
   # personne ne peut sauter : c'est lui qui garantit que les contributeurs du
   # depot restent les personnes qui y travaillent.
+  # Les PR de promotion en sont exclues. Elles n'apportent aucun commit : elles
+  # reportent d'une branche a l'autre un arriere deja fusionne, dont chaque
+  # commit a franchi ce controle en entrant sur develop. Les y soumettre a
+  # nouveau revient a verifier tout l'historique — y compris les six commits
+  # anterieurs a la regle, que nous avons choisi de ne pas reecrire — et bloque
+  # donc toute promotion vers staging puis main.
+  #
+  # La garde reste entiere : c'est a l'entree sur develop qu'un commit est
+  # examine, et rien n'entre sur staging ou main sans etre passe par la.
   paternite:
     name: Paternité des commits
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
+    if: >-
+      github.event_name == 'pull_request' &&
+      !startsWith(github.head_ref, 'promote/')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
