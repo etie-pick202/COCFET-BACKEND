@@ -94,16 +94,26 @@ describe('ArticleService', () => {
     diffuser = jest.fn().mockResolvedValue(1);
 
     articles = {
-      // Forme `jest.fn(implémentation)` plutôt que `mockResolvedValue` : la
-      // seconde rend un mock non typé, que l'affectation refuse.
-      findOne: jest.fn(() => Promise.resolve<Article | null>(article())),
-      find: jest.fn(() => Promise.resolve<Article[]>([])),
+      // Forme `jest.fn<Retour, Arguments>()` : elle donne au mock son type sans
+      // exiger une implémentation dont les paramètres resteraient inutilisés.
+      // Une implémentation d'arité nulle n'est pas assignable à un mock déclaré
+      // avec ses arguments — le compilateur le refuse, pas seulement le linteur.
+      findOne: jest
+        .fn<Promise<Article | null>, [unknown]>()
+        .mockResolvedValue(article()),
+      find: jest.fn<Promise<Article[]>, [unknown]>().mockResolvedValue([]),
       save: jest.fn((entite: Article) => Promise.resolve(entite)),
       create: jest.fn((entite: Partial<Article>) => entite as Article),
-      update: jest.fn(() => Promise.resolve({ affected: 1 })),
-      delete: jest.fn(() => Promise.resolve({ affected: 1 })),
-      countBy: jest.fn(() => Promise.resolve(0)),
-      createQueryBuilder: jest.fn(constructeur),
+      update: jest
+        .fn<Promise<{ affected: number }>, [unknown, Partial<Article>]>()
+        .mockResolvedValue({ affected: 1 }),
+      delete: jest
+        .fn<Promise<{ affected: number }>, [string]>()
+        .mockResolvedValue({ affected: 1 }),
+      countBy: jest.fn<Promise<number>, [unknown]>().mockResolvedValue(0),
+      createQueryBuilder: jest
+        .fn<ConstructeurFactice, [string]>()
+        .mockImplementation(() => constructeur()),
     };
 
     service = new ArticleService(
