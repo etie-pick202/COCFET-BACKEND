@@ -86,6 +86,14 @@ describe('Rendu des gabarits d’email', () => {
       message: 'Le bilan du mandat est en ligne.',
       lien: 'https://cocfet.test/articles/1',
     },
+    'bienvenue-bureau': {
+      prenom: 'Awa',
+      poste: 'Trésorière',
+      mandat: 'ATLAS',
+      annee: 2027,
+      mission: 'Tient les comptes du mandat.',
+      administration: false,
+    },
     billet: {
       prenom: 'Awa',
       titre: 'Gala des finissants',
@@ -100,10 +108,10 @@ describe('Rendu des gabarits d’email', () => {
 
   const noms = Object.keys(contextes);
 
-  it('couvre les neuf gabarits expédiés', () => {
+  it('couvre les dix gabarits expédiés', () => {
     // Garde-fou : un gabarit ajouté sans contexte ici passerait entre les
     // mailles, et c'est précisément lui qui échouerait en production.
-    expect(noms).toHaveLength(9);
+    expect(noms).toHaveLength(10);
   });
 
   it.each(noms)('rend « %s » sans variable manquante', async (nom) => {

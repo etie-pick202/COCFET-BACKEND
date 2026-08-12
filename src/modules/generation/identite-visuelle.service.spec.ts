@@ -1,6 +1,6 @@
+import { Repository } from 'typeorm';
 import { Stockage } from '../file/ports/stockage';
 import { Generation } from './entities/generation.entity';
-import { GenerationService } from './generation.service';
 import { IdentiteVisuelleService } from './identite-visuelle.service';
 
 describe('IdentiteVisuelleService', () => {
@@ -22,8 +22,10 @@ describe('IdentiteVisuelleService', () => {
     trouverActive = jest.fn().mockResolvedValue(mandat());
     telecharger = jest.fn().mockResolvedValue(Buffer.from('png'));
 
+    // `findOne` porte le nom du dépôt ; le double garde celui de l'intention,
+    // le mandat actif étant la seule ligne que la charte lise.
     service = new IdentiteVisuelleService(
-      { trouverActive } as unknown as GenerationService,
+      { findOne: trouverActive } as unknown as Repository<Generation>,
       { telecharger } as unknown as Stockage,
     );
   });

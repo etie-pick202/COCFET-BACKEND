@@ -1,0 +1,47 @@
+<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
+  Bienvenue au bureau, {{prenom}} !
+</h1>
+<p>
+  Vous voilà officiellement
+  <strong>{{poste}}</strong>
+  {{#if annee}}du mandat {{mandat}} {{annee}}{{else}}du bureau {{mandat}}{{/if}}.
+  Félicitations — et bon courage : le titre est court, la charge l’est moins.
+</p>
+
+<table
+  role="presentation"
+  cellpadding="0"
+  cellspacing="0"
+  style="margin:24px 0;border-collapse:collapse"
+>
+  <tr>
+    <td style="padding:4px 16px 4px 0;color:#6b7280">Poste</td>
+    <td><strong>{{poste}}</strong></td>
+  </tr>
+  <tr>
+    <td style="padding:4px 16px 4px 0;color:#6b7280">Mandat</td>
+    <td><strong>{{mandat}}{{#if annee}} — {{annee}}{{/if}}</strong></td>
+  </tr>
+</table>
+
+{{#if mission}}
+  <p
+    style="background:#f9fafb;border-left:4px solid {{charte.couleurSecondaire}};padding:12px 16px"
+  >
+    <strong>Votre mission telle que le bureau la décrit :</strong>
+    {{mission}}
+  </p>
+{{/if}}
+
+{{#if administration}}
+  <p>
+    Ce poste ouvre l’<strong>administration de la plateforme</strong>. Vos accès
+    seront actifs dès l’activation du mandat — pensez à vous reconnecter à ce
+    moment-là, votre session actuelle ne les porte pas encore.
+  </p>
+{{/if}}
+
+<p>
+  Votre nom et votre fonction apparaîtront sur la page du bureau. Vous pouvez
+  compléter votre présentation depuis votre profil.
+</p>
