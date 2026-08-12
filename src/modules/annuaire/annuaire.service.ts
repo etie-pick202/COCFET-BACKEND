@@ -15,6 +15,7 @@ import {
   TypeActivite,
 } from '../activite/entities/journal-activite.entity';
 import type { Stockage } from '../file/ports/stockage';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { STOCKAGE } from '../file/ports/stockage';
 import { Sponsor } from '../sponsor/entities/sponsor.entity';
 import { User } from '../user/entities/user.entity';
@@ -53,6 +54,7 @@ export class AnnuaireService {
     @InjectRepository(JournalActivite)
     private readonly journal: Repository<JournalActivite>,
     @Inject(STOCKAGE) private readonly stockage: Stockage,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   // ────────────────────────────  Son profil  ────────────────────────────
@@ -108,8 +110,8 @@ export class AnnuaireService {
 
     // Remplacer une pièce supprime la précédente : sans cela, chaque
     // remplacement laisserait un objet orphelin, facturé et inaccessible.
-    await this.remplacerPiece(existant.photo, dto.photo);
-    await this.remplacerPiece(existant.cvUrl, dto.cvUrl);
+    await this.nettoyage.remplacer(existant.photo, dto.photo);
+    await this.nettoyage.remplacer(existant.cvUrl, dto.cvUrl);
 
     await this.profils.update(existant.id, {
       ...(dto.filiere !== undefined ? { filiere: dto.filiere } : {}),
@@ -165,8 +167,8 @@ export class AnnuaireService {
   async supprimerSonProfil(userId: string): Promise<void> {
     const profil = await this.sonProfil(userId);
 
-    await this.remplacerPiece(profil.photo, null);
-    await this.remplacerPiece(profil.cvUrl, null);
+    await this.nettoyage.remplacer(profil.photo, null);
+    await this.nettoyage.remplacer(profil.cvUrl, null);
     await this.profils.delete(profil.id);
   }
 
@@ -476,30 +478,6 @@ export class AnnuaireService {
       promotion: profil.user.promotion,
       competences: profil.competences ?? [],
     };
-  }
-
-  /**
-   * Supprime l'ancienne pièce quand elle est remplacée.
-   *
-   * Un échec de suppression n'interrompt pas la mise à jour : le profil doit
-   * refléter ce que la personne a demandé, quitte à laisser un objet orphelin
-   * qu'une purge ramassera.
-   */
-  private async remplacerPiece(
-    ancienne: string | null,
-    nouvelle: string | null | undefined,
-  ): Promise<void> {
-    if (!ancienne || nouvelle === undefined || ancienne === nouvelle) {
-      return;
-    }
-
-    try {
-      await this.stockage.supprimer(ancienne);
-    } catch (erreur) {
-      this.logger.warn(
-        `Fichier remplacé non supprimé (${ancienne}) : ${(erreur as Error).message}`,
-      );
-    }
   }
 
   private async tracer(

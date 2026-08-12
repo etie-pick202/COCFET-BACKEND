@@ -26,6 +26,7 @@ import {
 } from './dto/sponsor.dto';
 import { PalierSponsor } from './entities/palier-sponsor.entity';
 import { Sponsor } from './entities/sponsor.entity';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const TRIS_AUTORISES = ['createdAt', 'nom'] as const;
 
@@ -38,6 +39,7 @@ export class SponsorService {
     @InjectRepository(PalierSponsor)
     private readonly paliers: Repository<PalierSponsor>,
     private readonly userService: UserService,
+    private readonly nettoyage: NettoyageFichiers,
     private readonly jetonService: JetonService,
     private readonly mailService: MailService,
     private readonly config: ConfigService,
@@ -230,6 +232,7 @@ export class SponsorService {
     }
 
     await this.sponsors.update(id, dto);
+    await this.nettoyage.remplacer(sponsor.logo, dto.logo);
 
     return this.trouver(id);
   }
@@ -260,6 +263,9 @@ export class SponsorService {
     if (compte) {
       await this.userService.supprimer(compte.id);
     }
+
+    // La fiche partie, son logo n'habille plus aucune page partenaire.
+    await this.nettoyage.retirer(sponsor.logo);
   }
 
   // ───────────────────────────────  Paliers  ────────────────────────────

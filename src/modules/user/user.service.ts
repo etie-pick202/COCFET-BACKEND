@@ -18,6 +18,7 @@ import {
   MettreAJourUtilisateurDto,
 } from './dto/user.dto';
 import { User } from './entities/user.entity';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const TRIS_AUTORISES = ['createdAt', 'lastName', 'promotion', 'role'] as const;
 
@@ -31,6 +32,7 @@ export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly users: Repository<User>,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   findById(id: string): Promise<User | null> {
@@ -83,7 +85,13 @@ export class UserService {
   }
 
   async supprimer(id: string): Promise<void> {
+    const user = await this.users.findOne({ where: { id } });
+
     await this.users.delete(id);
+
+    // Le compte parti, sa photo ne sert plus personne et ne peut plus etre
+    // retrouvee : c'est le dernier moment ou l'on connait sa cle.
+    await this.nettoyage.retirer(user?.avatar);
   }
 
   async setRefreshTokenHash(id: string, hash: string | null): Promise<void> {
@@ -120,12 +128,23 @@ export class UserService {
    * finissant en sont absents par construction : ils se calculent, ils ne se
    * déclarent pas.
    */
-  mettreAJourProfil(id: string, dto: MettreAJourProfilDto): Promise<User> {
-    return this.update(id, {
+  async mettreAJourProfil(
+    id: string,
+    dto: MettreAJourProfilDto,
+  ): Promise<User> {
+    const avant = await this.trouverOuEchouer(id);
+
+    const misAJour = await this.update(id, {
       ...(dto.prenom !== undefined ? { firstName: dto.prenom } : {}),
       ...(dto.nom !== undefined ? { lastName: dto.nom } : {}),
       ...(dto.avatar !== undefined ? { avatar: dto.avatar } : {}),
     });
+
+    // Apres l'ecriture : une photo effacee avant l'echec de la mise a jour
+    // laisserait le compte pointant vers une image disparue.
+    await this.nettoyage.remplacer(avant.avatar, dto.avatar);
+
+    return misAJour;
   }
 
   /**

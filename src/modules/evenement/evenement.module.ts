@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FileModule } from '../file/file.module';
 import { NotificationModule } from '../notification/notification.module';
 import { UserModule } from '../user/user.module';
 import { GenerationModule } from '../generation/generation.module';
@@ -13,6 +14,7 @@ import { EvenementService } from './evenement.service';
     GenerationModule,
     NotificationModule,
     UserModule,
+    FileModule,
   ],
   controllers: [EvenementController],
   providers: [EvenementService],
