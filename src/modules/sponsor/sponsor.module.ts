@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FileModule } from '../file/file.module';
 import { AuthModule } from '../auth/auth.module';
 import { MailModule } from '../mail/mail.module';
 import { UserModule } from '../user/user.module';
@@ -16,6 +17,7 @@ import { SponsorService } from './sponsor.service';
     AuthModule,
     UserModule,
     MailModule,
+    FileModule,
   ],
   controllers: [SponsorController],
   providers: [SponsorService],

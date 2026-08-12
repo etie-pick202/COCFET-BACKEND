@@ -25,6 +25,7 @@ import {
   StatutEvenement,
   TypeEvenement,
 } from './entities/evenement.entity';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const TRIS_AUTORISES = ['dateDebut', 'createdAt', 'titre'] as const;
 
@@ -37,6 +38,7 @@ export class EvenementService {
     private readonly evenements: Repository<Evenement>,
     private readonly generationService: GenerationService,
     private readonly notificationService: NotificationService,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   // ─────────────────────────────  Lecture  ──────────────────────────────
@@ -205,6 +207,11 @@ export class EvenementService {
       ...(dto.dateFin ? { dateFin: new Date(dto.dateFin) } : {}),
     });
 
+    await this.nettoyage.remplacer(
+      evenement.imageCouverture,
+      dto.imageCouverture,
+    );
+
     return this.trouver(id, { role: Role.ADMIN });
   }
 
@@ -270,6 +277,8 @@ export class EvenementService {
     }
 
     await this.evenements.delete(id);
+
+    await this.nettoyage.retirer(evenement.imageCouverture);
   }
 
   // ──────────────────────  Réservé à la billetterie  ────────────────────

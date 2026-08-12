@@ -15,18 +15,21 @@ export const USAGES = {
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
     roles: null,
+    mimesAutorises: null,
   },
   evenement: {
     prefixe: 'evenements',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
+    mimesAutorises: null,
   },
   produit: {
     prefixe: 'produits',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
+    mimesAutorises: null,
   },
   /** Le partenaire depose son logo ; le bureau peut le faire pour lui. */
   sponsor: {
@@ -34,12 +37,31 @@ export const USAGES = {
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
     roles: [Role.SPONSOR, Role.ADMIN],
+    mimesAutorises: null,
   },
   article: {
     prefixe: 'articles',
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
+    mimesAutorises: null,
+  },
+  /**
+   * Logo du mandat, celui qui habille la plateforme.
+   *
+   * **PNG ou JPEG seulement**, alors que les autres visuels acceptent aussi
+   * GIF et WebP. Ce logo n'est pas qu'affiche : il est incruste dans les
+   * factures et les recus, et PDFKit ne sait poser que ces deux formats. Un
+   * WebP accepte ici produirait des documents sans logo — degrades en
+   * silence, jamais en echec, donc decouverts par le destinataire. Autant
+   * refuser au depot, ou le bureau peut encore convertir son fichier.
+   */
+  logo: {
+    prefixe: 'logos',
+    tailleMax: 2 * 1024 * 1024,
+    types: ['image'],
+    roles: [Role.ADMIN],
+    mimesAutorises: ['image/png', 'image/jpeg'],
   },
   /**
    * Reserve aux etudiants.
@@ -53,6 +75,7 @@ export const USAGES = {
     tailleMax: 5 * 1024 * 1024,
     types: ['pdf'],
     roles: [Role.STUDENT, Role.ADMIN],
+    mimesAutorises: null,
   },
 } as const;
 
@@ -126,6 +149,16 @@ export function validerFichier(
   if (!mimeReel) {
     throw new BadRequestException(
       `Le contenu du fichier ne correspond pas au format attendu (${regles.types.join(', ')}).`,
+    );
+  }
+
+  // Restriction plus fine que la famille, quand l'usage l'exige : un logo doit
+  // pouvoir s'incruster dans un PDF, ce dont tous les formats d'image ne sont
+  // pas capables.
+  const mimes = regles.mimesAutorises as readonly string[] | null;
+  if (mimes && !mimes.includes(mimeReel)) {
+    throw new BadRequestException(
+      `Un fichier de type « ${usage} » doit être au format ${mimes.join(' ou ')} — reçu ${mimeReel}.`,
     );
   }
 

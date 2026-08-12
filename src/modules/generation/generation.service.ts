@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,6 +9,8 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { BureauService } from '../bureau/bureau.service';
+import type { Stockage } from '../file/ports/stockage';
+import { STOCKAGE } from '../file/ports/stockage';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Produit } from '../boutique/entities/produit.entity';
 import { Evenement } from '../evenement/entities/evenement.entity';
@@ -30,6 +33,14 @@ const THEME_PAR_DEFAUT: ThemeGeneration = {
   couleurSecondaire: '#FFFFFF',
 };
 
+/**
+ * Plafond des déclinaisons d'un mandat.
+ *
+ * Un bureau en fait produire quelques-unes — fond clair, fond sombre,
+ * monochrome. Au-delà, c'est un dépôt de fichiers qui s'installe.
+ */
+const MAX_LOGOS = 10;
+
 @Injectable()
 export class GenerationService {
   private readonly logger = new Logger(GenerationService.name);
@@ -39,6 +50,7 @@ export class GenerationService {
     private readonly generations: Repository<Generation>,
     private readonly dataSource: DataSource,
     private readonly bureauService: BureauService,
+    @Inject(STOCKAGE) private readonly stockage: Stockage,
   ) {}
 
   /**
@@ -295,6 +307,77 @@ export class GenerationService {
     }
 
     await this.generations.update(id, { logo });
+
+    return this.trouver(id);
+  }
+
+  /**
+   * Rattache une déclinaison au mandat.
+   *
+   * Idempotent : redéposer la même clé ne la duplique pas. Le frontend peut
+   * rejouer l'appel après une coupure réseau sans produire deux entrées qui
+   * désigneraient le même objet.
+   */
+  async ajouterLogo(id: string, cle: string): Promise<Generation> {
+    const generation = await this.trouver(id);
+
+    if (generation.logos.includes(cle)) {
+      return generation;
+    }
+
+    if (generation.logos.length >= MAX_LOGOS) {
+      throw new ConflictException(
+        `Un mandat ne peut pas porter plus de ${MAX_LOGOS} déclinaisons.`,
+      );
+    }
+
+    await this.generations.update(id, { logos: [...generation.logos, cle] });
+
+    return this.trouver(id);
+  }
+
+  /**
+   * Retire une déclinaison, **et la supprime du stockage**.
+   *
+   * Retirer la clé sans effacer l'objet laisserait un fichier payant que plus
+   * rien ne référence, et qu'aucune purge ne ramasserait : le stockage ne sait
+   * pas distinguer un orphelin d'un objet encore utile.
+   *
+   * La base est mise à jour **avant** le stockage. Dans l'autre sens, un échec
+   * de la base après un effacement réussi laisserait le mandat pointant vers
+   * un objet disparu — une image cassée sur la plateforme, dans les emails et
+   * dans les documents. Un orphelin coûte quelques octets ; une référence
+   * morte se voit.
+   */
+  async retirerLogo(id: string, cle: string): Promise<Generation> {
+    const generation = await this.trouver(id);
+
+    if (!generation.logos.includes(cle)) {
+      throw new NotFoundException(
+        'Ce logo n’a pas été déposé pour cette génération.',
+      );
+    }
+
+    await this.generations.update(id, {
+      logos: generation.logos.filter((autre) => autre !== cle),
+      // Retirer la déclinaison qui habille la plateforme lève la désignation :
+      // la charte retombe sur ses couleurs neutres plutôt que de pointer vers
+      // un objet effacé.
+      ...(generation.logo === cle ? { logo: null } : {}),
+    });
+
+    try {
+      await this.stockage.supprimer(cle);
+    } catch (erreur) {
+      // La déclinaison est retirée du mandat : c'est ce que le bureau a
+      // demandé, et l'échec ne doit pas le lui refuser. L'objet restera
+      // orphelin, ce que le journal permet de rattraper.
+      this.logger.warn(
+        `Logo « ${cle} » retiré du mandat mais non supprimé du stockage : ${
+          erreur instanceof Error ? erreur.message : String(erreur)
+        }`,
+      );
+    }
 
     return this.trouver(id);
   }
