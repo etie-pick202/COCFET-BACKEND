@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -9,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -17,6 +19,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -30,6 +33,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { DesignerLogoDto } from '../bureau/dto/bureau.dto';
 import {
+  CleLogoDto,
   CreerGenerationDto,
   MettreAJourGenerationDto,
   ThemeGeneration,
@@ -169,6 +173,79 @@ export class GenerationController {
     @Body() dto: DesignerLogoDto,
   ): Promise<Generation> {
     const generation = await this.generationService.designerLogo(id, dto.logo);
+    this.invaliderSiEnCours(generation);
+    return generation;
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post(':id/logos')
+  @ApiOperation({
+    summary: 'Rattacher une déclinaison de logo',
+    description:
+      'La clé doit provenir d’un envoi fait avec l’usage « logo » : sans ce ' +
+      'contrôle, n’importe quel objet du stockage pourrait être rattaché au ' +
+      'mandat, y compris le CV d’un finissant, que les documents sortants ' +
+      'iraient alors lire. Idempotent : redéposer la même clé ne la duplique pas.',
+  })
+  @ApiOkResponse({
+    description: 'La génération mise à jour.',
+    type: Generation,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Trop de déclinaisons pour ce mandat.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Génération inconnue.',
+    type: ReponseErreurDto,
+  })
+  async ajouterLogo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CleLogoDto,
+  ): Promise<Generation> {
+    const generation = await this.generationService.ajouterLogo(id, dto.logo);
+    this.invaliderSiEnCours(generation);
+    return generation;
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  // La clé passe en paramètre de requête et non en segment d'URL : elle
+  // contient une barre oblique, qu'un segment de chemin découperait.
+  @Delete(':id/logos')
+  @ApiOperation({
+    summary: 'Retirer une déclinaison de logo',
+    description:
+      'Retire la déclinaison du mandat **et supprime l’objet du stockage** : ' +
+      'la conserver laisserait un fichier payant que plus rien ne référence, ' +
+      'et qu’aucune purge ne saurait distinguer d’un objet utile. Retirer la ' +
+      'déclinaison qui habille la plateforme lève la désignation — la charte ' +
+      'retombe sur ses couleurs neutres.',
+  })
+  @ApiQuery({
+    name: 'logo',
+    description: 'Clé de stockage de la déclinaison à retirer.',
+    example: 'logos/6b1f9c2e-4a1f-4b7c-9d3e-8f0a1b2c3d4e.png',
+  })
+  @ApiOkResponse({
+    description: 'La génération mise à jour.',
+    type: Generation,
+  })
+  @ApiNotFoundResponse({
+    description: 'Génération inconnue, ou logo non déposé pour ce mandat.',
+    type: ReponseErreurDto,
+  })
+  async retirerLogo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('logo') logo: string,
+  ): Promise<Generation> {
+    if (!logo) {
+      throw new BadRequestException('Le paramètre « logo » est requis.');
+    }
+
+    const generation = await this.generationService.retirerLogo(id, logo);
     this.invaliderSiEnCours(generation);
     return generation;
   }

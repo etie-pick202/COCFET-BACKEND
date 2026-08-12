@@ -1,8 +1,6 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
-  ArrayMaxSize,
-  IsArray,
   IsInt,
   IsOptional,
   IsString,
@@ -41,21 +39,6 @@ export class CreerGenerationDto {
   @MaxLength(100)
   nom: string;
 
-  /**
-   * Déclinaisons du logo, clés de stockage.
-   *
-   * Un bureau en fait souvent produire plusieurs — fond clair, fond sombre,
-   * version monochrome. Celle qui habille la plateforme se désigne ensuite,
-   * sans quoi l'affichage dépendrait de l'ordre d'envoi.
-   */
-  @ApiPropertyOptional({ type: [String] })
-  @IsArray()
-  @IsString({ each: true })
-  @MaxLength(300, { each: true })
-  @ArrayMaxSize(10)
-  @IsOptional()
-  logos?: string[];
-
   @ApiPropertyOptional({ example: '#1d4ed8' })
   @Matches(COULEUR, {
     message: 'couleurPrimaire doit être un code hexadécimal, ex. #1d4ed8',
@@ -79,6 +62,25 @@ export class CreerGenerationDto {
  * n'est pas un champ que l'on bascule au passage d'une mise à jour de logo.
  */
 export class MettreAJourGenerationDto extends PartialType(CreerGenerationDto) {}
+
+/**
+ * Clé d'une déclinaison de logo.
+ *
+ * Le préfixe est imposé. Sans lui, n'importe quelle clé de stockage pourrait
+ * être rattachée au mandat — le CV d'un finissant, par exemple, que le service
+ * d'identité visuelle irait alors lire et joindre aux documents sortants. Seul
+ * ce qui a été déposé avec l'usage « logo » est recevable.
+ */
+export class CleLogoDto {
+  @ApiProperty({ example: 'logos/6b1f9c2e-4a1f-4b7c-9d3e-8f0a1b2c3d4e.png' })
+  @IsString()
+  @MaxLength(300)
+  @Matches(/^logos\/[a-zA-Z0-9._-]+$/, {
+    message:
+      'La clé doit désigner un fichier déposé avec l’usage « logo » (préfixe logos/).',
+  })
+  logo: string;
+}
 
 /**
  * Ce que le frontend charge au démarrage pour s'habiller.
