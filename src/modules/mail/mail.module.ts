@@ -3,6 +3,7 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'node:path';
+import { IdentiteVisuelleModule } from '../generation/identite-visuelle.module';
 import { MailService } from './mail.service';
 import { transportBrevoApi } from './transports/brevo-api.transport';
 
@@ -60,9 +61,25 @@ import { transportBrevoApi } from './transports/brevo-api.transport';
             adapter: new HandlebarsAdapter(),
             options: { strict: true },
           },
+          // `layout` enveloppe chaque gabarit dans « gabarit.hbs » : c'est ce
+          // qui a permis de retirer des neuf fichiers le `<html>`, le `<body>`
+          // et le pied de page qu'ils recopiaient tous. Le dossier
+          // « partials » est balayé au premier envoi ; les partiels y
+          // vivent à part, sinon les gabarits eux-mêmes en deviendraient.
+          options: {
+            layout: 'gabarit',
+            partials: {
+              dir: join(__dirname, 'templates', 'partials'),
+              options: { strict: true },
+            },
+          },
         };
       },
     }),
+    // Pour la charte du mandat, posée sur chaque message par le gabarit
+    // commun. Le module de la charte ne dépend d'aucun module métier : rien ne
+    // peut reboucler vers le courrier.
+    IdentiteVisuelleModule,
   ],
   providers: [MailService],
   exports: [MailService],

@@ -1,24 +1,15 @@
-<!doctype html>
-<html lang="fr">
-  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6">
-    <h1 style="color: #111827">Confirmez votre nouvelle adresse</h1>
-    <p>Bonjour {{prenom}},</p>
-    <p>
-      Vous avez demandé à utiliser cette adresse pour vous connecter à COCFET.
-      Confirmez-la pour rendre le changement effectif :
-    </p>
-    <p>
-      <a
-        href="{{lienConfirmation}}"
-        style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none"
-        >Confirmer cette adresse</a
-      >
-    </p>
-    <p>Ce lien est valable une heure et ne peut servir qu'une fois.</p>
-    <p style="color:#6b7280;font-size:13px">
-      Tant que vous n'aurez pas cliqué, votre connexion continuera de se faire
-      avec votre adresse actuelle. Si vous n'êtes pas à l'origine de cette
-      demande, ignorez ce message.
-    </p>
-  </body>
-</html>
+<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
+  Confirmez votre nouvelle adresse
+</h1>
+<p>Bonjour {{prenom}},</p>
+<p>
+  Vous avez demandé à utiliser cette adresse pour vous connecter. Confirmez-la
+  pour rendre le changement effectif :
+</p>
+{{> bouton lien=lienConfirmation libelle="Confirmer cette adresse"}}
+<p>Ce lien est valable une heure et ne peut servir qu’une fois.</p>
+<p style="color:#6b7280;font-size:13px">
+  Tant que vous n’aurez pas cliqué, votre connexion continuera de se faire avec
+  votre adresse actuelle. Si vous n’êtes pas à l’origine de cette demande,
+  ignorez ce message.
+</p>

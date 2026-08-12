@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { JournalActivite } from '../activite/entities/journal-activite.entity';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Produit } from '../boutique/entities/produit.entity';
 import { BureauModule } from '../bureau/bureau.module';
@@ -35,10 +36,15 @@ import { TresorerieService } from './tresorerie.service';
       Evenement,
       Sponsor,
       User,
+      JournalActivite,
     ]),
     BureauModule,
   ],
   controllers: [TableauDeBordController],
   providers: [TableauDeBordService, TresorerieService],
+  // Exporte pour le rapport de trésorerie en PDF : il doit reprendre
+  // exactement les chiffres de l'écran, ce qui serait faux si le calcul était
+  // réécrit ailleurs.
+  exports: [TresorerieService],
 })
 export class TableauDeBordModule {}

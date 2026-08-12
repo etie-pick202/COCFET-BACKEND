@@ -1,5 +1,13 @@
-import { Column, Entity, OneToMany } from 'typeorm';
+import {
+  Column,
+  Entity,
+  Index,
+  JoinColumn,
+  ManyToOne,
+  OneToMany,
+} from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
+import { Evenement } from '../../evenement/entities/evenement.entity';
 import { OptionSondage } from './option-sondage.entity';
 
 export enum TypeSondage {
@@ -67,4 +75,20 @@ export class Sondage extends BaseEntity {
   /** Réservé aux étudiants du campus lorsque vrai. */
   @Column({ name: 'campus_uniquement', default: true })
   campusUniquement: boolean;
+
+  /**
+   * Événement que le sondage accompagne : choix du thème d'un gala, du menu,
+   * de la date d'une sortie.
+   *
+   * `SET NULL` plutôt que `CASCADE` : supprimer un événement ne doit pas
+   * emporter la consultation qui l'a préparé. Les voix exprimées restent une
+   * décision du bureau, même si l'événement n'a finalement pas eu lieu.
+   */
+  @Index('IDX_sondage_evenement')
+  @ManyToOne(() => Evenement, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({
+    name: 'evenement_id',
+    foreignKeyConstraintName: 'FK_sondage_evenement',
+  })
+  evenement: Evenement | null;
 }

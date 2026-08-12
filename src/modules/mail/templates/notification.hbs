@@ -1,21 +1,11 @@
-<!doctype html>
-<html lang="fr">
-  <body style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6">
-    <h1 style="color: #111827">{{titre}}</h1>
-    <p>Bonjour {{prenom}},</p>
-    <p>{{message}}</p>
-    {{#if lien}}
-      <p>
-        <a
-          href="{{lien}}"
-          style="background:#2563eb;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none"
-          >Voir sur COCFET</a
-        >
-      </p>
-    {{/if}}
-    <p style="color:#6b7280;font-size:13px">
-      Vous recevez ce message parce que vous avez un compte COCFET. Vous pouvez
-      régler quels messages vous recevez depuis vos préférences de notification.
-    </p>
-  </body>
-</html>
+<h1 style="margin:0 0 16px;font-size:22px;color:#111827">{{titre}}</h1>
+<p>Bonjour {{prenom}},</p>
+<p>{{message}}</p>
+{{#if lien}}
+  {{> bouton lien=lien libelle="Voir sur la plateforme"}}
+{{/if}}
+<p style="color:#6b7280;font-size:13px">
+  Vous recevez ce message parce que vous avez un compte sur la plateforme. Vous
+  pouvez régler quels messages vous recevez depuis vos préférences de
+  notification.
+</p>

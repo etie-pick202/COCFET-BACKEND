@@ -73,6 +73,20 @@ ci(workflows): ajouter le job cucumber
 
 Les commits sont validés par **commitlint** via un hook `commit-msg` (Husky) : un message non conforme est rejeté localement.
 
+### Paternité des commits
+
+Les contributeurs de ce dépôt sont **les personnes qui y travaillent**, et elles seules.
+
+Le même hook `commit-msg` retire du message toute signature d'outil — pied `Co-authored-by` au nom d'un assistant, ligne annonçant que le changement a été généré. Ces pieds ne sont pas décoratifs : GitHub les compte, et le co-auteur rejoint la liste des contributeurs du dépôt.
+
+Le contrôle est **écrit en positif** : `scripts/paternite.mjs` porte la liste des adresses autorisées, et tout le reste tombe. Aucun outil n'y est nommé — une liste de proscrits serait une mention de plus, et une course perdue d'avance.
+
+La CI rejoue la vérification sur les commits de chaque PR (job **Paternité des commits**). C'est le seul point de passage obligé : un hook local se contourne avec `--no-verify`, et ne tourne pas chez qui n'a pas installé les dépendances.
+
+Les PR de promotion (`promote/*`) en sont **exclues**. Elles n'apportent aucun commit : elles reportent un arriéré déjà fusionné, dont chaque commit a franchi le contrôle en entrant sur `develop`. Les y soumettre reviendrait à vérifier tout l'historique — y compris les commits antérieurs à la règle — et bloquerait toute promotion. La garde reste entière : rien n'entre sur `staging` ou `main` sans être passé par `develop`.
+
+> **Vous arrivez sur le projet ?** Ajoutez l'adresse que git inscrit dans vos commits — `git log -1 --format=%ae` — à `CONTRIBUTEURS` dans `scripts/paternite.mjs`. Sans cela votre première PR sera refusée, avec le motif en clair.
+
 ## 4. Pull Requests
 
 - Une PR par sujet, la plus petite possible.

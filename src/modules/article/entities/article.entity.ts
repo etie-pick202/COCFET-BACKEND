@@ -49,4 +49,15 @@ export class Article extends BaseEntity {
   /** Renseignée à la publication, permet la publication programmée. */
   @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
   publishedAt: Date | null;
+
+  /**
+   * Instant où la parution a été annoncée à la plateforme.
+   *
+   * Distincte de `publishedAt` : une parution programmée un vendredi soir est
+   * datée à l'avance, mais l'annonce ne part qu'une fois l'heure venue. Sans
+   * cette trace, la tâche planifiée renotifierait le même article à chacun de
+   * ses passages.
+   */
+  @Column({ name: 'annonce_le', type: 'timestamptz', nullable: true })
+  annonceLe: Date | null;
 }
