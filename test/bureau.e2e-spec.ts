@@ -453,34 +453,122 @@ describe('Bureau COCFET (e2e)', () => {
   });
 
   describe('logos du bureau', () => {
+    const creerMandat = async (): Promise<string> =>
+      idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+
+    const rattacher = (generation: string, logo: string) =>
+      request(app.getHttpServer())
+        .post(`${GENERATIONS}/${generation}/logos`)
+        .set(admin.entetes)
+        .send({ logo });
+
+    it('n’accepte que des clés déposées avec l’usage logo', async () => {
+      // Sans ce contrôle, n'importe quel objet du stockage pourrait habiller
+      // le mandat — le CV d'un finissant, que les documents sortants iraient
+      // alors lire.
+      const generation = await creerMandat();
+
+      await rattacher(generation, 'cv/dossier-awa.pdf').expect(400);
+      await rattacher(generation, 'logos/clair.png').expect(201);
+    });
+
+    it('ne duplique pas une déclinaison redéposée', async () => {
+      // Le frontend doit pouvoir rejouer l'appel après une coupure réseau.
+      const generation = await creerMandat();
+
+      await rattacher(generation, 'logos/clair.png').expect(201);
+      const reponse = await rattacher(generation, 'logos/clair.png').expect(
+        201,
+      );
+
+      expect((reponse.body as { logos: string[] }).logos).toEqual([
+        'logos/clair.png',
+      ]);
+    });
+
     it('ne désigne qu’un logo effectivement déposé', async () => {
       // Sans ce contrôle, une faute de frappe afficherait une image
       // inexistante, et le bureau chercherait longtemps pourquoi.
-      const generation = idDe(
-        await request(app.getHttpServer())
-          .post(GENERATIONS)
-          .set(admin.entetes)
-          .send({
-            annee: 2027,
-            nom: 'ATLAS',
-            logos: ['generations/clair.png', 'generations/sombre.png'],
-          })
-          .expect(201),
-      );
+      const generation = await creerMandat();
+      await rattacher(generation, 'logos/clair.png').expect(201);
+      await rattacher(generation, 'logos/sombre.png').expect(201);
 
       await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
         .set(admin.entetes)
-        .send({ logo: 'generations/inexistant.png' })
+        .send({ logo: 'logos/inexistant.png' })
         .expect(400);
 
       const reponse = await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
         .set(admin.entetes)
-        .send({ logo: 'generations/sombre.png' })
+        .send({ logo: 'logos/sombre.png' })
         .expect(200);
 
-      expect(reponse.body).toMatchObject({ logo: 'generations/sombre.png' });
+      expect(reponse.body).toMatchObject({ logo: 'logos/sombre.png' });
+    });
+
+    it('retire une déclinaison sans toucher à celle qui habille le site', async () => {
+      const generation = await creerMandat();
+      await rattacher(generation, 'logos/clair.png').expect(201);
+      await rattacher(generation, 'logos/sombre.png').expect(201);
+      await request(app.getHttpServer())
+        .patch(`${GENERATIONS}/${generation}/logo`)
+        .set(admin.entetes)
+        .send({ logo: 'logos/sombre.png' })
+        .expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .delete(`${GENERATIONS}/${generation}/logos`)
+        .query({ logo: 'logos/clair.png' })
+        .set(admin.entetes)
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({
+        logos: ['logos/sombre.png'],
+        logo: 'logos/sombre.png',
+      });
+    });
+
+    it('lève la désignation en retirant le logo en service', async () => {
+      // La plateforme retombe sur ses couleurs neutres plutôt que de pointer
+      // vers un objet effacé.
+      const generation = await creerMandat();
+      await rattacher(generation, 'logos/clair.png').expect(201);
+      await request(app.getHttpServer())
+        .patch(`${GENERATIONS}/${generation}/logo`)
+        .set(admin.entetes)
+        .send({ logo: 'logos/clair.png' })
+        .expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .delete(`${GENERATIONS}/${generation}/logos`)
+        .query({ logo: 'logos/clair.png' })
+        .set(admin.entetes)
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({ logos: [], logo: null });
+    });
+
+    it('exige la clé à retirer', async () => {
+      // Sans paramètre, la requête ne dit pas quoi effacer : mieux vaut un
+      // refus explicite qu'une suppression devinée.
+      const generation = await creerMandat();
+
+      await request(app.getHttpServer())
+        .delete(`${GENERATIONS}/${generation}/logos`)
+        .set(admin.entetes)
+        .expect(400);
+    });
+
+    it('refuse de retirer une déclinaison jamais déposée', async () => {
+      const generation = await creerMandat();
+
+      await request(app.getHttpServer())
+        .delete(`${GENERATIONS}/${generation}/logos`)
+        .query({ logo: 'logos/jamais-vue.png' })
+        .set(admin.entetes)
+        .expect(404);
     });
   });
 });
