@@ -5,6 +5,7 @@ import { NotificationService } from '../notification/notification.service';
 import { ArticleService } from './article.service';
 import { FiltreArticleDto } from './dto/article.dto';
 import { Article, StatutArticle } from './entities/article.entity';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const HIER = new Date(Date.now() - 86_400_000);
 const DEMAIN = new Date(Date.now() + 86_400_000);
@@ -89,6 +90,11 @@ describe('ArticleService', () => {
     return faux;
   };
 
+  const nettoyage = {
+    remplacer: jest.fn().mockResolvedValue(undefined),
+    retirer: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(() => {
     conditions = [];
     diffuser = jest.fn().mockResolvedValue(1);
@@ -119,6 +125,7 @@ describe('ArticleService', () => {
     service = new ArticleService(
       articles as unknown as Repository<Article>,
       { diffuser } as unknown as NotificationService,
+      nettoyage as unknown as NettoyageFichiers,
     );
   });
 
@@ -245,6 +252,36 @@ describe('ArticleService', () => {
       expect(modifications).not.toHaveProperty('slug');
       expect(modifications).toHaveProperty('titre', 'Titre corrigé');
     });
+
+    it('efface l’ancienne couverture quand elle est remplacée', async () => {
+      // Sans cela, corriger dix fois le visuel d'un article laisse dix objets
+      // payants que plus rien ne référence.
+      articles.findOne.mockResolvedValue(
+        article({ imageCouverture: 'articles/avant.png' }),
+      );
+
+      await service.mettreAJour('un-id', {
+        imageCouverture: 'articles/apres.png',
+      });
+
+      expect(nettoyage.remplacer).toHaveBeenCalledWith(
+        'articles/avant.png',
+        'articles/apres.png',
+      );
+    });
+
+    it('ne touche pas à la couverture absente de la demande', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ imageCouverture: 'articles/avant.png' }),
+      );
+
+      await service.mettreAJour('un-id', { titre: 'Titre corrigé' });
+
+      expect(nettoyage.remplacer).toHaveBeenCalledWith(
+        'articles/avant.png',
+        undefined,
+      );
+    });
   });
 
   describe('parution', () => {
@@ -355,6 +392,19 @@ describe('ArticleService', () => {
       await service.supprimer('un-id');
 
       expect(articles.delete).toHaveBeenCalledWith('un-id');
+    });
+
+    it('emporte la couverture avec le brouillon', async () => {
+      articles.findOne.mockResolvedValue(
+        article({
+          statut: StatutArticle.BROUILLON,
+          imageCouverture: 'articles/couverture.png',
+        }),
+      );
+
+      await service.supprimer('un-id');
+
+      expect(nettoyage.retirer).toHaveBeenCalledWith('articles/couverture.png');
     });
   });
 });

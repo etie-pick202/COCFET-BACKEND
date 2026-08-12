@@ -61,6 +61,46 @@ describe('validerFichier', () => {
     });
   });
 
+  describe('logo du mandat', () => {
+    // Le logo n'est pas qu'affiché : il est incrusté dans les factures et les
+    // reçus, et PDFKit ne sait poser que du PNG et du JPEG. Un format accepté
+    // ici mais impossible à incruster produirait des documents sans logo,
+    // dégradés en silence — donc découverts par le destinataire.
+    it.each([
+      ['png', ENTETES.png],
+      ['jpeg', ENTETES.jpeg],
+    ])('accepte un %s', (_nom, octets) => {
+      expect(() =>
+        validerFichier('logo', fichier(octets), ADMIN),
+      ).not.toThrow();
+    });
+
+    it('refuse un gif, pourtant une image valide', () => {
+      expect(() => validerFichier('logo', fichier(ENTETES.gif), ADMIN)).toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('refuse un webp, pourtant une image valide', () => {
+      expect(() => validerFichier('logo', webp(), ADMIN)).toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('dit quel format est attendu plutôt que de refuser sans motif', () => {
+      // Le bureau doit comprendre qu'il lui suffit de convertir son fichier.
+      expect(() => validerFichier('logo', webp(), ADMIN)).toThrow(
+        /image\/png ou image\/jpeg/,
+      );
+    });
+
+    it('laisse les autres visuels accepter le webp', () => {
+      // La restriction vise le logo seul : elle n'a pas de raison de peser sur
+      // une image de couverture, qui n'entre dans aucun PDF.
+      expect(() => validerFichier('evenement', webp(), ADMIN)).not.toThrow();
+    });
+  });
+
   describe('contenu déguisé', () => {
     it('refuse un exécutable renommé et déclaré image/png', () => {
       // Le scénario que le champ `mimetype` seul ne voit pas : il est fourni
@@ -205,6 +245,15 @@ describe('validerFichier', () => {
       ).not.toThrow();
       expect(() =>
         validerFichier('sponsor', fichier(ENTETES.png), Role.STUDENT),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('reserve le logo du mandat au bureau', () => {
+      expect(() =>
+        validerFichier('logo', fichier(ENTETES.png), Role.ADMIN),
+      ).not.toThrow();
+      expect(() =>
+        validerFichier('logo', fichier(ENTETES.png), Role.STUDENT),
       ).toThrow(ForbiddenException);
     });
 
