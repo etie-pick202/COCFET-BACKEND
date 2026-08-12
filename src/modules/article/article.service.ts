@@ -18,6 +18,7 @@ import {
 } from './dto/article.dto';
 import { Article, StatutArticle } from './entities/article.entity';
 import { slugLibre } from './slug';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const TRIS_AUTORISES = ['publishedAt', 'createdAt', 'titre'] as const;
 
@@ -35,6 +36,7 @@ export class ArticleService {
     @InjectRepository(Article)
     private readonly articles: Repository<Article>,
     private readonly notificationService: NotificationService,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   // ─────────────────────────────  Lecture  ──────────────────────────────
@@ -160,7 +162,7 @@ export class ArticleService {
    * tomberaient sur une page inexistante. Le slug est fixé à la création.
    */
   async mettreAJour(id: string, dto: MettreAJourArticleDto): Promise<Article> {
-    await this.trouver(id, { role: Role.ADMIN });
+    const avant = await this.trouver(id, { role: Role.ADMIN });
 
     const { evenementId, ...reste } = dto;
 
@@ -168,6 +170,8 @@ export class ArticleService {
       ...reste,
       ...(evenementId !== undefined ? { evenement: { id: evenementId } } : {}),
     });
+
+    await this.nettoyage.remplacer(avant.imageCouverture, dto.imageCouverture);
 
     return this.trouver(id, { role: Role.ADMIN });
   }
@@ -268,6 +272,8 @@ export class ArticleService {
     }
 
     await this.articles.delete(id);
+
+    await this.nettoyage.retirer(article.imageCouverture);
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────

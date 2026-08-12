@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FileModule } from '../file/file.module';
 import { Evenement } from '../evenement/entities/evenement.entity';
 import { GenerationModule } from '../generation/generation.module';
 import { UserModule } from '../user/user.module';
@@ -18,6 +19,7 @@ import { Produit } from './entities/produit.entity';
     TypeOrmModule.forFeature([Produit, Evenement]),
     GenerationModule,
     UserModule,
+    FileModule,
   ],
   controllers: [BoutiqueController],
   providers: [BoutiqueService],

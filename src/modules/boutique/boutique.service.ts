@@ -18,6 +18,7 @@ import {
   ProduitAvecTarif,
 } from './dto/boutique.dto';
 import { Produit, StatutProduit } from './entities/produit.entity';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 
 const TRIS_AUTORISES = ['createdAt', 'nom', 'prixCampus'] as const;
 
@@ -36,6 +37,7 @@ export class BoutiqueService {
     @InjectRepository(Evenement)
     private readonly evenements: Repository<Evenement>,
     private readonly generationService: GenerationService,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   async creer(dto: CreerProduitDto): Promise<Produit> {
@@ -55,6 +57,7 @@ export class BoutiqueService {
 
   async mettreAJour(id: string, dto: MettreAJourProduitDto): Promise<Produit> {
     const produit = await this.trouverOuEchouer(id);
+    const imagesAvant = produit.images ? [...produit.images] : null;
 
     Object.assign(produit, this.champs(dto));
 
@@ -70,7 +73,13 @@ export class BoutiqueService {
 
     produit.statut = this.statutSelonStock(produit, produit.stock);
 
-    return this.produits.save(produit);
+    const enregistre = await this.produits.save(produit);
+
+    // Seules les images retirees du lot partent : un produit perd une photo
+    // sur cinq, les quatre autres restent.
+    await this.nettoyage.remplacerLot(imagesAvant, dto.images);
+
+    return enregistre;
   }
 
   /**
@@ -79,6 +88,11 @@ export class BoutiqueService {
    * Les lignes de commande le référencent en `RESTRICT` : le supprimer
    * emporterait l'historique des achats, ou échouerait. Le statut `RETIRE` le
    * fait disparaître de la vitrine tout en gardant les commandes lisibles.
+   *
+   * **Ses images restent donc en place.** Le produit n'est pas effacé : il
+   * continue de s'afficher dans les commandes déjà passées, et les effacer
+   * remplacerait l'article acheté par un cadre vide dans un historique que le
+   * client peut relire des mois plus tard.
    */
   async retirer(id: string): Promise<Produit> {
     const produit = await this.trouverOuEchouer(id);
