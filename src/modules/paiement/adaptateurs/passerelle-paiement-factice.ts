@@ -111,6 +111,24 @@ export class PasserellePaiementFactice implements PasserellePaiement {
     return resultat;
   }
 
+  /**
+   * Oublie l'intention, ce qui suffit a la rendre inutilisable.
+   *
+   * La passerelle factice garde ses intentions en memoire : les retirer
+   * reproduit fidelement ce que fait « expire-pay » chez le prestataire.
+   */
+  expirer(referenceExterne: string): Promise<void> {
+    for (const [reference, intention] of this.intentions) {
+      if (intention.referenceExterne === referenceExterne) {
+        this.intentions.delete(reference);
+        this.logger.log(`Intention ${reference} expiree.`);
+        break;
+      }
+    }
+
+    return Promise.resolve();
+  }
+
   // eslint-disable-next-line @typescript-eslint/require-await
   async verifier(reference: string): Promise<ResultatPaiement> {
     const intention = this.intentions.get(reference);

@@ -336,6 +336,29 @@ describe('Commandes (e2e)', () => {
       expect(second.body).toEqual({ recu: true, traite: false });
     });
 
+    it('ne ressuscite pas une commande annulee payee apres coup', async () => {
+      // La page de paiement peut rester ouverte chez le prestataire. Confirmer
+      // ici vendrait deux fois le meme article : le stock a ete rendu, et
+      // probablement rachete depuis. L'argent appelle un remboursement, pas
+      // une confirmation.
+      const { id, produitId } = await commandeEnAttente(5);
+
+      await request(app.getHttpServer())
+        .delete(`${COMMANDES}/${id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      await notifier(id, StatutPaiement.COMPLETE).expect(200);
+
+      await expect(commandes.findOneByOrFail({ id })).resolves.toMatchObject({
+        statut: StatutCommande.ANNULEE,
+      });
+      // Le stock rendu a l'annulation le reste : rien n'a ete resservi.
+      await expect(
+        produits.findOneByOrFail({ id: produitId }),
+      ).resolves.toMatchObject({ stock: 5 });
+    });
+
     it('annule et rend le stock sur un refus', async () => {
       const { id, produitId } = await commandeEnAttente(5);
 

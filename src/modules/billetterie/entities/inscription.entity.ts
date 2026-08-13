@@ -72,4 +72,19 @@ export class Inscription extends BaseEntity {
   @Column({ name: 'scanned_at', type: 'timestamptz', nullable: true })
   @ApiProperty({ nullable: true, format: 'date-time' })
   scannedAt: Date | null;
+
+  /**
+   * Page de paiement a ouvrir, quand le prestataire en impose une.
+   *
+   * Nulle en paiement direct : la demande part sur le telephone du payeur sans
+   * page intermediaire. Non nulle, le client doit y envoyer le payeur, sans
+   * quoi le reglement reste impossible.
+   *
+   * **Effacee des que le paiement est tranche.** Un lien conserve apres coup
+   * n'a plus d'usage, et laisser un moyen de payer ce qui est deja regle ou
+   * refuse ne peut produire qu'une confusion.
+   */
+  @Column({ name: 'url_paiement', type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
+  urlPaiement: string | null;
 }
