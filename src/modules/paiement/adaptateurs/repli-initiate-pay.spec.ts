@@ -25,7 +25,10 @@ describe('PasserelleFapshi — repli sur le lien de paiement', () => {
 
   const config = {
     get: (cle: string, defaut?: string) =>
-      ({ FAPSHI_BASE_URL: 'https://live.fapshi.test' })[cle] ?? defaut,
+      ({
+        FAPSHI_BASE_URL: 'https://live.fapshi.test',
+        CORS_ORIGIN: 'https://cocfet-app.test,https://autre.test',
+      })[cle] ?? defaut,
     getOrThrow: () => 'secret',
   } as unknown as ConfigService;
 
@@ -98,7 +101,25 @@ describe('PasserelleFapshi — repli sur le lien de paiement', () => {
       amount: 5000,
       externalId: 'COCFET-0001',
       message: 'Commande boutique',
+      redirectUrl:
+        'https://cocfet-app.test/paiement/retour?reference=COCFET-0001',
     });
+  });
+
+  it('ramène le payeur sur la première origine déclarée', async () => {
+    // CORS_ORIGIN peut en porter plusieurs ; la page de retour doit être
+    // unique et prévisible, sans quoi Fapshi renverrait n'importe où.
+    reponses = [
+      repondre(403, {}),
+      repondre(200, { transId: 'trans_1', link: LIEN }),
+    ];
+
+    await passerelle.initier(demande);
+
+    const corps = appels[1].corps as { redirectUrl: string };
+    expect(corps.redirectUrl).toBe(
+      'https://cocfet-app.test/paiement/retour?reference=COCFET-0001',
+    );
   });
 
   it('ne rejoue rien quand le réseau a coupé', async () => {

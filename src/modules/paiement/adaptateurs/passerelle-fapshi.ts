@@ -75,6 +75,7 @@ export class PasserelleFapshi implements PasserellePaiement {
   private readonly apiUser: string;
   private readonly apiKey: string;
   private readonly secretWebhook: string;
+  private readonly urlRetour: string;
 
   /** Au-delà, on rend la main : l'appelant tient une requête HTTP ouverte. */
   private static readonly DELAI_MS = 15_000;
@@ -93,6 +94,14 @@ export class PasserelleFapshi implements PasserellePaiement {
     this.apiUser = config.getOrThrow<string>('FAPSHI_API_USER');
     this.apiKey = config.getOrThrow<string>('FAPSHI_API_KEY');
     this.secretWebhook = config.getOrThrow<string>('FAPSHI_WEBHOOK_SECRET');
+
+    // Page vers laquelle Fapshi renvoie le payeur apres son reglement. Deduite
+    // de CORS_ORIGIN, comme les liens des emails : c'est deja l'adresse du
+    // frontal, et en tenir une seconde inviterait a les laisser diverger.
+    // « FAPSHI_REDIRECT_URL » permet d'en decider autrement.
+    this.urlRetour =
+      config.get<string>('FAPSHI_REDIRECT_URL') ??
+      `${config.get<string>('CORS_ORIGIN', 'http://localhost:5173').split(',')[0]}/paiement/retour`;
   }
 
   async initier(demande: DemandePaiement): Promise<ResultatPaiement> {
@@ -189,6 +198,14 @@ export class PasserelleFapshi implements PasserellePaiement {
         amount: demande.montant,
         externalId: demande.reference,
         message: demande.description,
+        // Ramene le payeur chez nous une fois la page de Fapshi quittee. La
+        // reference voyage avec lui : la page de retour sait alors quoi
+        // interroger, sans quoi elle ne pourrait qu'afficher un message vague.
+        //
+        // **Ce retour ne prouve rien.** Le payeur peut fermer l'onglet avant,
+        // ou forger l'URL. Seuls le webhook et la reconciliation font foi ;
+        // cette page ne sert qu'a ne pas l'abandonner sur un site tiers.
+        redirectUrl: `${this.urlRetour}?reference=${encodeURIComponent(demande.reference)}`,
       });
     } catch (erreur) {
       throw this.enException(erreur);
