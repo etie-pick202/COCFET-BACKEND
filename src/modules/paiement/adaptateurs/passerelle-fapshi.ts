@@ -268,6 +268,22 @@ export class PasserelleFapshi implements PasserellePaiement {
     };
   }
 
+  async expirer(referenceExterne: string): Promise<void> {
+    try {
+      await this.appeler('POST', '/expire-pay', { transId: referenceExterne });
+      this.logger.log(`Lien de paiement ${referenceExterne} invalide.`);
+    } catch (erreur) {
+      // Avale a dessein : voir le port. L'annulation a eu lieu, et la refuser
+      // parce que le prestataire n'a pas repondu serait pire que le lien reste
+      // ouvert — dont un ordre annule ne peut de toute facon plus rien faire.
+      this.logger.warn(
+        `Lien de paiement ${referenceExterne} non invalide : ${
+          erreur instanceof Error ? erreur.message : String(erreur)
+        }`,
+      );
+    }
+  }
+
   async interpreterWebhook(
     corpsBrut: Buffer,
     entetes: EntetesWebhook,
