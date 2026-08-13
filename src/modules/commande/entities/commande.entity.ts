@@ -1,4 +1,4 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, JoinColumn, ManyToOne, OneToMany } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import {
@@ -72,15 +72,15 @@ export class Commande extends BaseEntity {
   /**
    * Page de paiement a ouvrir, quand le prestataire en impose une.
    *
-   * **Non persiste** : renseigne uniquement dans la reponse a la creation.
-   * Nul en paiement direct, ou la demande part sur le telephone du payeur sans
-   * page intermediaire. Non nul, le client doit y envoyer le payeur, sans quoi
-   * la commande reste en attente d un reglement que personne ne peut faire.
+   * Nulle en paiement direct : la demande part sur le telephone du payeur sans
+   * page intermediaire. Non nulle, le client doit y envoyer le payeur, sans
+   * quoi le reglement reste impossible.
+   *
+   * **Effacee des que le paiement est tranche.** Un lien conserve apres coup
+   * n'a plus d'usage, et laisser un moyen de payer ce qui est deja regle ou
+   * refuse ne peut produire qu'une confusion.
    */
-  @ApiPropertyOptional({
-    nullable: true,
-    description:
-      'Page de paiement a ouvrir. Nulle en paiement direct. Presente seulement dans la reponse a la creation : elle nest pas conservee.',
-  })
-  urlPaiement?: string | null;
+  @Column({ name: 'url_paiement', type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
+  urlPaiement: string | null;
 }

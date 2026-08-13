@@ -126,9 +126,13 @@ export class CommandeService {
         commande.id,
       );
 
-      // La page de paiement, quand le prestataire en impose une, ne vit que
-      // dans cette reponse : sans elle le payeur n'a aucun moyen de regler.
-      return { ...(await this.trouver(commande.id, user.id)), urlPaiement };
+      if (urlPaiement) {
+        // Conservee : qui ferme l'onglet avant de payer doit pouvoir revenir
+        // a sa commande plutot que de l'annuler pour la refaire.
+        await this.commandes.update(commande.id, { urlPaiement });
+      }
+
+      return this.trouver(commande.id, user.id);
     } catch (erreur) {
       // Tout est défait, dans l'ordre inverse. Ne rendre que le stock
       // laisserait une commande orpheline, jamais payée mais visible dans
@@ -264,6 +268,9 @@ export class CommandeService {
       .set({
         statut: StatutCommande.PAYEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        // Le paiement est tranche : le lien n'a plus d'usage, et le laisser
+        // offrirait un moyen de payer ce qui est deja regle.
+        urlPaiement: null,
       })
       .where('id = :id AND statut_paiement != :complete', {
         id: commande.id,
@@ -317,6 +324,7 @@ export class CommandeService {
       .set({
         statut: StatutCommande.ANNULEE,
         statutPaiement: StatutPaiement.ECHOUE,
+        urlPaiement: null,
       })
       .where('id = :id AND statut = :attendu', {
         id: commande.id,
@@ -471,6 +479,7 @@ export class CommandeService {
       await this.commandes.update(commande.id, {
         statut: StatutCommande.PAYEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        urlPaiement: null,
       });
       commande.statut = StatutCommande.PAYEE;
       commande.statutPaiement = StatutPaiement.COMPLETE;

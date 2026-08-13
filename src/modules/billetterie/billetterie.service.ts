@@ -159,12 +159,13 @@ export class BilletterieService {
         await this.emettreBillet({ ...inscription, user, evenement });
       }
 
-      // La page de paiement, quand le prestataire en impose une, ne vit que
-      // dans cette reponse : sans elle le payeur n'a aucun moyen de regler.
-      return {
-        ...(await this.trouverBillet(inscription.id, user.id)),
-        urlPaiement,
-      };
+      if (urlPaiement) {
+        // Conservee : qui ferme l'onglet avant de payer doit pouvoir revenir
+        // a son inscription plutot que de l'annuler pour la refaire.
+        await this.inscriptions.update(inscription.id, { urlPaiement });
+      }
+
+      return this.trouverBillet(inscription.id, user.id);
     } catch (erreur) {
       // Tout est defait, dans l'ordre inverse. Ne rendre que la place
       // laisserait une inscription orpheline : un billet visible dans « mes
@@ -382,6 +383,9 @@ export class BilletterieService {
       .set({
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        // Le paiement est tranche : le lien n'a plus d'usage, et le laisser
+        // offrirait un moyen de payer ce qui est deja regle.
+        urlPaiement: null,
       })
       .where('id = :id AND statut_paiement != :complete', {
         id: inscription.id,
@@ -452,6 +456,7 @@ export class BilletterieService {
       .set({
         statut: StatutInscription.ANNULEE,
         statutPaiement: StatutPaiement.ECHOUE,
+        urlPaiement: null,
       })
       .where('id = :id AND statut = :attendu', {
         id: inscription.id,
@@ -674,6 +679,7 @@ export class BilletterieService {
       await this.inscriptions.update(inscription.id, {
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        urlPaiement: null,
       });
 
       // Reporté sur l'objet en mémoire : l'appelant décide d'émettre le billet
