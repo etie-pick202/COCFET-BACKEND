@@ -165,6 +165,11 @@ export class BilletterieService {
       // billets », jamais paye, et dont le code passerait le controle a
       // l'entree une fois le statut confondu.
       if (inscription) {
+        // Avant la suppression : la référence de la transaction **est** le
+        // code du billet. Sans cela, une passerelle qui refuse laisserait une
+        // transaction en attente que la réconciliation ne peut ni vérifier ni
+        // clore, et qui pèserait au journal de trésorerie.
+        await this.transactionService.abandonner(inscription.codeBillet);
         await this.inscriptions.delete(inscription.id);
       }
       await this.evenementService.libererUnePlace(evenementId);
