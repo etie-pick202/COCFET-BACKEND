@@ -118,13 +118,19 @@ export class CommandeService {
         return creee;
       });
 
-      await this.lancerPaiement(commande, dto);
+      const urlPaiement = await this.lancerPaiement(commande, dto);
       await this.notifier(
         user,
         'Commande enregistrée',
         `Votre commande de ${total} FCFA est en attente de paiement.`,
         commande.id,
       );
+
+      if (urlPaiement) {
+        // Conservee : qui ferme l'onglet avant de payer doit pouvoir revenir
+        // a sa commande plutot que de l'annuler pour la refaire.
+        await this.commandes.update(commande.id, { urlPaiement });
+      }
 
       return this.trouver(commande.id, user.id);
     } catch (erreur) {
@@ -139,6 +145,28 @@ export class CommandeService {
       }
       await this.rendreLeStock(reservations);
       throw erreur;
+    }
+  }
+
+  /**
+   * Invalide la page de paiement d'un ordre qui vient d'etre annule.
+   *
+   * Sans cela le lien reste ouvert chez le prestataire : quelqu'un peut encore
+   * regler alors que le stock ou la place ont deja ete rendus, et il faudrait
+   * rembourser. Le refus de confirmer un ordre annule protege l'integrite ;
+   * ceci evite d'avoir a s'en servir.
+   *
+   * Silencieux sur un paiement deja abouti ou jamais ouvert : il n'y a alors
+   * aucun lien a fermer.
+   */
+  private async expirerLePaiement(reference: string): Promise<void> {
+    const transaction = await this.transactionService.trouver(reference);
+
+    if (
+      transaction?.referenceExterne &&
+      transaction.statut === StatutPaiement.EN_ATTENTE
+    ) {
+      await this.paiement.expirer(transaction.referenceExterne);
     }
   }
 
@@ -189,8 +217,12 @@ export class CommandeService {
     }
     this.verifierTransition(commande, StatutCommande.ANNULEE);
 
-    await this.commandes.update(id, { statut: StatutCommande.ANNULEE });
+    await this.commandes.update(id, {
+      statut: StatutCommande.ANNULEE,
+      urlPaiement: null,
+    });
     await this.restituer(commande);
+    await this.expirerLePaiement(id);
 
     if (commande.statutPaiement === StatutPaiement.COMPLETE) {
       // Aucun remboursement automatique : il passe par le prestataire et
@@ -256,17 +288,39 @@ export class CommandeService {
       return;
     }
 
+    if (commande.statut === StatutCommande.ANNULEE) {
+      // Le stock a deja ete rendu, et probablement rachete depuis. Confirmer
+      // ici vendrait deux fois le meme article, et afficherait comme payee une
+      // commande que le client croit annulee. L'argent, lui, est bien arrive :
+      // il appelle un remboursement, pas une confirmation.
+      this.logger.warn(
+        `Paiement recu pour une commande annulee (${commande.id}, ` +
+          `${commande.total} FCFA) : remboursement a traiter manuellement.`,
+      );
+      return;
+    }
+
     const resultat = await this.commandes
       .createQueryBuilder()
       .update(Commande)
       .set({
         statut: StatutCommande.PAYEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        // Le paiement est tranche : le lien n'a plus d'usage, et le laisser
+        // offrirait un moyen de payer ce qui est deja regle.
+        urlPaiement: null,
       })
-      .where('id = :id AND statut_paiement != :complete', {
-        id: commande.id,
-        complete: StatutPaiement.COMPLETE,
-      })
+      // La condition sur le statut est **dans la requete** et non seulement
+      // au-dessus : une annulation concurrente passerait entre la lecture et
+      // l'ecriture, et la commande serait confirmee malgre tout.
+      .where(
+        'id = :id AND statut_paiement != :complete AND statut != :annulee',
+        {
+          id: commande.id,
+          complete: StatutPaiement.COMPLETE,
+          annulee: StatutCommande.ANNULEE,
+        },
+      )
       .execute();
 
     if (resultat.affected !== 1) {
@@ -315,6 +369,7 @@ export class CommandeService {
       .set({
         statut: StatutCommande.ANNULEE,
         statutPaiement: StatutPaiement.ECHOUE,
+        urlPaiement: null,
       })
       .where('id = :id AND statut = :attendu', {
         id: commande.id,
@@ -429,7 +484,7 @@ export class CommandeService {
   private async lancerPaiement(
     commande: Commande,
     dto: CreerCommandeDto,
-  ): Promise<void> {
+  ): Promise<string | null> {
     // Ouverte **avant** l'appel au prestataire : si la notification arrive
     // pendant que nous attendons encore la réponse, elle trouve une ligne à
     // mettre à jour plutôt que rien, et le paiement n'est pas perdu.
@@ -469,10 +524,15 @@ export class CommandeService {
       await this.commandes.update(commande.id, {
         statut: StatutCommande.PAYEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        urlPaiement: null,
       });
       commande.statut = StatutCommande.PAYEE;
       commande.statutPaiement = StatutPaiement.COMPLETE;
     }
+
+    // Rendue a l'appelant : c'est la seule occasion de la transmettre, elle
+    // n'est pas conservee en base.
+    return resultat.urlRedirection;
   }
 
   /** Rend au catalogue ce qu'une commande avait immobilisé. */

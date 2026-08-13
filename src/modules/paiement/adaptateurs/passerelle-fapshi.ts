@@ -22,6 +22,32 @@ const MONTANT_MINIMAL = 100;
 const ENTETE_SECRET = 'x-wh-secret';
 
 /**
+ * Refus opposé par Fapshi, avec le code qui l'accompagne.
+ *
+ * Interne à l'adaptateur : le port ne connaît pas les codes HTTP d'un
+ * prestataire. Elle n'existe que pour permettre de distinguer un refus
+ * rattrapable — `direct-pay` non activé — de ceux qui ne le sont pas.
+ */
+class RefusFapshi extends Error {
+  constructor(
+    readonly statut: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * Durée pendant laquelle on cesse de proposer `direct-pay` après un refus.
+ *
+ * Sans cette mémoire, chaque commande paierait un aller-retour HTTP inutile
+ * avant de se rabattre. Bornée dans le temps plutôt que définitive : le jour
+ * où Fapshi active la fonction, la plateforme s'en aperçoit seule, sans
+ * redémarrage ni intervention.
+ */
+const MEMOIRE_REFUS_MS = 30 * 60_000;
+
+/**
  * Adaptateur Fapshi, en paiement direct.
  *
  * `POST /direct-pay` envoie la demande sur le téléphone du payeur : pas de
@@ -49,9 +75,13 @@ export class PasserelleFapshi implements PasserellePaiement {
   private readonly apiUser: string;
   private readonly apiKey: string;
   private readonly secretWebhook: string;
+  private readonly urlRetour: string;
 
   /** Au-delà, on rend la main : l'appelant tient une requête HTTP ouverte. */
   private static readonly DELAI_MS = 15_000;
+
+  /** Instant du dernier refus de `direct-pay`, pour ne pas le rejouer en vain. */
+  private refuseDepuis: number | null = null;
 
   constructor(config: ConfigService) {
     // Le bac à sable et la production ne diffèrent que par cette URL et par
@@ -64,6 +94,14 @@ export class PasserelleFapshi implements PasserellePaiement {
     this.apiUser = config.getOrThrow<string>('FAPSHI_API_USER');
     this.apiKey = config.getOrThrow<string>('FAPSHI_API_KEY');
     this.secretWebhook = config.getOrThrow<string>('FAPSHI_WEBHOOK_SECRET');
+
+    // Page vers laquelle Fapshi renvoie le payeur apres son reglement. Deduite
+    // de CORS_ORIGIN, comme les liens des emails : c'est deja l'adresse du
+    // frontal, et en tenir une seconde inviterait a les laisser diverger.
+    // « FAPSHI_REDIRECT_URL » permet d'en decider autrement.
+    this.urlRetour =
+      config.get<string>('FAPSHI_REDIRECT_URL') ??
+      `${config.get<string>('CORS_ORIGIN', 'http://localhost:5173').split(',')[0]}/paiement/retour`;
   }
 
   async initier(demande: DemandePaiement): Promise<ResultatPaiement> {
@@ -80,16 +118,42 @@ export class PasserelleFapshi implements PasserellePaiement {
       );
     }
 
-    const corps = await this.appeler('POST', '/direct-pay', {
-      amount: demande.montant,
-      phone: this.numeroLocal(demande.telephone),
-      medium: this.canal(demande.methode),
-      // Notre référence voyage jusqu'à la notification : c'est elle qui
-      // permet de retrouver l'inscription au retour, sans table de
-      // correspondance à tenir.
-      externalId: demande.reference,
-      message: demande.description,
-    });
+    if (this.directPayIndisponible()) {
+      return this.parLienDePaiement(demande);
+    }
+
+    let corps: Record<string, unknown>;
+
+    try {
+      corps = await this.appeler('POST', '/direct-pay', {
+        amount: demande.montant,
+        phone: this.numeroLocal(demande.telephone),
+        medium: this.canal(demande.methode),
+        // Notre référence voyage jusqu'à la notification : c'est elle qui
+        // permet de retrouver l'inscription au retour, sans table de
+        // correspondance à tenir.
+        externalId: demande.reference,
+        message: demande.description,
+      });
+    } catch (erreur) {
+      // **Le repli n'a lieu que sur un 403.** Fapshi a alors refusé la demande
+      // avant de la créer : rien n'existe chez elle, et rejouer par un autre
+      // canal ne peut pas débiter deux fois. Sur un délai dépassé ou une
+      // coupure réseau, l'état est **inconnu** — la demande a peut-être
+      // abouti — et un second appel risquerait un double débit. On lève.
+      if (!(erreur instanceof RefusFapshi) || erreur.statut !== 403) {
+        throw this.enException(erreur);
+      }
+
+      this.refuseDepuis = Date.now();
+      this.logger.warn(
+        'direct-pay refusé par Fapshi : repli automatique sur le lien de ' +
+          'paiement. Voir https://www.fapshi.com/en/help-and-support/how-to-activate-direct-pay-for-your-fapshi-api ' +
+          'pour faire activer le paiement direct.',
+      );
+
+      return this.parLienDePaiement(demande);
+    }
 
     const transId = this.chaine(corps, ['transId']);
     if (!transId) {
@@ -114,6 +178,68 @@ export class PasserelleFapshi implements PasserellePaiement {
   }
 
   /**
+   * Repli : `initiate-pay`, que Fapshi n'exige pas d'activer.
+   *
+   * Fapshi rend un lien de paiement hébergé. Le payeur y choisit lui-même son
+   * opérateur et saisit son numéro — d'où l'absence de `phone` et de `medium`
+   * ici, que la page demandera. Le parcours a une étape de plus que le
+   * paiement direct, mais il encaisse, ce qui vaut mieux qu'un refus.
+   *
+   * L'appelant reconnaît ce mode à `urlRedirection`, non nulle : c'est vers
+   * cette page qu'il doit envoyer le payeur.
+   */
+  private async parLienDePaiement(
+    demande: DemandePaiement,
+  ): Promise<ResultatPaiement> {
+    let corps: Record<string, unknown>;
+
+    try {
+      corps = await this.appeler('POST', '/initiate-pay', {
+        amount: demande.montant,
+        externalId: demande.reference,
+        message: demande.description,
+        // Ramene le payeur chez nous une fois la page de Fapshi quittee. La
+        // reference voyage avec lui : la page de retour sait alors quoi
+        // interroger, sans quoi elle ne pourrait qu'afficher un message vague.
+        //
+        // **Ce retour ne prouve rien.** Le payeur peut fermer l'onglet avant,
+        // ou forger l'URL. Seuls le webhook et la reconciliation font foi ;
+        // cette page ne sert qu'a ne pas l'abandonner sur un site tiers.
+        redirectUrl: `${this.urlRetour}?reference=${encodeURIComponent(demande.reference)}`,
+      });
+    } catch (erreur) {
+      throw this.enException(erreur);
+    }
+
+    const transId = this.chaine(corps, ['transId']);
+    const lien = this.chaine(corps, ['link']);
+
+    if (!transId || !lien) {
+      this.logger.error(
+        `Réponse Fapshi sans transId ni lien : ${JSON.stringify(corps).slice(0, 300)}`,
+      );
+      throw new BadGatewayException(
+        'Réponse inattendue du service de paiement.',
+      );
+    }
+
+    return {
+      reference: demande.reference,
+      referenceExterne: transId,
+      statut: StatutPaiement.EN_ATTENTE,
+      urlRedirection: lien,
+    };
+  }
+
+  /** Vrai tant que le refus de `direct-pay` est encore frais. */
+  private directPayIndisponible(): boolean {
+    return (
+      this.refuseDepuis !== null &&
+      Date.now() - this.refuseDepuis < MEMOIRE_REFUS_MS
+    );
+  }
+
+  /**
    * Interroge Fapshi sur une transaction.
    *
    * ⚠️ Plafonné par le prestataire à six appels par minute et par
@@ -121,10 +247,16 @@ export class PasserelleFapshi implements PasserellePaiement {
    * de 429 en rafale.
    */
   async verifier(transId: string): Promise<ResultatPaiement> {
-    const corps = await this.appeler(
-      'GET',
-      `/payment-status/${encodeURIComponent(transId)}`,
-    );
+    let corps: Record<string, unknown>;
+
+    try {
+      corps = await this.appeler(
+        'GET',
+        `/payment-status/${encodeURIComponent(transId)}`,
+      );
+    } catch (erreur) {
+      throw this.enException(erreur);
+    }
 
     return {
       // La référence faisant foi est celle que Fapshi nous renvoie, pas celle
@@ -134,6 +266,22 @@ export class PasserelleFapshi implements PasserellePaiement {
       statut: this.versStatut(this.chaine(corps, ['status'])),
       urlRedirection: null,
     };
+  }
+
+  async expirer(referenceExterne: string): Promise<void> {
+    try {
+      await this.appeler('POST', '/expire-pay', { transId: referenceExterne });
+      this.logger.log(`Lien de paiement ${referenceExterne} invalide.`);
+    } catch (erreur) {
+      // Avale a dessein : voir le port. L'annulation a eu lieu, et la refuser
+      // parce que le prestataire n'a pas repondu serait pire que le lien reste
+      // ouvert — dont un ordre annule ne peut de toute facon plus rien faire.
+      this.logger.warn(
+        `Lien de paiement ${referenceExterne} non invalide : ${
+          erreur instanceof Error ? erreur.message : String(erreur)
+        }`,
+      );
+    }
   }
 
   async interpreterWebhook(
@@ -164,6 +312,18 @@ export class PasserelleFapshi implements PasserellePaiement {
 
   // ──────────────────────────────  Interne  ─────────────────────────────
 
+  /**
+   * Traduit un refus interne en exception HTTP.
+   *
+   * Le port ne connaît pas les codes d'un prestataire : ils s'arrêtent à la
+   * frontière de l'adaptateur.
+   */
+  private enException(erreur: unknown): Error {
+    return erreur instanceof RefusFapshi
+      ? new BadGatewayException(erreur.message)
+      : (erreur as Error);
+  }
+
   private async appeler(
     methode: 'GET' | 'POST',
     chemin: string,
@@ -189,7 +349,10 @@ export class PasserelleFapshi implements PasserellePaiement {
       this.logger.error(
         `Fapshi injoignable (${methode} ${chemin}) : ${(erreur as Error).message}`,
       );
-      throw new BadGatewayException(
+      // Statut 0 : aucune reponse recue. L'etat du paiement est inconnu, et
+      // surtout pas refuse — c'est ce qui interdit tout repli automatique.
+      throw new RefusFapshi(
+        0,
         'Le service de paiement est momentanément injoignable. Réessayez.',
       );
     }
@@ -218,7 +381,8 @@ export class PasserelleFapshi implements PasserellePaiement {
         );
       }
 
-      throw new BadGatewayException(
+      throw new RefusFapshi(
+        reponse.status,
         'Le paiement n’a pas pu être traité. Réessayez dans un instant.',
       );
     }
