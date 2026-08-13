@@ -49,6 +49,23 @@ const VARIABLES_FAPSHI = [
         );
 
         if (configure) {
+          // `FAPSHI_BASE_URL` est facultative et retombe sur le bac a sable.
+          // Ce silence a deja coute une panne : des cles de production
+          // envoyees au sandbox, refusees en 403, et aucun paiement possible
+          // pendant que le journal ne disait rien au demarrage.
+          const url = config.get<string>('FAPSHI_BASE_URL');
+          if (
+            config.get<string>('NODE_ENV') === 'production' &&
+            (!url || url.includes('sandbox'))
+          ) {
+            new Logger('PaiementModule').warn(
+              `FAPSHI_BASE_URL vaut « ${url ?? 'non definie, donc le bac a sable'} » en production. ` +
+                'Avec des cles de production, le sandbox repond 403 et aucun paiement ne passe. ' +
+                'Avec des cles de bac a sable, les commandes sont validees sans qu aucun argent ne circule. ' +
+                'La valeur attendue est https://live.fapshi.com.',
+            );
+          }
+
           return new PasserelleFapshi(config);
         }
 
