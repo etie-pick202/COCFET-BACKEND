@@ -145,8 +145,9 @@ export class BilletterieService {
         }),
       );
 
+      let urlPaiement: string | null = null;
       if (payant) {
-        await this.lancerPaiement(inscription, evenement, dto);
+        urlPaiement = await this.lancerPaiement(inscription, evenement, dto);
       }
 
       await this.notifierInscription(user, evenement, inscription);
@@ -158,7 +159,12 @@ export class BilletterieService {
         await this.emettreBillet({ ...inscription, user, evenement });
       }
 
-      return this.trouverBillet(inscription.id, user.id);
+      // La page de paiement, quand le prestataire en impose une, ne vit que
+      // dans cette reponse : sans elle le payeur n'a aucun moyen de regler.
+      return {
+        ...(await this.trouverBillet(inscription.id, user.id)),
+        urlPaiement,
+      };
     } catch (erreur) {
       // Tout est defait, dans l'ordre inverse. Ne rendre que la place
       // laisserait une inscription orpheline : un billet visible dans « mes
@@ -626,7 +632,7 @@ export class BilletterieService {
     inscription: Inscription,
     evenement: Evenement,
     dto: SInscrireDto,
-  ): Promise<void> {
+  ): Promise<string | null> {
     // Ouverte **avant** l'appel au prestataire : si le webhook arrive pendant
     // que nous attendons encore la réponse, il trouve une ligne à mettre à
     // jour plutôt que rien, et le paiement n'est pas perdu.
@@ -676,6 +682,10 @@ export class BilletterieService {
       inscription.statut = StatutInscription.CONFIRMEE;
       inscription.statutPaiement = StatutPaiement.COMPLETE;
     }
+
+    // Rendue a l'appelant : c'est la seule occasion de la transmettre, elle
+    // n'est pas conservee en base.
+    return resultat.urlRedirection;
   }
 
   /**
