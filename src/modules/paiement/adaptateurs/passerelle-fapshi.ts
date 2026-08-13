@@ -204,8 +204,13 @@ export class PasserelleFapshi implements PasserellePaiement {
       // identifiants sont faux **ou** quand l'IP appelante n'est pas sur la
       // liste blanche du service. Les deux se ressemblent dans les journaux.
       if (reponse.status === 403) {
+        // Le corps porte le motif exact — « invalid credentials » d'un côté,
+        // une mention de l'adresse appelante de l'autre. Sans lui, les deux
+        // causes sont indiscernables et le diagnostic repart de zéro, ce qui
+        // a déjà coûté une panne de paiement en production.
         this.logger.error(
-          'Fapshi a répondu 403 : identifiants invalides, ou IP du serveur absente de la liste blanche du service.',
+          'Fapshi a répondu 403 : identifiants invalides, ou IP du serveur ' +
+            `absente de la liste blanche du service. Motif rendu : ${JSON.stringify(charge).slice(0, 300)}`,
         );
       } else {
         this.logger.error(

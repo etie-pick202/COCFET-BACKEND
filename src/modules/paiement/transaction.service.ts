@@ -105,6 +105,47 @@ export class TransactionService {
   }
 
   /**
+   * Referme une transaction que le prestataire n'a jamais acceptée.
+   *
+   * La transaction est ouverte **avant** l'appel au prestataire, pour qu'un
+   * webhook arrivant pendant cet appel trouve une ligne à mettre à jour. Quand
+   * cet appel échoue, la ligne reste donc `EN_ATTENTE` sans référence
+   * prestataire : la réconciliation ne peut ni la vérifier ni la clore, et la
+   * signale toutes les cinq minutes, indéfiniment. Ces montants figurent en
+   * outre au journal de trésorerie comme des paiements en attente, alors
+   * qu'aucun n'a jamais été présenté à l'opérateur.
+   *
+   * **La condition est étroite, et c'est essentiel.** Seule une transaction
+   * encore en attente **et dépourvue de référence prestataire** est refermée.
+   * Si le prestataire a rendu un identifiant, le paiement est peut-être en
+   * cours sur le téléphone du client : le déclarer échoué ferait perdre un
+   * règlement bien réel.
+   *
+   * Marquée `ECHOUE` plutôt que supprimée : une tentative a eu lieu, et la
+   * trace vaut mieux que l'oubli.
+   */
+  async abandonner(reference: string): Promise<boolean> {
+    const resultat = await this.transactions
+      .createQueryBuilder()
+      .update(Transaction)
+      .set({ statut: StatutPaiement.ECHOUE })
+      .where(
+        'reference = :reference AND statut = :attente AND reference_externe IS NULL',
+        { reference, attente: StatutPaiement.EN_ATTENTE },
+      )
+      .execute();
+
+    const referme = resultat.affected === 1;
+    if (referme) {
+      this.logger.log(
+        `Transaction ${reference} refermée : le prestataire n’a jamais accepté la demande.`,
+      );
+    }
+
+    return referme;
+  }
+
+  /**
    * Transactions restées en attente au-delà d'un délai de grâce.
    *
    * Le délai évite de courir après un webhook qui n'a simplement pas encore

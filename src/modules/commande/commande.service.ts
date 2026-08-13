@@ -132,6 +132,9 @@ export class CommandeService {
       // laisserait une commande orpheline, jamais payée mais visible dans
       // « mes commandes ».
       if (commande) {
+        // Avant la suppression : la référence de la transaction **est**
+        // l'identifiant de la commande.
+        await this.transactionService.abandonner(commande.id);
         await this.commandes.delete(commande.id);
       }
       await this.rendreLeStock(reservations);
