@@ -19,6 +19,21 @@ export interface PasserellePaiement {
   verifier(reference: string): Promise<ResultatPaiement>;
 
   /**
+   * Invalide une intention de paiement encore ouverte.
+   *
+   * Appelee quand la commande ou l'inscription disparait avant son reglement :
+   * sans cela, la page de paiement reste ouverte chez le prestataire et
+   * quelqu'un peut encore la regler, alors que le stock ou la place ont deja
+   * ete rendus.
+   *
+   * **Ne leve jamais.** C'est une politesse envers le payeur, pas une garantie
+   * d'integrite : celle-ci tient au refus de confirmer un ordre annule, qui ne
+   * depend d'aucun appel reseau. Un echec ici ne doit donc pas faire echouer
+   * l'annulation, qui, elle, a bien eu lieu.
+   */
+  expirer(referenceExterne: string): Promise<void>;
+
+  /**
    * Authentifie une notification et en rend l'état **faisant foi**.
    *
    * Asynchrone à dessein. Tous les prestataires ne signent pas leur corps :

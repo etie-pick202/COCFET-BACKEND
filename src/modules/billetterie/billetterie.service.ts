@@ -145,8 +145,9 @@ export class BilletterieService {
         }),
       );
 
+      let urlPaiement: string | null = null;
       if (payant) {
-        await this.lancerPaiement(inscription, evenement, dto);
+        urlPaiement = await this.lancerPaiement(inscription, evenement, dto);
       }
 
       await this.notifierInscription(user, evenement, inscription);
@@ -158,6 +159,12 @@ export class BilletterieService {
         await this.emettreBillet({ ...inscription, user, evenement });
       }
 
+      if (urlPaiement) {
+        // Conservee : qui ferme l'onglet avant de payer doit pouvoir revenir
+        // a son inscription plutot que de l'annuler pour la refaire.
+        await this.inscriptions.update(inscription.id, { urlPaiement });
+      }
+
       return this.trouverBillet(inscription.id, user.id);
     } catch (erreur) {
       // Tout est defait, dans l'ordre inverse. Ne rendre que la place
@@ -165,6 +172,11 @@ export class BilletterieService {
       // billets », jamais paye, et dont le code passerait le controle a
       // l'entree une fois le statut confondu.
       if (inscription) {
+        // Avant la suppression : la référence de la transaction **est** le
+        // code du billet. Sans cela, une passerelle qui refuse laisserait une
+        // transaction en attente que la réconciliation ne peut ni vérifier ni
+        // clore, et qui pèserait au journal de trésorerie.
+        await this.transactionService.abandonner(inscription.codeBillet);
         await this.inscriptions.delete(inscription.id);
       }
       await this.evenementService.libererUnePlace(evenementId);
@@ -197,8 +209,10 @@ export class BilletterieService {
 
     await this.inscriptions.update(inscriptionId, {
       statut: StatutInscription.ANNULEE,
+      urlPaiement: null,
     });
     await this.evenementService.libererUnePlace(inscription.evenement.id);
+    await this.expirerLePaiement(inscription.codeBillet);
 
     if (inscription.prix > 0) {
       // Aucun remboursement automatique : il passe par le prestataire et
@@ -207,6 +221,28 @@ export class BilletterieService {
       this.logger.warn(
         `Inscription payée annulée (${inscriptionId}, ${inscription.prix} FCFA) : remboursement à traiter manuellement.`,
       );
+    }
+  }
+
+  /**
+   * Invalide la page de paiement d'un ordre qui vient d'etre annule.
+   *
+   * Sans cela le lien reste ouvert chez le prestataire : quelqu'un peut encore
+   * regler alors que le stock ou la place ont deja ete rendus, et il faudrait
+   * rembourser. Le refus de confirmer un ordre annule protege l'integrite ;
+   * ceci evite d'avoir a s'en servir.
+   *
+   * Silencieux sur un paiement deja abouti ou jamais ouvert : il n'y a alors
+   * aucun lien a fermer.
+   */
+  private async expirerLePaiement(reference: string): Promise<void> {
+    const transaction = await this.transactionService.trouver(reference);
+
+    if (
+      transaction?.referenceExterne &&
+      transaction.statut === StatutPaiement.EN_ATTENTE
+    ) {
+      await this.paiement.expirer(transaction.referenceExterne);
     }
   }
 
@@ -363,6 +399,18 @@ export class BilletterieService {
       return;
     }
 
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      // La place a deja ete rendue, et probablement reprise depuis. Confirmer
+      // ici delivrerait un billet pour un evenement peut-etre complet, et
+      // afficherait comme confirmee une inscription que la personne croit
+      // annulee. L'argent est bien arrive : il appelle un remboursement.
+      this.logger.warn(
+        `Paiement recu pour une inscription annulee (${reference}, ` +
+          `${inscription.prix} FCFA) : remboursement a traiter manuellement.`,
+      );
+      return;
+    }
+
     // Conditionnee au statut courant : un second webhook pour la meme
     // reference n'affecte aucune ligne, et la notification ne part qu'une fois.
     const resultat = await this.inscriptions
@@ -371,11 +419,21 @@ export class BilletterieService {
       .set({
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        // Le paiement est tranche : le lien n'a plus d'usage, et le laisser
+        // offrirait un moyen de payer ce qui est deja regle.
+        urlPaiement: null,
       })
-      .where('id = :id AND statut_paiement != :complete', {
-        id: inscription.id,
-        complete: StatutPaiement.COMPLETE,
-      })
+      // La condition sur le statut est **dans la requete** et non seulement
+      // au-dessus : une annulation concurrente passerait entre la lecture et
+      // l'ecriture, et l'inscription serait confirmee malgre tout.
+      .where(
+        'id = :id AND statut_paiement != :complete AND statut != :annulee',
+        {
+          id: inscription.id,
+          complete: StatutPaiement.COMPLETE,
+          annulee: StatutInscription.ANNULEE,
+        },
+      )
       .execute();
 
     if (resultat.affected !== 1) {
@@ -441,6 +499,7 @@ export class BilletterieService {
       .set({
         statut: StatutInscription.ANNULEE,
         statutPaiement: StatutPaiement.ECHOUE,
+        urlPaiement: null,
       })
       .where('id = :id AND statut = :attendu', {
         id: inscription.id,
@@ -621,7 +680,7 @@ export class BilletterieService {
     inscription: Inscription,
     evenement: Evenement,
     dto: SInscrireDto,
-  ): Promise<void> {
+  ): Promise<string | null> {
     // Ouverte **avant** l'appel au prestataire : si le webhook arrive pendant
     // que nous attendons encore la réponse, il trouve une ligne à mettre à
     // jour plutôt que rien, et le paiement n'est pas perdu.
@@ -663,6 +722,7 @@ export class BilletterieService {
       await this.inscriptions.update(inscription.id, {
         statut: StatutInscription.CONFIRMEE,
         statutPaiement: StatutPaiement.COMPLETE,
+        urlPaiement: null,
       });
 
       // Reporté sur l'objet en mémoire : l'appelant décide d'émettre le billet
@@ -671,6 +731,10 @@ export class BilletterieService {
       inscription.statut = StatutInscription.CONFIRMEE;
       inscription.statutPaiement = StatutPaiement.COMPLETE;
     }
+
+    // Rendue a l'appelant : c'est la seule occasion de la transmettre, elle
+    // n'est pas conservee en base.
+    return resultat.urlRedirection;
   }
 
   /**
