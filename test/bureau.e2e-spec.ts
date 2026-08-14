@@ -452,6 +452,109 @@ describe('Bureau COCFET (e2e)', () => {
     });
   });
 
+  describe('administration en cours de mandat', () => {
+    // La promotion se faisait au seul moment de la passation. Designer
+    // quelqu'un sur un mandat deja actif — le cas courant — ne lui donnait
+    // donc aucun droit, et le retirer ne lui en enlevait aucun.
+    const posteAdmin = (nom: string) =>
+      creerPoste(nom, { estCle: true, accordeAdministration: true });
+
+    const roleDe = async (userId: string): Promise<Role> =>
+      (await users.findOneByOrFail({ id: userId })).role;
+
+    /** Cree un mandat actif, sans passer par l'activation. */
+    const mandatActif = async (): Promise<string> => {
+      const generation = await generations.save(
+        generations.create({ annee: 2027, nom: 'ATLAS', isActive: true }),
+      );
+      return generation.id;
+    };
+
+    it('promeut le titulaire designe sur un mandat en cours', async () => {
+      const generation = await mandatActif();
+      const poste = idDe(await posteAdmin('President').expect(201));
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.STUDENT);
+
+      await affecter(generation, poste, entrant.user.id).expect(201);
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.ADMIN);
+    });
+
+    it('ne promeut pas sur un poste qui n’accorde rien', async () => {
+      const generation = await mandatActif();
+      const poste = idDe(await creerPoste('Secretaire').expect(201));
+
+      await affecter(generation, poste, entrant.user.id).expect(201);
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.STUDENT);
+    });
+
+    it('ne promeut pas d’avance sur un mandat inactif', async () => {
+      // C'est l'activation qui tranchera : donner les cles a un bureau qui
+      // n'est pas encore en fonction serait prematue.
+      const generation = idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+      const poste = idDe(await posteAdmin('President').expect(201));
+
+      await affecter(generation, poste, entrant.user.id).expect(201);
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.STUDENT);
+    });
+
+    it('retire l’administration au titulaire ecarte', async () => {
+      const generation = await mandatActif();
+      const poste = idDe(await posteAdmin('President').expect(201));
+      const membre = idDe(
+        await affecter(generation, poste, entrant.user.id).expect(201),
+      );
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.ADMIN);
+
+      await request(app.getHttpServer())
+        .delete(`${BUREAU}/membres/${membre}`)
+        .set(admin.entetes)
+        .expect(204);
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.STUDENT);
+    });
+
+    it('garde l’administration a qui cumule un second poste', async () => {
+      // Le role est recalcule a partir des postes detenus, jamais decremente :
+      // en retirer un ne doit pas enlever ce que l'autre accorde.
+      const generation = await mandatActif();
+      const president = idDe(await posteAdmin('President').expect(201));
+      const vice = idDe(await posteAdmin('Vice-president').expect(201));
+
+      const premier = idDe(
+        await affecter(generation, president, entrant.user.id).expect(201),
+      );
+      await affecter(generation, vice, entrant.user.id).expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`${BUREAU}/membres/${premier}`)
+        .set(admin.entetes)
+        .expect(204);
+
+      await expect(roleDe(entrant.user.id)).resolves.toBe(Role.ADMIN);
+    });
+
+    it('epargne l’administration technique, jamais etudiante', async () => {
+      // Elle n'a pas de promotion : c'est elle qui garantit qu'il reste
+      // quelqu'un aux commandes si une bascule se passe mal.
+      const generation = await mandatActif();
+      const poste = idDe(await posteAdmin('President').expect(201));
+      const membre = idDe(
+        await affecter(generation, poste, entrant.user.id).expect(201),
+      );
+
+      await request(app.getHttpServer())
+        .delete(`${BUREAU}/membres/${membre}`)
+        .set(admin.entetes)
+        .expect(204);
+
+      await expect(roleDe(admin.user.id)).resolves.toBe(Role.ADMIN);
+    });
+  });
+
   describe('logos du bureau', () => {
     const creerMandat = async (): Promise<string> =>
       idDe(await creerGeneration(2027, 'ATLAS').expect(201));
