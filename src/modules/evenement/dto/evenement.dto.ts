@@ -105,6 +105,17 @@ export class CreerEvenementDto {
   @MaxLength(300)
   @IsOptional()
   imageCouverture?: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description:
+      'Vrai : un inscrit peut deposer une capture de paiement, soumise a la ' +
+      'validation de la tresorerie. Ferme par defaut — ouvrir partout ' +
+      'exposerait chaque inscription a une preuve fabriquee.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  accepteJustificatif?: boolean;
 }
 
 /**

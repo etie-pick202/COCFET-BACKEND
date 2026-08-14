@@ -10,6 +10,7 @@ import { PaiementController } from './paiement.controller';
 import { ReconciliationService } from './reconciliation.service';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
+import { RepercussionPaiementService } from './repercussion-paiement.service';
 
 const VARIABLES_FAPSHI = [
   'FAPSHI_API_USER',
@@ -40,6 +41,7 @@ const VARIABLES_FAPSHI = [
   providers: [
     TransactionService,
     ReconciliationService,
+    RepercussionPaiementService,
     {
       provide: PASSERELLE_PAIEMENT,
       inject: [ConfigService],
@@ -84,6 +86,10 @@ const VARIABLES_FAPSHI = [
       },
     },
   ],
-  exports: [PASSERELLE_PAIEMENT, TransactionService],
+  exports: [
+    PASSERELLE_PAIEMENT,
+    TransactionService,
+    RepercussionPaiementService,
+  ],
 })
 export class PaiementModule {}

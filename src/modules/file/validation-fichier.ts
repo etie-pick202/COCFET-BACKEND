@@ -64,6 +64,22 @@ export const USAGES = {
     mimesAutorises: ['image/png', 'image/jpeg'],
   },
   /**
+   * Preuve d'un paiement remis hors de la plateforme.
+   *
+   * Ouvert a tout compte authentifie : c'est le payeur qui depose sa capture,
+   * et il n'est ni du bureau ni forcement etudiant. La piece ne prouve rien
+   * par elle-meme — une capture se fabrique en deux minutes — et ne vaut que
+   * par la validation de quelqu'un qui accede aux finances.
+   */
+  justificatif: {
+    prefixe: 'justificatifs',
+    tailleMax: 5 * 1024 * 1024,
+    types: ['image'],
+    roles: null,
+    mimesAutorises: null,
+  },
+
+  /**
    * Reserve aux etudiants.
    *
    * L'annuaire des finissants est ce que consultent les entreprises
