@@ -29,6 +29,7 @@ import { PaiementModule } from './modules/paiement/paiement.module';
 import { SondageModule } from './modules/sondage/sondage.module';
 import { SponsorModule } from './modules/sponsor/sponsor.module';
 import { UserModule } from './modules/user/user.module';
+import { JustificatifModule } from './modules/justificatif/justificatif.module';
 
 @Module({
   imports: [
@@ -66,6 +67,7 @@ import { UserModule } from './modules/user/user.module';
     BoutiqueModule,
     CommandeModule,
     PaiementModule,
+    JustificatifModule,
     // M3 — Annuaire des finissants
     AnnuaireModule,
     // M4 — Sponsors
