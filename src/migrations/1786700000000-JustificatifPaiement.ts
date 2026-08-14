@@ -38,8 +38,8 @@ export class JustificatifPaiement1786700000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE "justificatifs_paiement" (
         "id" uuid NOT NULL DEFAULT uuid_generate_v4(),
-        "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-        "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
+        "created_at" TIMESTAMP NOT NULL DEFAULT now(),
+        "updated_at" TIMESTAMP NOT NULL DEFAULT now(),
         "reference" character varying NOT NULL,
         "origine" "public"."justificatifs_paiement_origine_enum" NOT NULL,
         "cle" character varying,
@@ -49,28 +49,33 @@ export class JustificatifPaiement1786700000000 implements MigrationInterface {
         "validateur_id" uuid,
         "decide_le" TIMESTAMP WITH TIME ZONE,
         "motif_refus" character varying,
-        CONSTRAINT "pk_justificatifs_paiement" PRIMARY KEY ("id")
+        CONSTRAINT "PK_justificatifs_paiement" PRIMARY KEY ("id")
       )
     `);
 
     await queryRunner.query(`
       ALTER TABLE "justificatifs_paiement"
-      ADD CONSTRAINT "fk_justificatif_user"
+      ADD CONSTRAINT "FK_e93b4a7489ba19ea552ef5b445d"
       FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE
     `);
     await queryRunner.query(`
       ALTER TABLE "justificatifs_paiement"
-      ADD CONSTRAINT "fk_justificatif_validateur"
+      ADD CONSTRAINT "FK_bf96aede6c9dbcc64e6079a81a5"
       FOREIGN KEY ("validateur_id") REFERENCES "users"("id") ON DELETE SET NULL
     `);
 
+    // Les noms d'index et de contraintes sont ceux que TypeORM derive des
+    // entites. Illisibles, mais imposes : le controle de derive de la CI
+    // compare le schema aux entites et reclamerait de renommer tout nom
+    // choisi a la main.
+    //
     // La tresorerie consulte les pieces d'un reglement precis, et filtre
     // l'historique par statut pour trouver ce qui attend une decision.
     await queryRunner.query(`
-      CREATE INDEX "idx_justificatif_reference" ON "justificatifs_paiement" ("reference")
+      CREATE INDEX "IDX_5a4246fb0be5ad6d08a9e3589d" ON "justificatifs_paiement" ("reference")
     `);
     await queryRunner.query(`
-      CREATE INDEX "idx_justificatif_statut" ON "justificatifs_paiement" ("statut")
+      CREATE INDEX "IDX_09877ca9c82cbacc7a8fdfe7b3" ON "justificatifs_paiement" ("statut")
     `);
 
     // Un evenement n'accepte les captures que si son organisateur l'a voulu :
