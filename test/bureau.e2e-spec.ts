@@ -452,6 +452,52 @@ describe('Bureau COCFET (e2e)', () => {
     });
   });
 
+  describe('privileges de tresorerie', () => {
+    // Ils existaient sur le poste et les gardes les appliquaient, mais aucun
+    // DTO ne les exposait : ils n'etaient reglables que par ecriture directe
+    // en base, et toute tentative par l'API se heurtait a un 400.
+    it('accepte les privileges des la creation du poste', async () => {
+      const reponse = await creerPoste('Tresoriere', {
+        accedeTresorerie: true,
+        autoriseRetrait: false,
+      }).expect(201);
+
+      expect(reponse.body).toMatchObject({
+        accedeTresorerie: true,
+        autoriseRetrait: false,
+      });
+    });
+
+    it('laisse les deux privileges fermes par defaut', async () => {
+      // Ouvrir par defaut donnerait acces aux comptes a tout le bureau.
+      const reponse = await creerPoste('Charge des activites').expect(201);
+
+      expect(reponse.body).toMatchObject({
+        accedeTresorerie: false,
+        autoriseRetrait: false,
+      });
+    });
+
+    it('les regle aussi apres coup', async () => {
+      const poste = idDe(
+        await creerPoste('Commissaire aux comptes').expect(201),
+      );
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${BUREAU}/postes/${poste}`)
+        .set(admin.entetes)
+        .send({ accedeTresorerie: true })
+        .expect(200);
+
+      // Lire les comptes et les vider ne relevent pas du meme risque : le
+      // retrait reste ferme tant qu'on ne l'ouvre pas explicitement.
+      expect(reponse.body).toMatchObject({
+        accedeTresorerie: true,
+        autoriseRetrait: false,
+      });
+    });
+  });
+
   describe('administration en cours de mandat', () => {
     // La promotion se faisait au seul moment de la passation. Designer
     // quelqu'un sur un mandat deja actif — le cas courant — ne lui donnait

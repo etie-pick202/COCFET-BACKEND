@@ -170,6 +170,28 @@ export class CommandeService {
     }
   }
 
+  /**
+   * Journalise une annulation, en nommant la personne concernee.
+   *
+   * L'annulation ne laissait aucune trace au journal d'activite : le bureau
+   * voyait le stock revenir sans savoir de quelle commande ni de qui il
+   * s'agissait. Un article qui reapparait sans explication est exactement ce
+   * qu'on ne peut pas rapprocher d'un mouvement de tresorerie.
+   */
+  private async journaliserAnnulation(
+    commande: Commande,
+    motif: string,
+  ): Promise<void> {
+    await this.activiteService.journaliser({
+      type: TypeActivite.COMMANDE,
+      message:
+        `${commande.user.firstName} ${commande.user.lastName} a annule une ` +
+        `commande de ${commande.total} FCFA : ${motif}`,
+      auteur: commande.user,
+      metadata: { commandeId: commande.id, montant: commande.total },
+    });
+  }
+
   async mesCommandes(
     userId: string,
     filtre: FiltreCommandeDto,
@@ -223,6 +245,7 @@ export class CommandeService {
     });
     await this.restituer(commande);
     await this.expirerLePaiement(id);
+    await this.journaliserAnnulation(commande, 'annulation par son titulaire.');
 
     if (commande.statutPaiement === StatutPaiement.COMPLETE) {
       // Aucun remboursement automatique : il passe par le prestataire et
@@ -382,6 +405,7 @@ export class CommandeService {
     }
 
     await this.restituer(commande);
+    await this.journaliserAnnulation(commande, motif);
     await this.notifier(
       commande.user,
       'Paiement non abouti',

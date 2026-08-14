@@ -52,6 +52,35 @@ export class CreerPosteDto {
   @IsBoolean()
   @IsOptional()
   accordeAdministration?: boolean;
+
+  /**
+   * Ces deux privilèges existaient déjà sur le poste, et les gardes les
+   * appliquaient — mais aucun DTO ne les exposait. Ils n'étaient donc
+   * réglables que par une écriture directe en base : personne ne pouvait
+   * recevoir l'accès aux finances par l'API, et toute tentative se heurtait à
+   * un 400.
+   */
+  @ApiPropertyOptional({
+    description:
+      'Le titulaire consulte les indicateurs financiers, le journal des ' +
+      'transactions, l’export et le rapport de trésorerie. Distinct de ' +
+      'l’administration : la personne qui publie les événements n’a pas à ' +
+      'connaître les recettes.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  accedeTresorerie?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Le titulaire peut sortir de l’argent. **Volontairement distinct de ' +
+      'l’accès à la trésorerie** : lire les comptes et les vider ne relèvent ' +
+      'pas du même risque, et un commissaire aux comptes doit pouvoir tout ' +
+      'consulter sans jamais pouvoir sortir un franc.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  autoriseRetrait?: boolean;
 }
 
 export class MettreAJourPosteDto extends PartialType(CreerPosteDto) {}
