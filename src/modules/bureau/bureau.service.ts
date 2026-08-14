@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { Role } from '../../common/enums/role.enum';
 import { Generation } from '../generation/entities/generation.entity';
 import { MailService } from '../mail/mail.service';
 import { User } from '../user/entities/user.entity';
@@ -170,6 +171,8 @@ export class BureauService {
       },
     );
 
+    await this.ajusterAdministration(user.id, generation);
+
     this.logger.log(
       `${user.email} désigné « ${poste.nom} » du mandat ${generation.nom}.`,
     );
@@ -196,6 +199,68 @@ export class BureauService {
     }
 
     await this.membres.delete(id);
+    await this.ajusterAdministration(membre.user.id, membre.generation);
+  }
+
+  /**
+   * Aligne le role du titulaire sur les postes qu'il occupe reellement.
+   *
+   * L'administration etait jusqu'ici accordee **au seul moment de la
+   * passation**, quand une generation est activee. Designer quelqu'un apres
+   * coup ne le promouvait donc jamais : sur un mandat deja en cours — le cas
+   * courant — le nouveau titulaire restait etudiant et ne pouvait rien
+   * administrer. Le retrait avait le defaut symetrique : l'ancien titulaire
+   * gardait ses droits indefiniment.
+   *
+   * Le role est **recalcule** a partir des postes detenus, jamais incremente
+   * ni decremente. C'est ce qui rend l'operation idempotente et correcte quand
+   * une meme personne cumule deux postes : lui en retirer un ne lui enleve pas
+   * l'administration que l'autre lui accorde.
+   *
+   * Ne touche a rien sur un mandat inactif : c'est l'activation qui tranchera,
+   * et promouvoir d'avance donnerait les cles de la plateforme a un bureau qui
+   * n'est pas encore en fonction.
+   *
+   * La retrogradation epargne les comptes sans promotion — l'administration
+   * technique, qui n'a jamais ete etudiante et doit rester aux commandes.
+   */
+  private async ajusterAdministration(
+    userId: string,
+    generation: Generation,
+  ): Promise<void> {
+    if (!generation.isActive) {
+      return;
+    }
+
+    const user = await this.users.findOne({ where: { id: userId } });
+    if (!user) {
+      return;
+    }
+
+    const postesAdministrateurs = await this.membres.count({
+      where: {
+        generation: { id: generation.id },
+        user: { id: userId },
+        poste: { accordeAdministration: true },
+      },
+    });
+
+    if (postesAdministrateurs > 0 && user.role === Role.STUDENT) {
+      await this.users.update(userId, { role: Role.ADMIN });
+      this.logger.log(`${user.email} promu administrateur : poste du bureau.`);
+      return;
+    }
+
+    if (
+      postesAdministrateurs === 0 &&
+      user.role === Role.ADMIN &&
+      user.promotion !== null
+    ) {
+      await this.users.update(userId, { role: Role.STUDENT });
+      this.logger.log(
+        `${user.email} n'administre plus : aucun poste ne le lui accorde.`,
+      );
+    }
   }
 
   /** Usage interne : entités brutes, jamais renvoyées telles quelles. */
