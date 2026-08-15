@@ -498,6 +498,44 @@ describe('Bureau COCFET (e2e)', () => {
     });
   });
 
+  describe('exploitation', () => {
+    // Deux garanties, invisibles a l'usage courant : le role passe partout ou
+    // l'administration passe, et il franchit aussi les privileges de poste
+    // — dont les finances — qu'aucun poste ne lui accorde.
+    it('franchit les routes reservees a l’administration', async () => {
+      const exploitation = await creerCompteAuthentifie(app, {
+        role: Role.SUPER_ADMIN,
+        promotion: null,
+      });
+
+      await request(app.getHttpServer())
+        .get(`${BUREAU}/postes`)
+        .set(exploitation.entetes)
+        .expect(200);
+    });
+
+    it('franchit les privileges de poste sans en detenir aucun', async () => {
+      const exploitation = await creerCompteAuthentifie(app, {
+        role: Role.SUPER_ADMIN,
+        promotion: null,
+      });
+
+      await request(app.getHttpServer())
+        .get('/api/v1/tableau-de-bord/tresorerie')
+        .set(exploitation.entetes)
+        .expect(200);
+    });
+
+    it('reste hors de portee de la route de mise a jour d’un compte', async () => {
+      // Sans ce refus, une administration se l'attribuerait elle-meme.
+      await request(app.getHttpServer())
+        .patch(`/api/v1/utilisateurs/${entrant.user.id}`)
+        .set(admin.entetes)
+        .send({ role: Role.SUPER_ADMIN })
+        .expect(400);
+    });
+  });
+
   describe('administration en cours de mandat', () => {
     // La promotion se faisait au seul moment de la passation. Designer
     // quelqu'un sur un mandat deja actif — le cas courant — ne lui donnait

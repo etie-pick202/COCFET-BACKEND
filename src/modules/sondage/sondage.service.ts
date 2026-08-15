@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
@@ -63,7 +63,7 @@ export class SondageService {
     filtre: FiltreSondageDto,
     demandeur?: { role: Role },
   ): Promise<ResultatPagine<Sondage>> {
-    const administrateur = demandeur?.role === Role.ADMIN;
+    const administrateur = estAdministrateur(demandeur?.role);
     const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'createdAt');
 
     const requete = this.sondages
@@ -115,7 +115,7 @@ export class SondageService {
     if (
       !sondage ||
       (sondage.statut === StatutSondage.BROUILLON &&
-        demandeur?.role !== Role.ADMIN)
+        !estAdministrateur(demandeur?.role))
     ) {
       // Même réponse qu'un identifiant inconnu : distinguer les deux
       // révélerait l'existence d'un sondage en préparation, titre compris.

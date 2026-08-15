@@ -9,7 +9,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Brackets, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
   ChangerMotDePasseDto,
@@ -250,7 +250,7 @@ export class UserService {
     const cible = await this.trouverOuEchouer(id);
 
     if (id === demandeurId) {
-      if (dto.role !== undefined && dto.role !== Role.ADMIN) {
+      if (dto.role !== undefined && !estAdministrateur(dto.role)) {
         throw new ForbiddenException(
           'Vous ne pouvez pas retirer votre propre rôle d’administrateur.',
         );
@@ -263,9 +263,9 @@ export class UserService {
     }
 
     if (
-      cible.role === Role.ADMIN &&
+      estAdministrateur(cible.role) &&
       dto.role !== undefined &&
-      dto.role !== Role.ADMIN &&
+      !estAdministrateur(dto.role) &&
       (await this.compterAdministrateurs()) <= 1
     ) {
       // Sans ce garde-fou, il resterait zéro administrateur et la seule sortie

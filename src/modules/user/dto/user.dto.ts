@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsIn,
   IsEnum,
   IsInt,
   IsOptional,
@@ -9,7 +10,7 @@ import {
   MaxLength,
   MinLength,
 } from 'class-validator';
-import { Role } from '../../../common/enums/role.enum';
+import { Role, ROLES_ATTRIBUABLES } from '../../../common/enums/role.enum';
 import { PaginationDto } from '../../../common/pagination';
 import { EstUnMotDePasseValide } from '../../auth/dto/mot-de-passe';
 import { User } from '../entities/user.entity';
@@ -60,10 +61,12 @@ export class ChangerMotDePasseDto {
 
 /** Réservé à l'administration. */
 export class MettreAJourUtilisateurDto {
-  @ApiPropertyOptional({ enum: Role })
-  @IsEnum(Role)
+  @ApiPropertyOptional({ enum: ROLES_ATTRIBUABLES })
+  // La liste restreinte, et non l'énumération entière : celle-ci laisserait
+  // une administration s'attribuer le rôle d'exploitation par cette route.
+  @IsIn(ROLES_ATTRIBUABLES)
   @IsOptional()
-  role?: Role;
+  role?: (typeof ROLES_ATTRIBUABLES)[number];
 
   @ApiPropertyOptional({
     description: 'Désactive le compte sans effacer son historique.',

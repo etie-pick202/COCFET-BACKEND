@@ -260,6 +260,11 @@ export class BureauService {
 
     if (
       postesAdministrateurs === 0 &&
+      // Strictement ADMIN, et non « administre » : la retrogradation ne doit
+      // jamais atteindre un role d'exploitation, qui ne tient pas son autorite
+      // d'un poste du bureau et ne peut donc pas la perdre en le quittant.
+      // C'est le seul endroit ou la comparaison directe est voulue.
+      // eslint-disable-next-line no-restricted-syntax
       user.role === Role.ADMIN &&
       user.promotion !== null
     ) {

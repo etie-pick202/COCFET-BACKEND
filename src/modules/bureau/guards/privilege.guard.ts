@@ -8,6 +8,7 @@ import { Reflector } from '@nestjs/core';
 import { BureauService } from '../bureau.service';
 import { PRIVILEGE_KEY } from '../decorators/privilege.decorator';
 import { detient, Privilege } from '../privileges';
+import { Role } from '../../../common/enums/role.enum';
 
 /**
  * Applique les privilèges de poste, **côté serveur**.
@@ -40,10 +41,16 @@ export class PrivilegeGuard implements CanActivate {
 
     const { user } = context
       .switchToHttp()
-      .getRequest<{ user?: { id: string } }>();
+      .getRequest<{ user?: { id: string; role: Role } }>();
 
     if (!user) {
       throw new ForbiddenException('Authentification requise.');
+    }
+
+    // Aucun privilege de poste ne lui est oppose : l'exploitation passe
+    // au-dessus de ceux du bureau, finances comprises.
+    if (user.role === Role.SUPER_ADMIN) {
+      return true;
     }
 
     const privileges = await this.bureauService.privilegesDe(user.id);
