@@ -26,6 +26,13 @@ export class RolesGuard implements CanActivate {
       .switchToHttp()
       .getRequest<{ user?: { role: Role } }>();
 
+    // L'exemption est posee ici, au point de passage, et non repetee dans
+    // chaque controleur : une regle a venir passera par ce meme garde et
+    // heritera donc de l'exemption sans que personne ait a y penser.
+    if (user?.role === Role.SUPER_ADMIN) {
+      return true;
+    }
+
     if (!user || !requiredRoles.includes(user.role)) {
       throw new ForbiddenException(
         "Vous n'avez pas les droits requis pour cette action",

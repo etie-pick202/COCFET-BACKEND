@@ -34,6 +34,27 @@ export default tseslint.config(
   },
   {
     rules: {
+      // Comparer directement a « Role.ADMIN » laisse le role d'exploitation en
+      // dehors : il se retrouverait moins puissant que l'administration
+      // ordinaire, soit l'inverse de ce qu'il doit etre. « estAdministrateur »
+      // est le seul test autorise, et cette regle empeche le code a venir de
+      // rouvrir la breche par inadvertance.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            "BinaryExpression[operator=/^(===|!==|==|!=)$/] > MemberExpression.right[property.name='ADMIN'][object.name='Role']",
+          message:
+            'Utilisez estAdministrateur() : comparer a Role.ADMIN exclut SUPER_ADMIN.',
+        },
+        {
+          selector:
+            "BinaryExpression[operator=/^(===|!==|==|!=)$/] > MemberExpression.left[property.name='ADMIN'][object.name='Role']",
+          message:
+            'Utilisez estAdministrateur() : comparer a Role.ADMIN exclut SUPER_ADMIN.',
+        },
+      ],
+
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-floating-promises': 'warn',
       '@typescript-eslint/no-unsafe-argument': 'warn',
