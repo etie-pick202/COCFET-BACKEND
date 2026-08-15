@@ -312,6 +312,59 @@ describe('Cotisations (e2e)', () => {
     });
   });
 
+  describe('consultation', () => {
+    it('liste les cotisations pour les finances', async () => {
+      await creer().expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(COTISATIONS)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      expect(reponse.body as unknown[]).toHaveLength(1);
+    });
+
+    it('consulte une cotisation et son echeancier', async () => {
+      const id = idDe(await creer().expect(201));
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/${id}`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      expect((reponse.body as { tranches: unknown[] }).tranches).toHaveLength(
+        2,
+      );
+    });
+
+    it('liste les remises au bureau', async () => {
+      await request(app.getHttpServer())
+        .post(`${COTISATIONS}/versements`)
+        .set(tresoriere.entetes)
+        .send({ montant: 25000 })
+        .expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/versements`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      expect(reponse.body as unknown[]).toHaveLength(1);
+    });
+
+    it('clot une cotisation', async () => {
+      const id = idDe(await creer().expect(201));
+      await ouvrir(id).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .post(`${COTISATIONS}/${id}/clore`)
+        .set(tresoriere.entetes)
+        .expect(201);
+
+      expect(reponse.body).toMatchObject({ statut: 'CLOSE' });
+    });
+  });
+
   describe('cloisonnement', () => {
     it('réserve la création aux finances', async () => {
       await request(app.getHttpServer())
