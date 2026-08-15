@@ -87,4 +87,23 @@ export class Inscription extends BaseEntity {
   @Column({ name: 'url_paiement', type: 'varchar', nullable: true })
   @ApiProperty({ nullable: true })
   urlPaiement: string | null;
+
+  /**
+   * Qui a valide ce billet a l'entree.
+   *
+   * « scannedAt » disait quand, jamais par qui : impossible de savoir qui
+   * avait laisse entrer quelqu'un. Le couple des deux rend le passage
+   * rattachable a son portier.
+   *
+   * **Efface au bout d'une semaine** par la purge : la trace d'un controle a
+   * une utilite courte, et la conserver au-dela ferait de la billetterie un
+   * fichier de presence.
+   *
+   * « SET NULL » : le depart d'un portier ne doit pas emporter les billets
+   * qu'il a valides.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'scanne_par_id' })
+  @ApiProperty({ type: () => User, nullable: true })
+  scannePar: User | null;
 }
