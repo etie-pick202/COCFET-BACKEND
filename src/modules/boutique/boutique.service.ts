@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { beneficieDuTarifCampus } from '../../common/identite/identite-campus';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
@@ -19,6 +19,7 @@ import {
 } from './dto/boutique.dto';
 import { Produit, StatutProduit } from './entities/produit.entity';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import { DeclinaisonProduit } from './entities/declinaison-produit.entity';
 
 const TRIS_AUTORISES = ['createdAt', 'nom', 'prixCampus'] as const;
 
@@ -36,6 +37,8 @@ export class BoutiqueService {
     private readonly produits: Repository<Produit>,
     @InjectRepository(Evenement)
     private readonly evenements: Repository<Evenement>,
+    @InjectRepository(DeclinaisonProduit)
+    private readonly declinaisons: Repository<DeclinaisonProduit>,
     private readonly generationService: GenerationService,
     private readonly nettoyage: NettoyageFichiers,
   ) {}
@@ -227,18 +230,53 @@ export class BoutiqueService {
    *
    * Rend `false` quand il n'y a pas assez de stock.
    */
-  async reserverStock(id: string, quantite: number): Promise<boolean> {
+  async reserverStock(
+    id: string,
+    quantite: number,
+    taille: string | null = null,
+    couleur: string | null = null,
+  ): Promise<boolean> {
+    const demande = Math.trunc(quantite);
+
+    // Le stock detaille fait foi des qu'il existe : decrementer le compteur
+    // global laisserait vendre un M alors qu'il n'en reste plus, le total
+    // pouvant tenir a lui seul grace aux autres tailles.
+    const declinaison = await this.declinaisonDe(id, taille, couleur);
+
+    if (declinaison) {
+      const surDeclinaison = await this.declinaisons
+        .createQueryBuilder()
+        .update(DeclinaisonProduit)
+        .set({ stock: () => `stock - ${demande}` })
+        .where('id = :id AND stock >= :quantite', {
+          id: declinaison.id,
+          quantite: demande,
+        })
+        .execute();
+
+      if (surDeclinaison.affected !== 1) {
+        return false;
+      }
+    }
+
     const resultat = await this.produits
       .createQueryBuilder()
       .update(Produit)
-      .set({ stock: () => `stock - ${Math.trunc(quantite)}` })
-      .where('id = :id AND stock >= :quantite', {
-        id,
-        quantite: Math.trunc(quantite),
-      })
+      .set({ stock: () => `stock - ${demande}` })
+      .where('id = :id AND stock >= :quantite', { id, quantite: demande })
       .execute();
 
     if (resultat.affected !== 1) {
+      // Le total et le detail ont diverge : la declinaison a accepte, le
+      // compteur global non. On rend ce qu'on vient de prendre plutot que de
+      // laisser une reservation a moitie faite.
+      if (declinaison) {
+        await this.declinaisons.increment(
+          { id: declinaison.id },
+          'stock',
+          demande,
+        );
+      }
       return false;
     }
 
@@ -246,8 +284,55 @@ export class BoutiqueService {
     return true;
   }
 
+  /**
+   * Retrouve la declinaison exacte, ou rien si le produit n'en a pas.
+   *
+   * L'absence de declinaison n'est pas une erreur : un porte-cles se vend sans
+   * taille ni couleur, et son stock global suffit.
+   */
+  private async declinaisonDe(
+    produitId: string,
+    taille: string | null,
+    couleur: string | null,
+  ): Promise<DeclinaisonProduit | null> {
+    const total = await this.declinaisons.countBy({
+      produit: { id: produitId },
+    });
+    if (total === 0) {
+      return null;
+    }
+
+    // « IsNull » plutot que « null » : TypeORM traduit le second en egalite,
+    // et « = NULL » ne vaut jamais vrai en SQL — la declinaison sans taille ne
+    // serait alors jamais retrouvee.
+    return this.declinaisons.findOne({
+      where: {
+        produit: { id: produitId },
+        taille: taille ?? IsNull(),
+        couleur: couleur ?? IsNull(),
+      },
+    });
+  }
+
   /** Restitue une quantité réservée — annulation, ou paiement non abouti. */
-  async libererStock(id: string, quantite: number): Promise<void> {
+  async libererStock(
+    id: string,
+    quantite: number,
+    taille: string | null = null,
+    couleur: string | null = null,
+  ): Promise<void> {
+    // Rendue a la declinaison exacte : remettre la quantite au seul compteur
+    // global gonflerait le total sans qu'aucune taille ne redevienne
+    // disponible.
+    const declinaison = await this.declinaisonDe(id, taille, couleur);
+    if (declinaison) {
+      await this.declinaisons.increment(
+        { id: declinaison.id },
+        'stock',
+        Math.trunc(quantite),
+      );
+    }
+
     await this.produits
       .createQueryBuilder()
       .update(Produit)
@@ -256,6 +341,72 @@ export class BoutiqueService {
       .execute();
 
     await this.rafraichirStatut(id);
+  }
+
+  /**
+   * Remplace l'ensemble des declinaisons d'un produit.
+   *
+   * Remplacement global plutot que retouche ligne a ligne : le bureau saisit
+   * une grille — tailles fois couleurs — et la corrige en bloc. La somme des
+   * stocks devient celle du produit, qui cesse d'etre saisie directement.
+   *
+   * **Refuse tant qu'une commande est en cours de preparation** n'aurait pas de
+   * sens ici : les lignes deja passees ont fige leur quantite, et le stock
+   * qu'on redefinit est celui qui reste a vendre.
+   */
+  async definirDeclinaisons(
+    id: string,
+    lignes: {
+      taille?: string | null;
+      couleur?: string | null;
+      stock: number;
+    }[],
+  ): Promise<Produit> {
+    await this.trouverOuEchouer(id);
+
+    const vues = new Set<string>();
+    for (const ligne of lignes) {
+      const cle = `${ligne.taille ?? ''}|${ligne.couleur ?? ''}`;
+      if (vues.has(cle)) {
+        // Deux lignes pour le meme couple rendraient le stock indetermine, et
+        // la reservation atomique choisirait au hasard laquelle decrementer.
+        throw new BadRequestException(
+          `La combinaison « ${ligne.taille ?? 'sans taille'} / ${ligne.couleur ?? 'sans couleur'} » est saisie deux fois.`,
+        );
+      }
+      vues.add(cle);
+    }
+
+    await this.declinaisons.delete({ produit: { id } });
+
+    if (lignes.length > 0) {
+      await this.declinaisons.save(
+        lignes.map((ligne) =>
+          this.declinaisons.create({
+            produit: { id } as Produit,
+            taille: ligne.taille ?? null,
+            couleur: ligne.couleur ?? null,
+            stock: Math.max(0, Math.trunc(ligne.stock)),
+          }),
+        ),
+      );
+    }
+
+    const total = lignes.reduce(
+      (somme, ligne) => somme + Math.max(0, Math.trunc(ligne.stock)),
+      0,
+    );
+    await this.produits.update(id, { stock: total });
+
+    return this.rafraichirStatut(id);
+  }
+
+  /** Les declinaisons d'un produit, avec leur stock. */
+  declinaisonsDe(id: string): Promise<DeclinaisonProduit[]> {
+    return this.declinaisons.find({
+      where: { produit: { id } },
+      order: { taille: 'ASC', couleur: 'ASC' },
+    });
   }
 
   async trouverOuEchouer(id: string): Promise<Produit> {

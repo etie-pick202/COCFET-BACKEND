@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Put,
   Post,
   Query,
   Req,
@@ -39,10 +40,12 @@ import {
   AjusterStockDto,
   CreerProduitDto,
   FiltreProduitDto,
+  DefinirDeclinaisonsDto,
   MettreAJourProduitDto,
   ProduitAvecTarif,
 } from './dto/boutique.dto';
 import { Produit } from './entities/produit.entity';
+import { DeclinaisonProduit } from './entities/declinaison-produit.entity';
 
 /** La stratégie JWT pose l'utilisateur ; il est absent sur une route optionnelle. */
 type Requete = Request & { user?: { id: string; role: Role } };
@@ -153,6 +156,44 @@ export class BoutiqueController {
     @Body() dto: MettreAJourProduitDto,
   ): Promise<Produit> {
     return this.boutiqueService.mettreAJour(id, dto);
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Put(':id/declinaisons')
+  @ApiOperation({
+    summary: 'Définir le stock par taille et couleur',
+    description:
+      'Un compteur unique ne dit pas ce que l’acheteur doit savoir : un sweat ' +
+      'affiché « 12 en stock » peut n’avoir plus aucun M, et la déception ' +
+      'passe alors du catalogue à la commande. La grille remplace l’ensemble ' +
+      'des déclinaisons ; leur somme devient le stock du produit.',
+  })
+  @ApiOkResponse({ description: 'Le produit, stock recalculé.', type: Produit })
+  @ApiResponse({
+    status: 400,
+    description: 'Une combinaison est saisie deux fois.',
+    type: ReponseErreurDto,
+  })
+  definirDeclinaisons(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DefinirDeclinaisonsDto,
+  ): Promise<Produit> {
+    return this.boutiqueService.definirDeclinaisons(id, dto.declinaisons);
+  }
+
+  @Get(':id/declinaisons')
+  @ApiOperation({
+    summary: 'Stock disponible par taille et couleur',
+    description:
+      'Permet à l’acheteur de voir ce qui reste réellement dans sa taille, ' +
+      'avant de commander.',
+  })
+  @ApiOkResponse({ type: [DeclinaisonProduit] })
+  declinaisons(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<DeclinaisonProduit[]> {
+    return this.boutiqueService.declinaisonsDe(id);
   }
 
   @ApiBearerAuth()

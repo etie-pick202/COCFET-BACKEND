@@ -15,6 +15,7 @@ import {
 } from './../src/modules/boutique/entities/produit.entity';
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { MailService } from './../src/modules/mail/mail.service';
+import { Commande } from './../src/modules/commande/entities/commande.entity';
 import {
   CompteDeTest,
   creerCompteAuthentifie,
@@ -27,6 +28,7 @@ const ANNEE_ACTIVE = 2027;
 describe('Boutique (e2e)', () => {
   let app: INestApplication<App>;
   let produits: Repository<Produit>;
+  let commandes: Repository<Commande>;
   let generations: Repository<Generation>;
   let boutiqueService: BoutiqueService;
 
@@ -86,12 +88,16 @@ describe('Boutique (e2e)', () => {
     await app.init();
 
     produits = app.get(getRepositoryToken(Produit));
+    commandes = app.get(getRepositoryToken(Commande));
     generations = app.get(getRepositoryToken(Generation));
     boutiqueService = app.get(BoutiqueService);
   });
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Avant les produits : les lignes de commande les referencent en
+    // RESTRICT, et les effacer d'abord ferait echouer la purge.
+    await commandes.createQueryBuilder().delete().execute();
     await produits.createQueryBuilder().delete().execute();
     await generations.createQueryBuilder().delete().execute();
     await purgerUtilisateurs(app);
@@ -110,6 +116,9 @@ describe('Boutique (e2e)', () => {
   });
 
   afterAll(async () => {
+    // Avant les produits : les lignes de commande les referencent en
+    // RESTRICT, et les effacer d'abord ferait echouer la purge.
+    await commandes.createQueryBuilder().delete().execute();
     await produits.createQueryBuilder().delete().execute();
     await generations.createQueryBuilder().delete().execute();
     await purgerUtilisateurs(app);
@@ -466,6 +475,136 @@ describe('Boutique (e2e)', () => {
         statut: StatutProduit.PRECOMMANDE,
         commandable: true,
       });
+    });
+  });
+
+  describe('stock par déclinaison', () => {
+    /** Le numéro que la passerelle factice accepte. */
+    const commander = (
+      lignes: Record<string, unknown>[],
+      compte: CompteDeTest,
+    ) =>
+      request(app.getHttpServer())
+        .post('/api/v1/commandes')
+        .set(compte.entetes)
+        .send({
+          lignes,
+          methodePaiement: 'MTN_MOMO',
+          telephone: '+237670000000',
+        });
+
+    const definir = (id: string, declinaisons: Record<string, unknown>[]) =>
+      request(app.getHttpServer())
+        .put(`${PRODUITS}/${id}/declinaisons`)
+        .set(admin.entetes)
+        .send({ declinaisons });
+
+    it('fait du détail la somme du stock du produit', async () => {
+      const id = await creerEtRecuperer({ stock: 0 });
+
+      const reponse = await definir(id, [
+        { taille: 'M', couleur: 'Noir', stock: 3 },
+        { taille: 'L', couleur: 'Noir', stock: 5 },
+      ]).expect(200);
+
+      expect(reponse.body).toMatchObject({ stock: 8 });
+    });
+
+    it('refuse deux fois la même combinaison', async () => {
+      // Le stock serait indéterminé, et la réservation atomique choisirait au
+      // hasard laquelle décrémenter.
+      const id = await creerEtRecuperer();
+
+      await definir(id, [
+        { taille: 'M', couleur: 'Noir', stock: 3 },
+        { taille: 'M', couleur: 'Noir', stock: 4 },
+      ]).expect(400);
+    });
+
+    it('expose ce qui reste dans chaque taille', async () => {
+      const id = await creerEtRecuperer({ stock: 0 });
+      await definir(id, [
+        { taille: 'M', stock: 2 },
+        { taille: 'L', stock: 0 },
+      ]).expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${PRODUITS}/${id}/declinaisons`)
+        .set(finissant.entetes)
+        .expect(200);
+
+      const grille = reponse.body as { taille: string; stock: number }[];
+      expect(grille.find((d) => d.taille === 'M')?.stock).toBe(2);
+      expect(grille.find((d) => d.taille === 'L')?.stock).toBe(0);
+    });
+
+    it('réserve la taille commandée, non le total', async () => {
+      // Le point central : le total tient grâce aux autres tailles, mais le M
+      // est épuisé. Décrémenter le compteur global le vendrait quand même.
+      const id = await creerEtRecuperer({ stock: 0 });
+      await definir(id, [
+        { taille: 'M', stock: 1 },
+        { taille: 'L', stock: 10 },
+      ]).expect(200);
+
+      await commander(
+        [{ produitId: id, quantite: 1, taille: 'M' }],
+        finissant,
+      ).expect(201);
+
+      // Le M est épuisé : la commande suivante doit être refusée, alors que le
+      // stock global affiche encore dix.
+      await commander(
+        [{ produitId: id, quantite: 1, taille: 'M' }],
+        externe,
+      ).expect(409);
+
+      // La taille L, elle, reste commandable.
+      await commander(
+        [{ produitId: id, quantite: 1, taille: 'L' }],
+        externe,
+      ).expect(201);
+    });
+
+    it('rend la quantité à la bonne déclinaison sur une annulation', async () => {
+      const id = await creerEtRecuperer({ stock: 0 });
+      await definir(id, [
+        { taille: 'M', stock: 1 },
+        { taille: 'L', stock: 1 },
+      ]).expect(200);
+
+      const commandeId = (
+        await commander(
+          [{ produitId: id, quantite: 1, taille: 'M' }],
+          finissant,
+        ).expect(201)
+      ).body as { id: string };
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/commandes/${commandeId.id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      // Rendue au M, pas au L : gonfler l'autre laisserait une taille
+      // introuvable et l'autre en surnombre.
+      const grille = (
+        await request(app.getHttpServer())
+          .get(`${PRODUITS}/${id}/declinaisons`)
+          .set(finissant.entetes)
+          .expect(200)
+      ).body as { taille: string; stock: number }[];
+
+      expect(grille.find((d) => d.taille === 'M')?.stock).toBe(1);
+      expect(grille.find((d) => d.taille === 'L')?.stock).toBe(1);
+    });
+
+    it('laisse intact un produit sans déclinaison', async () => {
+      // Un porte-clés ne se décline pas : son stock global continue de faire
+      // foi, sans quoi cette PR casserait tout le catalogue existant.
+      const id = await creerEtRecuperer({ stock: 2 });
+
+      await commander([{ produitId: id, quantite: 2 }], finissant).expect(201);
+      await commander([{ produitId: id, quantite: 1 }], externe).expect(409);
     });
   });
 });

@@ -1,7 +1,8 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Column, Entity, JoinColumn, ManyToOne } from 'typeorm';
+import { Column, Entity, OneToMany, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { Evenement } from '../../evenement/entities/evenement.entity';
+import { DeclinaisonProduit } from './declinaison-produit.entity';
 
 export enum CategorieProduit {
   VETEMENT = 'VETEMENT',
@@ -86,4 +87,18 @@ export class Produit extends BaseEntity {
     description: 'Disponibilite prevue, sur un article en precommande.',
   })
   datePrecommande: Date | null;
+
+  /**
+   * Stock detaille par taille et couleur.
+   *
+   * Vide, le produit n'a qu'un stock global — un porte-cles ne se decline pas.
+   * Renseigne, c'est **lui qui fait foi** : « stock » n'est plus qu'une somme
+   * tenue a jour pour le catalogue et le statut, jamais la source d'une
+   * reservation.
+   */
+  @OneToMany(() => DeclinaisonProduit, (declinaison) => declinaison.produit, {
+    cascade: true,
+  })
+  @ApiProperty({ type: () => [DeclinaisonProduit] })
+  declinaisons: DeclinaisonProduit[];
 }
