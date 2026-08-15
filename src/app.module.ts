@@ -18,6 +18,7 @@ import { BilletterieModule } from './modules/billetterie/billetterie.module';
 import { BureauModule } from './modules/bureau/bureau.module';
 import { TableauDeBordModule } from './modules/tableau-de-bord/tableau-de-bord.module';
 import { BoutiqueModule } from './modules/boutique/boutique.module';
+import { CotisationModule } from './modules/cotisation/cotisation.module';
 import { CommandeModule } from './modules/commande/commande.module';
 import { EvenementModule } from './modules/evenement/evenement.module';
 import { DocumentModule } from './modules/document/document.module';
@@ -29,6 +30,7 @@ import { PaiementModule } from './modules/paiement/paiement.module';
 import { SondageModule } from './modules/sondage/sondage.module';
 import { SponsorModule } from './modules/sponsor/sponsor.module';
 import { UserModule } from './modules/user/user.module';
+import { JustificatifModule } from './modules/justificatif/justificatif.module';
 
 @Module({
   imports: [
@@ -64,8 +66,10 @@ import { UserModule } from './modules/user/user.module';
     BilletterieModule,
     // M2 — Boutique & commandes
     BoutiqueModule,
+    CotisationModule,
     CommandeModule,
     PaiementModule,
+    JustificatifModule,
     // M3 — Annuaire des finissants
     AnnuaireModule,
     // M4 — Sponsors

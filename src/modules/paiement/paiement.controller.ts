@@ -1,6 +1,5 @@
 import {
   Controller,
-  forwardRef,
   HttpCode,
   HttpStatus,
   Inject,
@@ -11,13 +10,10 @@ import {
 import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Public } from '../auth/decorators/public.decorator';
-import { BilletterieService } from '../billetterie/billetterie.service';
-import { CommandeService } from '../commande/commande.service';
-import { OrigineTransaction } from './entities/transaction.entity';
-import { StatutPaiement } from './enums/paiement.enum';
 import type { PasserellePaiement } from './ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
+import { RepercussionPaiementService } from './repercussion-paiement.service';
 
 /** Le corps brut, préservé par `rawBody: true` au démarrage. */
 type RequeteWebhook = Request & { rawBody?: Buffer };
@@ -31,9 +27,7 @@ export class PaiementController {
     @Inject(PASSERELLE_PAIEMENT)
     private readonly passerelle: PasserellePaiement,
     private readonly transactionService: TransactionService,
-    private readonly billetterieService: BilletterieService,
-    @Inject(forwardRef(() => CommandeService))
-    private readonly commandeService: CommandeService,
+    private readonly repercussion: RepercussionPaiementService,
   ) {}
 
   /**
@@ -82,47 +76,9 @@ export class PaiementController {
     );
 
     if (nouveau) {
-      await this.repercuter(evenement.reference, evenement.statut);
+      await this.repercussion.repercuter(evenement.reference, evenement.statut);
     }
 
     return { recu: true, traite: nouveau };
-  }
-
-  /**
-   * Oriente l'effet de bord vers le bon domaine.
-   *
-   * La transaction porte son origine : une même notification confirme un
-   * billet ou une commande, jamais les deux. Sans cet aiguillage, un paiement
-   * de boutique irait chercher un billet — qu'il ne trouverait pas — et la
-   * commande resterait en attente indéfiniment.
-   */
-  private async repercuter(
-    reference: string,
-    statut: StatutPaiement,
-  ): Promise<void> {
-    const transaction = await this.transactionService.trouver(reference);
-
-    if (!transaction) {
-      this.logger.warn(`Notification sans transaction connue : ${reference}`);
-      return;
-    }
-
-    const boutique = transaction.origine === OrigineTransaction.BOUTIQUE;
-
-    if (statut === StatutPaiement.COMPLETE) {
-      await (boutique
-        ? this.commandeService.confirmerPaiement(reference)
-        : this.billetterieService.confirmerPaiement(reference));
-      return;
-    }
-
-    // L'échec était jusqu'ici ignoré : la commande ou l'inscription restait en
-    // attente pour toujours, immobilisant du stock ou une place.
-    if (statut === StatutPaiement.ECHOUE) {
-      const motif = 'le paiement a été refusé par l’opérateur.';
-      await (boutique
-        ? this.commandeService.echouerPaiement(reference, motif)
-        : this.billetterieService.echouerPaiement(reference, motif));
-    }
   }
 }

@@ -24,6 +24,8 @@ import {
 import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
 import { AUCUN_PRIVILEGE, PrivilegesMembre } from './privileges';
+import { TypeNotification } from '../notification/entities/notification.entity';
+import { PreferenceEmailService } from '../notification/preference-email.service';
 
 @Injectable()
 export class BureauService {
@@ -39,6 +41,7 @@ export class BureauService {
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly mailService: MailService,
+    private readonly preferenceEmail: PreferenceEmailService,
   ) {}
 
   // ───────────────────────────────  Postes  ─────────────────────────────
@@ -159,17 +162,21 @@ export class BureauService {
     // service de courrier rend la main tout de suite et journalise son issue.
     // Une panne du fournisseur ne doit pas faire échouer une désignation déjà
     // écrite en base — le poste serait attribué, et l'API répondrait une erreur.
-    await this.mailService.envoyerBienvenueAuBureau(
-      user.email,
-      user.firstName,
-      {
-        poste: poste.nom,
-        mandat: generation.nom,
-        annee: generation.annee,
-        mission: poste.description,
-        administration: poste.accordeAdministration,
-      },
-    );
+    if (
+      await this.preferenceEmail.autorise(user.id, TypeNotification.SYSTEME)
+    ) {
+      await this.mailService.envoyerBienvenueAuBureau(
+        user.email,
+        user.firstName,
+        {
+          poste: poste.nom,
+          mandat: generation.nom,
+          annee: generation.annee,
+          mission: poste.description,
+          administration: poste.accordeAdministration,
+        },
+      );
+    }
 
     await this.ajusterAdministration(user.id, generation);
 

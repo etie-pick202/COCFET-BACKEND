@@ -41,6 +41,7 @@ import {
 } from './dto/notification.dto';
 import { Notification } from './entities/notification.entity';
 import { NotificationService } from './notification.service';
+import { EMAILS_OBLIGATOIRES, EmailObligatoire } from './emails-obligatoires';
 
 /** L'utilisateur est posé sur la requête par la stratégie JWT. */
 type RequeteAuthentifiee = Request & { user: { id: string } };
@@ -127,6 +128,21 @@ export class NotificationController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
     return this.notificationService.supprimer(requete.user.id, id);
+  }
+
+  @Get('preferences/obligatoires')
+  @ApiOperation({
+    summary: 'Emails qu’aucun réglage ne coupe',
+    description:
+      'Le choix laissé à chacun s’arrête là où le couper l’enfermerait ' +
+      'dehors — réinitialisation de mot de passe, alerte de changement ' +
+      'd’adresse — ou lui ferait perdre ce qu’il a payé, comme son billet. ' +
+      'Exposé plutôt que seulement documenté : une interface qui afficherait ' +
+      'un interrupteur sans effet mentirait à l’utilisateur.',
+  })
+  @ApiOkResponse({ type: [EmailObligatoire] })
+  emailsObligatoires(): EmailObligatoire[] {
+    return EMAILS_OBLIGATOIRES;
   }
 
   @Get('preferences')

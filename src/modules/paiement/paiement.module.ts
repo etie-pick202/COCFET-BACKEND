@@ -1,6 +1,7 @@
 import { forwardRef, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CotisationModule } from '../cotisation/cotisation.module';
 import { BilletterieModule } from '../billetterie/billetterie.module';
 import { CommandeModule } from '../commande/commande.module';
 import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
@@ -10,6 +11,7 @@ import { PaiementController } from './paiement.controller';
 import { ReconciliationService } from './reconciliation.service';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
 import { TransactionService } from './transaction.service';
+import { RepercussionPaiementService } from './repercussion-paiement.service';
 
 const VARIABLES_FAPSHI = [
   'FAPSHI_API_USER',
@@ -32,6 +34,7 @@ const VARIABLES_FAPSHI = [
  */
 @Module({
   imports: [
+    CotisationModule,
     TypeOrmModule.forFeature([Transaction]),
     forwardRef(() => BilletterieModule),
     forwardRef(() => CommandeModule),
@@ -40,6 +43,7 @@ const VARIABLES_FAPSHI = [
   providers: [
     TransactionService,
     ReconciliationService,
+    RepercussionPaiementService,
     {
       provide: PASSERELLE_PAIEMENT,
       inject: [ConfigService],
@@ -84,6 +88,10 @@ const VARIABLES_FAPSHI = [
       },
     },
   ],
-  exports: [PASSERELLE_PAIEMENT, TransactionService],
+  exports: [
+    PASSERELLE_PAIEMENT,
+    TransactionService,
+    RepercussionPaiementService,
+  ],
 })
 export class PaiementModule {}

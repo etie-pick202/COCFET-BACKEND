@@ -153,4 +153,20 @@ export class Evenement extends BaseEntity {
   @OneToMany(() => Produit, (produit) => produit.evenement)
   @ApiProperty({ required: false })
   produits: Produit[];
+
+  /**
+   * L'evenement accepte les preuves de paiement remises hors ligne.
+   *
+   * Ferme par defaut, et c'est deliberé : ouvrir partout exposerait chaque
+   * inscription a une capture fabriquee, que quelqu'un finirait par valider
+   * sans regarder. L'organisateur choisit evenement par evenement, selon qu'il
+   * accepte ou non d'etre paye de la main a la main.
+   */
+  @Column({ name: 'accepte_justificatif', default: false })
+  @ApiProperty({
+    description:
+      'Vrai : un inscrit peut deposer une capture de paiement, soumise a la ' +
+      'validation de la tresorerie.',
+  })
+  accepteJustificatif: boolean;
 }
