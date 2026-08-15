@@ -23,7 +23,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
 import {
   ApiErreursAuthentification,
@@ -135,7 +135,14 @@ export class CommandeController {
     @Param('id', ParseUUIDPipe) id: string,
     @Req() requete: Requete,
   ): Promise<Commande> {
-    return this.commandeService.trouver(id, requete.user.id);
+    // Le bureau lit le detail de n'importe quelle commande ; chacun ne lit
+    // que les siennes. Passer l'identifiant du demandeur meme pour une
+    // administration mettait le proprietaire dans la condition de recherche,
+    // et une commande d'autrui repondait 404 comme si elle n'existait pas.
+    return this.commandeService.trouver(
+      id,
+      estAdministrateur(requete.user.role) ? undefined : requete.user.id,
+    );
   }
 
   @Delete(':id')
