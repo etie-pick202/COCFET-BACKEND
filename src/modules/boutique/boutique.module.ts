@@ -7,6 +7,7 @@ import { UserModule } from '../user/user.module';
 import { BoutiqueController } from './boutique.controller';
 import { BoutiqueService } from './boutique.service';
 import { Produit } from './entities/produit.entity';
+import { DeclinaisonProduit } from './entities/declinaison-produit.entity';
 
 /**
  * `Evenement` est déclaré ici alors qu'il appartient à un autre module : seul
@@ -16,7 +17,7 @@ import { Produit } from './entities/produit.entity';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Produit, Evenement]),
+    TypeOrmModule.forFeature([Produit, DeclinaisonProduit, Evenement]),
     GenerationModule,
     UserModule,
     FileModule,

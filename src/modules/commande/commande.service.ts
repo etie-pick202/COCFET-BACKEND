@@ -45,6 +45,9 @@ const TRANSITIONS: Record<StatutCommande, StatutCommande[]> = {
 interface Reservation {
   produitId: string;
   quantite: number;
+  /** La declinaison exacte : rendre au mauvais couple gonflerait un autre stock. */
+  taille: string | null;
+  couleur: string | null;
 }
 
 /** Ligne validée, prix figé, prête à être écrite. */
@@ -445,9 +448,14 @@ export class CommandeService {
       // Une précommande se vend sans stock : c'est sa raison d'être, et il n'y
       // a donc rien à réserver.
       if (produit.statut !== StatutProduit.PRECOMMANDE) {
+        // La taille et la couleur voyagent jusqu'a la reservation : sans
+        // elles, on decrementerait un total qui tient grace aux autres
+        // declinaisons, et le dernier M se vendrait deux fois.
         const reserve = await this.boutiqueService.reserverStock(
           produit.id,
           ligne.quantite,
+          ligne.taille ?? null,
+          ligne.couleur ?? null,
         );
 
         if (!reserve) {
@@ -457,6 +465,8 @@ export class CommandeService {
         }
 
         reservations.push({
+          taille: ligne.taille ?? null,
+          couleur: ligne.couleur ?? null,
           produitId: produit.id,
           quantite: ligne.quantite,
         });
@@ -568,14 +578,21 @@ export class CommandeService {
         await this.boutiqueService.libererStock(
           ligne.produit.id,
           ligne.quantite,
+          ligne.taille,
+          ligne.couleur,
         );
       }
     }
   }
 
   private async rendreLeStock(reservations: Reservation[]): Promise<void> {
-    for (const { produitId, quantite } of reservations) {
-      await this.boutiqueService.libererStock(produitId, quantite);
+    for (const { produitId, quantite, taille, couleur } of reservations) {
+      await this.boutiqueService.libererStock(
+        produitId,
+        quantite,
+        taille,
+        couleur,
+      );
     }
   }
 
