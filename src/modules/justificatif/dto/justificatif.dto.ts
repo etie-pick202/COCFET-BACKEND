@@ -5,6 +5,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   MaxLength,
   Min,
@@ -69,4 +70,38 @@ export class FiltreJustificatifDto {
   @IsOptional()
   @MaxLength(120)
   reference?: string;
+}
+
+/**
+ * Ce que la tresorerie constate en validant une piece.
+ *
+ * « montantRecu » n'est pas « montantDeclare » : le declare est ce que le
+ * payeur affirme avoir verse, le recu ce que la tresorerie certifie. Seul le
+ * second entre en comptabilite, et les garder tous les deux rend les ecarts
+ * visibles.
+ *
+ * « recuParId » n'est pas le validateur : on remet l'argent au tresorier, et
+ * c'est peut-etre quelqu'un d'autre qui valide la piece le lendemain.
+ * Confondre les deux rendrait sans reponse la question de savoir qui detient
+ * quoi.
+ */
+export class ValiderJustificatifDto {
+  @ApiProperty({
+    example: 5000,
+    description: 'Montant reellement recu, en FCFA.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  montantRecu: number;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Membre des finances entre les mains de qui est passe l’argent. ' +
+      'A defaut, le validateur est repute l’avoir recu.',
+  })
+  @IsUUID()
+  @IsOptional()
+  recuParId?: string;
 }

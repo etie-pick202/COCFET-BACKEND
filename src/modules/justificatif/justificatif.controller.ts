@@ -30,6 +30,7 @@ import { Privilege } from '../bureau/privileges';
 import {
   FiltreJustificatifDto,
   RefuserJustificatifDto,
+  ValiderJustificatifDto,
   SoumettreJustificatifDto,
 } from './dto/justificatif.dto';
 import { JustificatifPaiement } from './entities/justificatif-paiement.entity';
@@ -123,8 +124,9 @@ export class JustificatifController {
   valider(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() requete: Requete,
+    @Body() dto: ValiderJustificatifDto,
   ): Promise<JustificatifPaiement> {
-    return this.service.valider(id, requete.user);
+    return this.service.valider(id, requete.user, dto);
   }
 
   @ExigePrivilege(Privilege.TRESORERIE)

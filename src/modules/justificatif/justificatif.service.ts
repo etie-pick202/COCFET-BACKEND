@@ -13,7 +13,10 @@ import { StatutPaiement } from '../paiement/enums/paiement.enum';
 import { RepercussionPaiementService } from '../paiement/repercussion-paiement.service';
 import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
-import { SoumettreJustificatifDto } from './dto/justificatif.dto';
+import {
+  SoumettreJustificatifDto,
+  ValiderJustificatifDto,
+} from './dto/justificatif.dto';
 import {
   JustificatifPaiement,
   StatutJustificatif,
@@ -112,6 +115,7 @@ export class JustificatifService {
   async valider(
     id: string,
     validateur: Pick<User, 'id'>,
+    dto: ValiderJustificatifDto,
   ): Promise<JustificatifPaiement> {
     const justificatif = await this.enAttenteOuEchouer(id);
 
@@ -119,6 +123,11 @@ export class JustificatifService {
       statut: StatutJustificatif.VALIDE,
       validateur: { id: validateur.id },
       decideLe: new Date(),
+      montantRecu: dto.montantRecu,
+      // A defaut de destinataire designe, le validateur est repute avoir recu
+      // l'argent : c'est le cas le plus courant, et laisser le champ vide
+      // rendrait l'encaisse incalculable.
+      recuPar: { id: dto.recuParId ?? validateur.id },
     });
 
     // La transaction d'abord : c'est elle qui dédoublonne. Sans ce passage,
@@ -178,7 +187,7 @@ export class JustificatifService {
         ...(filtre.origine ? { origine: filtre.origine } : {}),
         ...(filtre.reference ? { reference: filtre.reference } : {}),
       },
-      relations: { user: true, validateur: true },
+      relations: { user: true, validateur: true, recuPar: true },
       order: { createdAt: 'DESC' },
     });
   }
@@ -193,7 +202,7 @@ export class JustificatifService {
   async trouver(id: string): Promise<JustificatifPaiement> {
     const justificatif = await this.justificatifs.findOne({
       where: { id },
-      relations: { user: true, validateur: true },
+      relations: { user: true, validateur: true, recuPar: true },
     });
 
     if (!justificatif) {
