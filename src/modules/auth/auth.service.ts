@@ -23,6 +23,8 @@ import { UserService } from '../user/user.service';
 import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { TypeNotification } from '../notification/entities/notification.entity';
+import { PreferenceEmailService } from '../notification/preference-email.service';
 
 export class PaireJetons {
   @ApiProperty({
@@ -59,6 +61,7 @@ export class AuthService {
     private readonly jetonService: JetonService,
     private readonly generationService: GenerationService,
     private readonly mailService: MailService,
+    private readonly preferenceEmail: PreferenceEmailService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
   ) {}
@@ -134,7 +137,13 @@ export class AuthService {
       ...(await this.attributsCampus(user.email)),
     });
 
-    await this.mailService.sendWelcome(misAJour.email, misAJour.firstName);
+    // Soumis au reglage de la personne : c'est un message de confort, pas une
+    // piece ni une alerte de securite.
+    if (
+      await this.preferenceEmail.autorise(misAJour.id, TypeNotification.SYSTEME)
+    ) {
+      await this.mailService.sendWelcome(misAJour.email, misAJour.firstName);
+    }
 
     return this.ouvrirSession(misAJour);
   }

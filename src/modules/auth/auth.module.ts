@@ -11,9 +11,11 @@ import { AuthService } from './auth.service';
 import { JetonAuth } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { PreferenceEmailModule } from '../notification/preference-email.module';
 
 @Module({
   imports: [
+    PreferenceEmailModule,
     TypeOrmModule.forFeature([JetonAuth]),
     forwardRef(() => UserModule),
     GenerationModule,

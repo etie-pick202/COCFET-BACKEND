@@ -6,6 +6,7 @@ import { User } from '../user/entities/user.entity';
 import { BureauService } from './bureau.service';
 import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
+import { PreferenceEmailService } from '../notification/preference-email.service';
 
 /**
  * Concentré sur la désignation d'un membre : c'est le geste qui déclenche
@@ -50,8 +51,11 @@ describe('BureauService — désignation', () => {
 
   const affectation = { posteId: 'poste-id', userId: 'user-id' };
 
+  const preferenceEmail = { autorise: jest.fn().mockResolvedValue(true) };
+
   beforeEach(() => {
     envoyerBienvenueAuBureau = jest.fn(() => Promise.resolve());
+    preferenceEmail.autorise.mockResolvedValue(true);
 
     postes = { findOne: jest.fn(() => Promise.resolve(poste())) };
     generations = { findOne: jest.fn(() => Promise.resolve(generation())) };
@@ -71,6 +75,7 @@ describe('BureauService — désignation', () => {
       generations as unknown as Repository<Generation>,
       users as unknown as Repository<User>,
       { envoyerBienvenueAuBureau } as unknown as MailService,
+      preferenceEmail as unknown as PreferenceEmailService,
     );
   });
 
@@ -140,6 +145,16 @@ describe('BureauService — désignation', () => {
     await expect(
       service.affecter('generation-id', affectation),
     ).rejects.toThrow('sa composition ne change plus');
+    expect(envoyerBienvenueAuBureau).not.toHaveBeenCalled();
+  });
+
+  it('respecte le refus des emails de service', async () => {
+    // Un message de confort, pas une piece ni une alerte : couper doit
+    // reellement couper, sans quoi le choix offert n'en serait pas un.
+    preferenceEmail.autorise.mockResolvedValue(false);
+
+    await service.affecter('g1', { posteId: 'p1', userId: 'u1' });
+
     expect(envoyerBienvenueAuBureau).not.toHaveBeenCalled();
   });
 
