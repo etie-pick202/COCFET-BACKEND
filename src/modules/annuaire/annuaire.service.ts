@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
   JournalActivite,
@@ -361,7 +361,7 @@ export class AnnuaireService {
    * s'appliquent qu'à lui.
    */
   private async verifierAcces(demandeur: Demandeur): Promise<Sponsor | null> {
-    if (demandeur.role === Role.ADMIN) {
+    if (estAdministrateur(demandeur.role)) {
       return null;
     }
 
