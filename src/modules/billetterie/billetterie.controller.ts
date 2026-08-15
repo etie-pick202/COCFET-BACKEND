@@ -37,6 +37,7 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { UserService } from '../user/user.service';
 import { BilletterieService } from './billetterie.service';
 import {
+  AffecterScannerDto,
   CodeBillet,
   FiltreInscriptionDto,
   ScannerBilletDto,
@@ -229,22 +230,78 @@ export class BilletterieController {
   }
 
   @Roles(Role.ADMIN)
+  @Post('evenements/:id/scanners')
+  @ApiOperation({
+    summary: 'Placer quelqu’un au contrôle de cet événement',
+    description:
+      'Le portier valide les billets **de cet événement seulement**, sans rien ' +
+      'administrer. L’affectation cesse de valoir d’elle-même une fois la ' +
+      'fenêtre de validation refermée : aucune date n’est stockée, elle se ' +
+      'déduit de l’événement, qui peut encore être décalé.',
+  })
+  @ApiCreatedResponse({ description: 'Le portier affecté.' })
+  affecterScanner(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AffecterScannerDto,
+    @Req() requete: Requete,
+  ) {
+    return this.billetterieService.affecterScanner(
+      id,
+      dto.userId,
+      requete.user.id,
+    );
+  }
+
+  @Roles(Role.ADMIN)
+  @Get('evenements/:id/scanners')
+  @ApiOperation({ summary: 'Qui tient la porte de cet événement' })
+  @ApiOkResponse({ description: 'Les portiers affectés.' })
+  listerScanners(@Param('id', ParseUUIDPipe) id: string) {
+    return this.billetterieService.listerScanners(id);
+  }
+
+  @Roles(Role.ADMIN)
+  @Delete('evenements/:id/scanners/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Retirer quelqu’un du contrôle' })
+  @ApiNoContentResponse({ description: 'Portier retiré.' })
+  retirerScanner(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ): Promise<void> {
+    return this.billetterieService.retirerScanner(id, userId);
+  }
+
+  // Plus reserve a l'administration : un portier affecte a l'evenement valide
+  // sans rien administrer. Le controle du rattachement se fait dans le
+  // service, qui seul connait l'evenement du billet presente.
   @Post('billets/scanner')
   @ApiOperation({
     summary: 'Valider un billet à l’entrée',
     description:
-      'Le passage à « utilisé » est conditionné au statut courant dans la ' +
+      'Ouvert au bureau et aux portiers **affectés à cet événement**. Le ' +
+      'passage à « utilisé » est conditionné au statut courant dans la ' +
       'requête : deux scans simultanés du même code ne peuvent pas réussir ' +
-      'tous les deux.',
+      'tous les deux. La validation n’ouvre que deux heures avant le début et ' +
+      'se referme le lendemain à 10 h.',
   })
   @ApiOkResponse({ description: 'Le billet validé.', type: Inscription })
   @ApiResponse({
+    status: 403,
+    description: 'Vous n’êtes pas affecté au contrôle de cet événement.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
     status: 409,
-    description: 'Billet déjà scanné, annulé ou impayé.',
+    description:
+      'Billet déjà scanné, annulé ou impayé, ou fenêtre de validation fermée.',
     type: ReponseErreurDto,
   })
   @ApiNotFoundResponse({ description: 'Code inconnu.', type: ReponseErreurDto })
-  scanner(@Body() dto: ScannerBilletDto): Promise<Inscription> {
-    return this.billetterieService.scanner(dto.codeBillet);
+  scanner(
+    @Body() dto: ScannerBilletDto,
+    @Req() requete: Requete,
+  ): Promise<Inscription> {
+    return this.billetterieService.scanner(dto.codeBillet, requete.user);
   }
 }
