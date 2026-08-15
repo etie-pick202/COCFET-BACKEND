@@ -9,7 +9,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, LessThan, Not, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Commande } from '../commande/entities/commande.entity';
 import type { Stockage } from '../file/ports/stockage';
@@ -492,7 +492,7 @@ export class DocumentService {
     proprietaire: string | null,
     demandeur: Demandeur,
   ): void {
-    if (demandeur.role === Role.ADMIN || proprietaire === demandeur.id) {
+    if (estAdministrateur(demandeur.role) || proprietaire === demandeur.id) {
       return;
     }
 

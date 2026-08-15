@@ -10,7 +10,7 @@ import { JwtService, JwtSignOptions } from '@nestjs/jwt';
 import { ApiProperty } from '@nestjs/swagger';
 import * as bcrypt from 'bcrypt';
 import { createHash, randomUUID } from 'node:crypto';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import {
   lireIdentiteCampus,
   normaliserEmail,
@@ -364,7 +364,7 @@ export class AuthService {
 
     const campus = await this.attributsCampus(user.emailEnAttente);
     const conserveSonRole =
-      user.role === Role.ADMIN || user.role === Role.SPONSOR;
+      estAdministrateur(user.role) || user.role === Role.SPONSOR;
 
     const misAJour = await this.userService.update(user.id, {
       email: user.emailEnAttente,

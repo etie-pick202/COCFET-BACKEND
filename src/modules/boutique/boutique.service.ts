@@ -5,7 +5,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { beneficieDuTarifCampus } from '../../common/identite/identite-campus';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { Evenement } from '../evenement/entities/evenement.entity';
@@ -109,7 +109,7 @@ export class BoutiqueService {
     demandeur?: { role: Role },
   ): Promise<ResultatPagine<Produit>> {
     const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'createdAt');
-    const administrateur = demandeur?.role === Role.ADMIN;
+    const administrateur = estAdministrateur(demandeur?.role);
 
     const requete = this.produits
       .createQueryBuilder('p')
@@ -169,7 +169,7 @@ export class BoutiqueService {
 
     const visible =
       produit &&
-      (demandeur?.role === Role.ADMIN ||
+      (estAdministrateur(demandeur?.role) ||
         produit.statut !== StatutProduit.RETIRE);
 
     if (!visible) {

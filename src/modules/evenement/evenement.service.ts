@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, MoreThan, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { beneficieDuTarifCampus } from '../../common/identite/identite-campus';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { GenerationService } from '../generation/generation.service';
@@ -54,7 +54,7 @@ export class EvenementService {
     filtre: FiltreEvenementDto,
     demandeur?: { role: Role },
   ): Promise<ResultatPagine<Evenement>> {
-    const administrateur = demandeur?.role === Role.ADMIN;
+    const administrateur = estAdministrateur(demandeur?.role);
     const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'dateDebut');
 
     const requete = this.evenements
@@ -111,7 +111,7 @@ export class EvenementService {
 
     if (
       evenement.statut !== StatutEvenement.PUBLIE &&
-      demandeur?.role !== Role.ADMIN
+      !estAdministrateur(demandeur?.role)
     ) {
       // Même réponse qu'un identifiant inconnu : distinguer les deux
       // révélerait l'existence d'un brouillon, avec son titre dans l'URL.

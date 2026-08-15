@@ -7,7 +7,7 @@ import {
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, IsNull, LessThanOrEqual, Repository } from 'typeorm';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
@@ -53,7 +53,7 @@ export class ArticleService {
     filtre: FiltreArticleDto,
     demandeur?: { role: Role },
   ): Promise<ResultatPagine<Article>> {
-    const administrateur = demandeur?.role === Role.ADMIN;
+    const administrateur = estAdministrateur(demandeur?.role);
     const tri = triAutorise(filtre.tri, TRIS_AUTORISES, 'publishedAt');
 
     const requete = this.articles
@@ -308,7 +308,7 @@ export class ArticleService {
       article.publishedAt !== null &&
       article.publishedAt.getTime() <= Date.now();
 
-    if (!article || (!paru && demandeur?.role !== Role.ADMIN)) {
+    if (!article || (!paru && !estAdministrateur(demandeur?.role))) {
       // Même réponse qu'un identifiant inconnu : distinguer les deux
       // révélerait l'existence d'un brouillon, titre compris dans l'URL.
       throw new NotFoundException("Cet article n'existe pas.");
