@@ -28,6 +28,7 @@ import {
   VisibiliteResultats,
 } from './entities/sondage.entity';
 import { Vote } from './entities/vote.entity';
+import { depouiller } from './depouillement';
 
 const TRIS_AUTORISES = ['deadline', 'createdAt', 'titre'] as const;
 
@@ -43,6 +44,8 @@ export class SondageService {
     private readonly sondages: Repository<Sondage>,
     @InjectRepository(ParticipationSondage)
     private readonly participations: Repository<ParticipationSondage>,
+    @InjectRepository(Vote)
+    private readonly votes: Repository<Vote>,
     private readonly dataSource: DataSource,
     private readonly notificationService: NotificationService,
   ) {}
@@ -151,6 +154,37 @@ export class SondageService {
           ? this.part(option.votes, sondage.totalVotes)
           : null,
       })),
+    };
+  }
+
+  /**
+   * Dépouillement nominatif : qui a voté quoi, et la répartition par promotion.
+   *
+   * **Refusé sur un scrutin anonyme.** Le bulletin y est délibérément détaché
+   * de son auteur ; le recomposer par recoupement — un segment d'une seule
+   * personne suffit à trahir son choix — viderait la promesse de son sens. Un
+   * sondage annoncé anonyme doit le rester, y compris pour le bureau, sans
+   * quoi l'anonymat n'est qu'un affichage.
+   */
+  async depouillementNominatif(id: string) {
+    const sondage = await this.trouver(id, { role: Role.ADMIN });
+
+    if (sondage.isAnonyme) {
+      throw new ForbiddenException(
+        'Ce sondage est anonyme : les bulletins ne sont rattachés à personne, ' +
+          'et le dépouillement nominatif reviendrait à trahir ce qui a été promis.',
+      );
+    }
+
+    const bulletins = await this.votes.find({
+      where: { sondage: { id } },
+      relations: { user: true, options: true },
+    });
+
+    return {
+      sondageId: sondage.id,
+      totalVotes: sondage.totalVotes,
+      ...depouiller(bulletins),
     };
   }
 

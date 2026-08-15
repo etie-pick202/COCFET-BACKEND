@@ -44,6 +44,7 @@ describe('SondageService', () => {
     delete: jest.Mock<Promise<{ affected: number }>, [string]>;
     createQueryBuilder: jest.Mock;
   };
+  let votes: { find: jest.Mock };
   let participations: { existsBy: jest.Mock<Promise<boolean>, [unknown]> };
   let gestionnaire: {
     insert: jest.Mock;
@@ -111,9 +112,13 @@ describe('SondageService', () => {
       existsBy: jest.fn<Promise<boolean>, [unknown]>().mockResolvedValue(false),
     };
 
+    // Depot des bulletins : seul le depouillement nominatif le consulte.
+    votes = { find: jest.fn().mockResolvedValue([]) };
+
     service = new SondageService(
       sondages as unknown as Repository<Sondage>,
       participations as unknown as Repository<ParticipationSondage>,
+      votes as unknown as Repository<Vote>,
       {
         transaction: (travail: (g: unknown) => Promise<unknown>) =>
           travail(gestionnaire),

@@ -376,6 +376,56 @@ describe('Sondages (e2e)', () => {
     });
   });
 
+  describe('dépouillement nominatif', () => {
+    const depouiller = (id: string, compte: CompteDeTest) =>
+      request(app.getHttpServer())
+        .get(`${SONDAGES}/${id}/depouillement`)
+        .set(compte.entetes);
+
+    it('dit qui a voté quoi', async () => {
+      const { id, optionIds } = await ouvrir();
+      await voter(id, etudiant, [optionIds[0]]).expect(201);
+
+      const corps = (await depouiller(id, admin).expect(200)).body as {
+        bulletins: { userId: string; choix: { id: string }[] }[];
+      };
+
+      expect(corps.bulletins).toHaveLength(1);
+      expect(corps.bulletins[0].userId).toBe(etudiant.user.id);
+      expect(corps.bulletins[0].choix[0].id).toBe(optionIds[0]);
+    });
+
+    it('répartit les voix par promotion', async () => {
+      const { id, optionIds } = await ouvrir({ campusUniquement: false });
+      await voter(id, etudiant, [optionIds[0]]).expect(201);
+      await voter(id, externe, [optionIds[1]]).expect(201);
+
+      const corps = (await depouiller(id, admin).expect(200)).body as {
+        repartition: { segment: string; votants: number }[];
+      };
+
+      const segments = corps.repartition.map((s) => s.segment);
+      expect(segments).toContain(String(ANNEE_ACTIVE));
+      // Le visiteur n'a pas de promotion : il rejoint son propre segment.
+      expect(segments).toContain('Visiteurs');
+    });
+
+    it('refuse de trahir un scrutin anonyme', async () => {
+      // Un sondage annoncé anonyme doit le rester, y compris pour le bureau,
+      // sans quoi l'anonymat n'est qu'un affichage.
+      const { id, optionIds } = await ouvrir({ isAnonyme: true });
+      await voter(id, etudiant, [optionIds[0]]).expect(201);
+
+      await depouiller(id, admin).expect(403);
+    });
+
+    it('reste réservé à l’administration', async () => {
+      const { id } = await ouvrir();
+
+      await depouiller(id, etudiant).expect(403);
+    });
+  });
+
   describe('liste', () => {
     it('ne montre aux votants que les sondages ouverts', async () => {
       await creer({ titre: 'Brouillon jamais ouvert' }).expect(201);
