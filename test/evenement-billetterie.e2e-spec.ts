@@ -89,6 +89,17 @@ describe('Événements et billetterie (e2e)', () => {
       .set(compte.entetes)
       .send(corps);
 
+  /**
+   * Ouvre la fenêtre de validation d'un événement déjà publié.
+   *
+   * Ni la publication ni l'inscription n'acceptent une date passée :
+   * l'événement naît donc à venir, on prend son billet, puis on le ramène à
+   * l'heure en base — l'ordre qu'aurait suivi le temps. À appeler après les
+   * inscriptions, sinon c'est l'inscription qui se referme.
+   */
+  const commencer = (id: string) =>
+    evenements.update(id, { dateDebut: new Date(Date.now() - 3600_000) });
+
   /** Presente une valeur au controle : code fixe ou jeton tournant. */
   const scanner = (code: string, compte: CompteDeTest) =>
     request(app.getHttpServer())
@@ -488,6 +499,7 @@ describe('Événements et billetterie (e2e)', () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
       const code = (reponse.body as { codeBillet: string }).codeBillet;
+      await commencer(id);
 
       const premier = await scanner(code, admin).expect(201);
       expect((premier.body as { statut: string }).statut).toBe(
@@ -501,6 +513,7 @@ describe('Événements et billetterie (e2e)', () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
       const code = (reponse.body as { codeBillet: string }).codeBillet;
+      await commencer(id);
 
       const resultats = await Promise.all([
         scanner(code, admin),
@@ -516,17 +529,22 @@ describe('Événements et billetterie (e2e)', () => {
       const reponse = await sInscrire(id, finissant).expect(201);
       const billet = reponse.body as { id: string; codeBillet: string };
 
+      // Annulé tant que l'événement est à venir — on n'annule plus une fois
+      // commencé — puis l'heure avance, pour que le refus au contrôle vienne
+      // bien de l'annulation et non de la fenêtre.
       await request(app.getHttpServer())
         .delete(`${BILLETS}/${billet.id}`)
         .set(finissant.entetes)
         .expect(204);
+      await commencer(id);
 
       await scanner(billet.codeBillet, admin).expect(409);
     });
 
-    it('refuse le scan à un étudiant', async () => {
+    it('refuse le scan à qui n’a pas été placé à la porte', async () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
+      await commencer(id);
 
       await scanner(
         (reponse.body as { codeBillet: string }).codeBillet,
@@ -536,6 +554,142 @@ describe('Événements et billetterie (e2e)', () => {
 
     it('signale un code inconnu', async () => {
       await scanner('COCFET-INEXISTANT', admin).expect(404);
+    });
+  });
+
+  /**
+   * Le contrôle confié à des portiers.
+   *
+   * Tout l'intérêt tient en une phrase : valider des billets sans recevoir
+   * les clés de la plateforme, et seulement à la porte où on vous a placé.
+   */
+  describe('portiers d’un événement', () => {
+    const affecter = (id: string, userId: string, compte = admin) =>
+      request(app.getHttpServer())
+        .post(`${EVENEMENTS}/${id}/scanners`)
+        .set(compte.entetes)
+        .send({ userId });
+
+    it('laisse valider les billets à qui on a placé à la porte', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const code = (reponse.body as { codeBillet: string }).codeBillet;
+      await commencer(id);
+
+      // Refusé tant qu'il n'est pas affecté ; accepté ensuite, sans que son
+      // rôle ait changé d'un iota.
+      await scanner(code, ancien).expect(403);
+      await affecter(id, ancien.user.id).expect(201);
+      await scanner(code, ancien).expect(201);
+    });
+
+    it('ne vaut que pour l’événement où l’on a placé le portier', async () => {
+      // Sans cela, le portier du gala validerait les billets de la conférence
+      // du lendemain, à laquelle personne ne l'a placé.
+      const gala = await creerEtPublier();
+      const conference = await creerEtPublier({ titre: 'Conférence métier' });
+      await affecter(gala, ancien.user.id).expect(201);
+
+      const reponse = await sInscrire(conference, finissant).expect(201);
+      await commencer(conference);
+
+      await scanner(
+        (reponse.body as { codeBillet: string }).codeBillet,
+        ancien,
+      ).expect(403);
+    });
+
+    it('rend le droit de valider dès qu’on retire le portier', async () => {
+      const id = await creerEtPublier();
+      await affecter(id, ancien.user.id).expect(201);
+      const reponse = await sInscrire(id, finissant).expect(201);
+
+      await request(app.getHttpServer())
+        .delete(`${EVENEMENTS}/${id}/scanners/${ancien.user.id}`)
+        .set(admin.entetes)
+        .expect(204);
+      await commencer(id);
+
+      await scanner(
+        (reponse.body as { codeBillet: string }).codeBillet,
+        ancien,
+      ).expect(403);
+    });
+
+    it('ne crée pas de doublon en replaçant la même personne', async () => {
+      const id = await creerEtPublier();
+      await affecter(id, ancien.user.id).expect(201);
+      await affecter(id, ancien.user.id).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/scanners`)
+        .set(admin.entetes)
+        .expect(200);
+
+      expect(reponse.body as unknown[]).toHaveLength(1);
+    });
+
+    it('dit lequel des deux n’existe pas', async () => {
+      const id = await creerEtPublier();
+
+      // Une violation de clé étrangère rendrait une erreur serveur là où le
+      // bureau mérite de savoir ce qu'il a tapé de travers.
+      await affecter(id, '00000000-0000-4000-8000-000000000000').expect(404);
+    });
+
+    it('n’est pas ouvert aux portiers eux-mêmes', async () => {
+      // Un portier qui peut s'adjoindre des collègues n'est plus un portier :
+      // placer quelqu'un à la porte reste une décision du bureau.
+      const id = await creerEtPublier();
+      await affecter(id, ancien.user.id).expect(201);
+
+      await affecter(id, externe.user.id, ancien).expect(403);
+    });
+
+    it('rattache le passage au portier qui l’a validé', async () => {
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { id: string; codeBillet: string };
+      await affecter(id, ancien.user.id).expect(201);
+      await commencer(id);
+
+      await scanner(billet.codeBillet, ancien).expect(201);
+
+      // « quand » sans « qui » ne permettait aucune vérification a posteriori.
+      const enBase = await inscriptions.findOne({
+        where: { id: billet.id },
+        relations: { scannePar: true },
+      });
+      expect(enBase?.scannePar?.id).toBe(ancien.user.id);
+    });
+  });
+
+  describe('fenêtre de validation', () => {
+    it('refuse un billet avant que l’événement ait commencé', async () => {
+      // Rien n'empêchait de vider une salle par anticipation.
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+
+      await scanner(
+        (reponse.body as { codeBillet: string }).codeBillet,
+        admin,
+      ).expect(409);
+    });
+
+    it('refuse un billet de l’an dernier', async () => {
+      // Le défaut d'origine : un billet passé restait indéfiniment valable.
+      const id = await creerEtPublier();
+      const reponse = await sInscrire(id, finissant).expect(201);
+      await evenements.update(id, {
+        dateDebut: new Date(Date.now() - 365 * 86_400_000),
+      });
+
+      const refus = await scanner(
+        (reponse.body as { codeBillet: string }).codeBillet,
+        admin,
+      ).expect(409);
+
+      expect((refus.body as { message: string }).message).toContain('terminé');
     });
   });
 
@@ -798,6 +952,7 @@ describe('Événements et billetterie (e2e)', () => {
       const id = await creerEtPublier();
       const reponse = await sInscrire(id, finissant).expect(201);
       const billet = reponse.body as { id: string; codeBillet: string };
+      await commencer(id);
 
       await request(app.getHttpServer())
         .post(`${BILLETS}/scanner`)
@@ -825,6 +980,7 @@ describe('Événements et billetterie (e2e)', () => {
 
       const billet = reponse.body as { statut: string; codeBillet: string };
       expect(billet.statut).toBe(StatutInscription.EN_ATTENTE);
+      await commencer(id);
 
       await request(app.getHttpServer())
         .post(`${BILLETS}/scanner`)
@@ -978,6 +1134,7 @@ describe('Événements et billetterie (e2e)', () => {
       });
       const reponse = await sInscrire(id, finissant).expect(201);
       const billet = reponse.body as { id: string; codeBillet: string };
+      await commencer(id);
 
       // Rien n'est gravé ni envoyé : l'image ne vaut que trente secondes.
       await expect(

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -29,6 +30,7 @@ import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
 import { User } from '../user/entities/user.entity';
+import { UserService } from '../user/user.service';
 import {
   CodeBillet,
   FiltreInscriptionDto,
@@ -42,6 +44,9 @@ import {
   secondesAvantRotation,
 } from './jeton-billet';
 import { enUrlDeDonnees, genererQrBillet } from './qr-billet';
+import { EtatFenetre, etatFenetre, motifRefus } from './fenetre-scan';
+import { AffectationScanner } from './entities/affectation-scanner.entity';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
@@ -70,6 +75,8 @@ export class BilletterieService {
   constructor(
     @InjectRepository(Inscription)
     private readonly inscriptions: Repository<Inscription>,
+    @InjectRepository(AffectationScanner)
+    private readonly affectations: Repository<AffectationScanner>,
     private readonly evenementService: EvenementService,
     private readonly notificationService: NotificationService,
     private readonly mailService: MailService,
@@ -77,6 +84,7 @@ export class BilletterieService {
     private readonly paiement: PasserellePaiement,
     private readonly transactionService: TransactionService,
     private readonly activiteService: ActiviteService,
+    private readonly userService: UserService,
     config: ConfigService,
   ) {
     // `||` et non `??` : une variable posée mais vide doit retomber sur la
@@ -303,7 +311,10 @@ export class BilletterieService {
    * elle-même : deux scans simultanés du même code ne peuvent pas réussir tous
    * les deux, et le second reçoit un refus explicite.
    */
-  async scanner(presente: string): Promise<Inscription> {
+  async scanner(
+    presente: string,
+    portier: { id: string; role: Role },
+  ): Promise<Inscription> {
     const tournant = estJetonTournant(presente);
     const codeBillet = tournant
       ? lireJetonBillet(presente, this.secretQr)
@@ -342,6 +353,22 @@ export class BilletterieService {
         'Cet événement exige le code tournant affiché dans l’application.',
       );
     }
+    // La fenetre d'abord : inutile de reprocher au portier l'etat d'un billet
+    // quand c'est l'heure qui bloque.
+    const etat = etatFenetre(
+      inscription.evenement.dateDebut,
+      inscription.evenement.dateFin,
+    );
+    if (etat !== EtatFenetre.OUVERTE) {
+      throw new ConflictException(motifRefus(etat));
+    }
+
+    if (!(await this.peutScanner(inscription.evenement.id, portier))) {
+      throw new ForbiddenException(
+        'Vous n’êtes pas affecté au contrôle de cet événement.',
+      );
+    }
+
     if (inscription.statut === StatutInscription.ANNULEE) {
       throw new ConflictException('Ce billet a été annulé.');
     }
@@ -352,7 +379,13 @@ export class BilletterieService {
     const resultat = await this.inscriptions
       .createQueryBuilder()
       .update(Inscription)
-      .set({ statut: StatutInscription.UTILISEE, scannedAt: new Date() })
+      .set({
+        statut: StatutInscription.UTILISEE,
+        scannedAt: new Date(),
+        // Rattache le passage a son portier : « quand » sans « qui » ne
+        // permet aucune verification a posteriori.
+        scannePar: { id: portier.id },
+      })
       .where('id = :id AND statut = :attendu', {
         id: inscription.id,
         attendu: StatutInscription.CONFIRMEE,
@@ -664,6 +697,113 @@ export class BilletterieService {
     if (existante && STATUTS_ACTIFS.has(existante.statut)) {
       throw new ConflictException('Vous êtes déjà inscrit à cet événement.');
     }
+  }
+
+  /**
+   * Dit si cette personne peut valider les billets de cet evenement.
+   *
+   * L'administration passe partout ; un portier ne passe que sur l'evenement
+   * ou on l'a place. Sans ce rattachement, un portier du gala validerait les
+   * billets de la conference du lendemain.
+   */
+  private async peutScanner(
+    evenementId: string,
+    portier: { id: string; role: Role },
+  ): Promise<boolean> {
+    if (estAdministrateur(portier.role)) {
+      return true;
+    }
+
+    return this.affectations.existsBy({
+      evenement: { id: evenementId },
+      user: { id: portier.id },
+    });
+  }
+
+  // ────────────────────────  Portiers d'un evenement  ───────────────────
+
+  /**
+   * Place quelqu'un au controle d'un evenement.
+   *
+   * Idempotent : reaffecter la meme personne ne cree pas de doublon, ce que
+   * l'index d'unicite interdirait de toute facon.
+   */
+  async affecterScanner(
+    evenementId: string,
+    userId: string,
+    parQui: string,
+  ): Promise<AffectationScanner> {
+    // Les deux existences sont verifiees avant d'ecrire : sans cela, un
+    // identifiant errone remonterait en violation de cle etrangere, soit une
+    // erreur serveur la ou le bureau merite de s'entendre dire lequel des
+    // deux n'existe pas.
+    await this.evenementService.trouver(evenementId, { role: Role.ADMIN });
+    await this.userService.trouverOuEchouer(userId);
+
+    const existante = await this.affectations.findOne({
+      where: { evenement: { id: evenementId }, user: { id: userId } },
+      relations: { user: true, affectePar: true },
+    });
+    if (existante) {
+      return existante;
+    }
+
+    const creee = await this.affectations.save(
+      this.affectations.create({
+        evenement: { id: evenementId } as Evenement,
+        user: { id: userId } as User,
+        affectePar: { id: parQui } as User,
+      }),
+    );
+
+    // Relue avec ses relations : `save` ne rend que les references passees,
+    // et le bureau recevrait deux identifiants nus la ou il attend des noms.
+    return this.affectations.findOneOrFail({
+      where: { id: creee.id },
+      relations: { user: true, affectePar: true },
+    });
+  }
+
+  /**
+   * Retire quelqu'un du controle.
+   *
+   * Silencieux quand l'affectation n'existe pas : retirer un portier deja
+   * retire est le resultat voulu, et une erreur ferait croire a un echec.
+   */
+  async retirerScanner(evenementId: string, userId: string): Promise<void> {
+    await this.affectations.delete({
+      evenement: { id: evenementId },
+      user: { id: userId },
+    });
+  }
+
+  /** Qui tient la porte de cet evenement. */
+  listerScanners(evenementId: string): Promise<AffectationScanner[]> {
+    return this.affectations.find({
+      where: { evenement: { id: evenementId } },
+      relations: { user: true, affectePar: true },
+    });
+  }
+
+  /**
+   * Efface la trace des portiers au-dela d'une semaine.
+   *
+   * Le passage lui-meme est conserve — « scannedAt » dit que la personne est
+   * entree, et le comptage en depend. Seul le nom du portier s'efface : sa
+   * trace sert a verifier un controle recent, et la garder au-dela ferait de
+   * la billetterie un fichier de presence du bureau.
+   */
+  async purgerTracesScan(): Promise<number> {
+    const limite = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const resultat = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({ scannePar: null })
+      .where('scanne_par_id IS NOT NULL AND scanned_at < :limite', { limite })
+      .execute();
+
+    return resultat.affected ?? 0;
   }
 
   /**

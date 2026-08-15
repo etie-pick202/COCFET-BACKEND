@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  IsUUID,
   IsEnum,
   IsOptional,
   IsString,
@@ -81,4 +82,11 @@ export class CodeBillet {
       'périme pas.',
   })
   expireDans: number | null;
+}
+
+/** Qui l'on place au contrôle d'un événement. */
+export class AffecterScannerDto {
+  @ApiProperty({ format: 'uuid' })
+  @IsUUID()
+  userId: string;
 }

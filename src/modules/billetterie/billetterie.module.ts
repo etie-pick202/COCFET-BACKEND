@@ -8,10 +8,12 @@ import { UserModule } from '../user/user.module';
 import { BilletterieController } from './billetterie.controller';
 import { BilletterieService } from './billetterie.service';
 import { Inscription } from './entities/inscription.entity';
+import { AffectationScanner } from './entities/affectation-scanner.entity';
+import { PurgeTracesScanService } from './purge-traces-scan.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Inscription]),
+    TypeOrmModule.forFeature([Inscription, AffectationScanner]),
     EvenementModule,
     MailModule,
     NotificationModule,
@@ -19,7 +21,7 @@ import { Inscription } from './entities/inscription.entity';
     UserModule,
   ],
   controllers: [BilletterieController],
-  providers: [BilletterieService],
+  providers: [BilletterieService, PurgeTracesScanService],
   exports: [BilletterieService],
 })
 export class BilletterieModule {}
