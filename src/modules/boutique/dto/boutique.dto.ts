@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ValidateNested,
   ArrayMaxSize,
   IsArray,
   IsDateString,
@@ -194,4 +195,40 @@ export class ProduitAvecTarif {
       'à la précommande.',
   })
   commandable: boolean;
+}
+
+export class DeclinaisonDto {
+  @ApiPropertyOptional({ example: 'M', nullable: true })
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  taille?: string | null;
+
+  @ApiPropertyOptional({ example: 'Noir', nullable: true })
+  @IsString()
+  @MaxLength(50)
+  @IsOptional()
+  couleur?: string | null;
+
+  @ApiProperty({ example: 12, description: 'Quantite disponible.' })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  stock: number;
+}
+
+/**
+ * Grille complete des declinaisons.
+ *
+ * Remplacement global plutot que retouche ligne a ligne : le bureau saisit une
+ * grille — tailles fois couleurs — et la corrige en bloc. La somme devient le
+ * stock du produit, qui cesse d'etre saisi directement.
+ */
+export class DefinirDeclinaisonsDto {
+  @ApiProperty({ type: [DeclinaisonDto] })
+  @IsArray()
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => DeclinaisonDto)
+  declinaisons: DeclinaisonDto[];
 }

@@ -117,6 +117,34 @@ export class SondageController {
   }
 
   @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Get(':id/depouillement')
+  @ApiOperation({
+    summary: 'Dépouillement nominatif',
+    description:
+      'Qui a voté quoi, et la répartition des voix par promotion. Les ' +
+      'pourcentages se rapportent aux **votants du segment**, non à ' +
+      'l’ensemble : dire qu’une option pèse 8 % du total ne dirait rien de ce ' +
+      'que pense la promotion concernée. ' +
+      '**Refusé sur un sondage anonyme.** Le bulletin y est délibérément ' +
+      'détaché de son auteur, et le recomposer — un segment d’une seule ' +
+      'personne suffit — viderait la promesse de son sens.',
+  })
+  @ApiOkResponse({ description: 'Bulletins et répartition par promotion.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Sondage anonyme : le dépouillement nominatif est refusé.',
+    type: ReponseErreurDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Sondage inexistant.',
+    type: ReponseErreurDto,
+  })
+  depouillement(@Param('id', ParseUUIDPipe) id: string) {
+    return this.sondageService.depouillementNominatif(id);
+  }
+
+  @ApiBearerAuth()
   @Post(':id/voter')
   @ApiOperation({
     summary: 'Voter',

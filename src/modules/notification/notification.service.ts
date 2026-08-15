@@ -220,6 +220,30 @@ export class NotificationService {
     }));
   }
 
+  /**
+   * Dit si un email de ce type peut partir vers cette personne.
+   *
+   * Ouvert aux autres modules : plusieurs envois — l'accueil d'un nouveau
+   * compte, celui d'un membre du bureau — partent **hors** du circuit des
+   * notifications, avec leur propre gabarit. Sans ce point d'interrogation, ils
+   * ignoreraient purement et simplement le reglage de la personne, et le choix
+   * qu'on lui offre n'en serait pas un.
+   *
+   * Vrai par defaut : l'absence de ligne vaut « active », comme partout
+   * ailleurs. Un nouvel arrivant recoit donc tout, et coupe ensuite ce qu'il
+   * ne veut plus.
+   */
+  async emailAutorise(
+    userId: string,
+    type: TypeNotification,
+  ): Promise<boolean> {
+    const preference = await this.preferences.findOne({
+      where: { user: { id: userId }, type },
+    });
+
+    return preference?.canalEmail !== false;
+  }
+
   async mettreAJourPreference(
     userId: string,
     dto: MettreAJourPreferenceDto,

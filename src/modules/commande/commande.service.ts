@@ -45,6 +45,9 @@ const TRANSITIONS: Record<StatutCommande, StatutCommande[]> = {
 interface Reservation {
   produitId: string;
   quantite: number;
+  /** La declinaison exacte : rendre au mauvais couple gonflerait un autre stock. */
+  taille: string | null;
+  couleur: string | null;
 }
 
 /** Ligne validée, prix figé, prête à être écrite. */
@@ -170,6 +173,28 @@ export class CommandeService {
     }
   }
 
+  /**
+   * Journalise une annulation, en nommant la personne concernee.
+   *
+   * L'annulation ne laissait aucune trace au journal d'activite : le bureau
+   * voyait le stock revenir sans savoir de quelle commande ni de qui il
+   * s'agissait. Un article qui reapparait sans explication est exactement ce
+   * qu'on ne peut pas rapprocher d'un mouvement de tresorerie.
+   */
+  private async journaliserAnnulation(
+    commande: Commande,
+    motif: string,
+  ): Promise<void> {
+    await this.activiteService.journaliser({
+      type: TypeActivite.COMMANDE,
+      message:
+        `${commande.user.firstName} ${commande.user.lastName} a annule une ` +
+        `commande de ${commande.total} FCFA : ${motif}`,
+      auteur: commande.user,
+      metadata: { commandeId: commande.id, montant: commande.total },
+    });
+  }
+
   async mesCommandes(
     userId: string,
     filtre: FiltreCommandeDto,
@@ -223,6 +248,7 @@ export class CommandeService {
     });
     await this.restituer(commande);
     await this.expirerLePaiement(id);
+    await this.journaliserAnnulation(commande, 'annulation par son titulaire.');
 
     if (commande.statutPaiement === StatutPaiement.COMPLETE) {
       // Aucun remboursement automatique : il passe par le prestataire et
@@ -382,6 +408,7 @@ export class CommandeService {
     }
 
     await this.restituer(commande);
+    await this.journaliserAnnulation(commande, motif);
     await this.notifier(
       commande.user,
       'Paiement non abouti',
@@ -421,9 +448,14 @@ export class CommandeService {
       // Une précommande se vend sans stock : c'est sa raison d'être, et il n'y
       // a donc rien à réserver.
       if (produit.statut !== StatutProduit.PRECOMMANDE) {
+        // La taille et la couleur voyagent jusqu'a la reservation : sans
+        // elles, on decrementerait un total qui tient grace aux autres
+        // declinaisons, et le dernier M se vendrait deux fois.
         const reserve = await this.boutiqueService.reserverStock(
           produit.id,
           ligne.quantite,
+          ligne.taille ?? null,
+          ligne.couleur ?? null,
         );
 
         if (!reserve) {
@@ -433,6 +465,8 @@ export class CommandeService {
         }
 
         reservations.push({
+          taille: ligne.taille ?? null,
+          couleur: ligne.couleur ?? null,
           produitId: produit.id,
           quantite: ligne.quantite,
         });
@@ -544,14 +578,21 @@ export class CommandeService {
         await this.boutiqueService.libererStock(
           ligne.produit.id,
           ligne.quantite,
+          ligne.taille,
+          ligne.couleur,
         );
       }
     }
   }
 
   private async rendreLeStock(reservations: Reservation[]): Promise<void> {
-    for (const { produitId, quantite } of reservations) {
-      await this.boutiqueService.libererStock(produitId, quantite);
+    for (const { produitId, quantite, taille, couleur } of reservations) {
+      await this.boutiqueService.libererStock(
+        produitId,
+        quantite,
+        taille,
+        couleur,
+      );
     }
   }
 

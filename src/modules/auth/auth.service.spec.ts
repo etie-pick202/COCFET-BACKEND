@@ -11,6 +11,7 @@ import { UserService } from '../user/user.service';
 import { AuthService } from './auth.service';
 import { TypeJeton } from './entities/jeton-auth.entity';
 import { JetonService } from './jeton.service';
+import { PreferenceEmailService } from '../notification/preference-email.service';
 
 /**
  * Empreinte arbitraire : aucun test de ce fichier ne verifie un mot de
@@ -91,6 +92,9 @@ describe('AuthService', () => {
       jetonService,
       generationService,
       mailService,
+      {
+        autorise: jest.fn().mockResolvedValue(true),
+      } as unknown as PreferenceEmailService,
       jwtService,
       config,
     );

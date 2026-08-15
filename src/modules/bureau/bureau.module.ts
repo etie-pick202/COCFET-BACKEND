@@ -7,9 +7,11 @@ import { BureauController } from './bureau.controller';
 import { BureauService } from './bureau.service';
 import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
+import { PreferenceEmailModule } from '../notification/preference-email.module';
 
 @Module({
   imports: [
+    PreferenceEmailModule,
     TypeOrmModule.forFeature([PosteBureau, MembreBureau, Generation, User]),
     // Pour accueillir un membre fraîchement désigné. Aucun cycle : le courrier
     // ne dépend que du module de la charte, qui ne connaît aucun métier.

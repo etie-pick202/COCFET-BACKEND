@@ -336,6 +336,33 @@ describe('Commandes (e2e)', () => {
       expect(second.body).toEqual({ recu: true, traite: false });
     });
 
+    it('nomme le titulaire dans l’activite d’annulation', async () => {
+      // Le bureau voyait le stock revenir sans savoir de quelle commande ni de
+      // qui il s'agissait. Un article qui reapparait sans explication ne se
+      // rapproche d'aucun mouvement de tresorerie.
+      const { id } = await commandeEnAttente();
+
+      await request(app.getHttpServer())
+        .delete(`${COMMANDES}/${id}`)
+        .set(finissant.entetes)
+        .expect(204);
+
+      const reponse = await request(app.getHttpServer())
+        .get('/api/v1/tableau-de-bord/activite')
+        .set(admin.entetes)
+        .expect(200);
+
+      const messages = (
+        (reponse.body as { donnees?: { message: string }[] }).donnees ??
+        (reponse.body as { message: string }[])
+      ).map((a) => a.message);
+
+      expect(messages.some((m) => /a annule une commande/.test(m))).toBe(true);
+      expect(messages.some((m) => m.includes(finissant.user.firstName))).toBe(
+        true,
+      );
+    });
+
     it('ne ressuscite pas une commande annulee payee apres coup', async () => {
       // La page de paiement peut rester ouverte chez le prestataire. Confirmer
       // ici vendrait deux fois le meme article : le stock a ete rendu, et
