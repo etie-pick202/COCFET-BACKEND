@@ -630,7 +630,11 @@ export class CommandeService {
     const requete = this.commandes
       .createQueryBuilder('c')
       .leftJoinAndSelect('c.lignes', 'l')
-      .leftJoinAndSelect('l.produit', 'p');
+      .leftJoinAndSelect('l.produit', 'p')
+      // Sans cette jointure, « toutes les commandes » ne porte aucune
+      // identite : le bureau lit une liste de montants sans savoir de qui ils
+      // viennent, et ne peut rapprocher aucun retrait de son titulaire.
+      .leftJoinAndSelect('c.user', 'u');
 
     portee(requete);
 
