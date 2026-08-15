@@ -1,6 +1,7 @@
 import { forwardRef, Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { CotisationModule } from '../cotisation/cotisation.module';
 import { BilletterieModule } from '../billetterie/billetterie.module';
 import { CommandeModule } from '../commande/commande.module';
 import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
@@ -33,6 +34,7 @@ const VARIABLES_FAPSHI = [
  */
 @Module({
   imports: [
+    CotisationModule,
     TypeOrmModule.forFeature([Transaction]),
     forwardRef(() => BilletterieModule),
     forwardRef(() => CommandeModule),

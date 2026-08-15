@@ -4,6 +4,7 @@ import { CommandeService } from '../commande/commande.service';
 import { OrigineTransaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import { TransactionService } from './transaction.service';
+import { CotisationService } from '../cotisation/cotisation.service';
 
 /**
  * Applique au domaine l'issue d'un paiement, d'où qu'elle vienne.
@@ -26,6 +27,7 @@ export class RepercussionPaiementService {
   private readonly logger = new Logger(RepercussionPaiementService.name);
 
   constructor(
+    private readonly cotisationService: CotisationService,
     private readonly transactionService: TransactionService,
     private readonly billetterieService: BilletterieService,
     @Inject(forwardRef(() => CommandeService))
@@ -37,6 +39,19 @@ export class RepercussionPaiementService {
 
     if (!transaction) {
       this.logger.warn(`Paiement sans transaction connue : ${reference}`);
+      return;
+    }
+
+    // Une cotisation ne se confirme ni ne s'annule : elle se credite. Il n'y a
+    // ni place a liberer ni stock a rendre, seulement un solde qui avance. Un
+    // echec n'a donc rien a defaire — la personne devra simplement reessayer.
+    if (transaction.origine === OrigineTransaction.COTISATION) {
+      if (statut === StatutPaiement.COMPLETE) {
+        await this.cotisationService.enregistrerReglement(
+          reference,
+          transaction.montant,
+        );
+      }
       return;
     }
 

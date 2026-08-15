@@ -101,4 +101,30 @@ export class JustificatifPaiement extends BaseEntity {
   @Column({ name: 'motif_refus', type: 'varchar', nullable: true })
   @ApiProperty({ nullable: true })
   motifRefus: string | null;
+
+  /**
+   * Montant que la tresorerie reconnait avoir recu, en FCFA.
+   *
+   * Distinct de « montantDeclare », qui est ce que le payeur affirme avoir
+   * verse. Seul celui-ci entre en comptabilite. Les garder tous les deux rend
+   * les ecarts visibles : quelqu'un qui declare dix mille pour cinq mille
+   * reellement remis laisse une trace.
+   *
+   * Nul tant que la piece n'est pas validee.
+   */
+  @Column({ name: 'montant_recu', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  montantRecu: number | null;
+
+  /**
+   * Membre des finances entre les mains de qui l'argent est passe.
+   *
+   * **Ce n'est pas le validateur.** On remet l'argent au tresorier, et c'est
+   * peut-etre la vice-tresoriere qui valide la piece le lendemain. Confondre
+   * les deux rendrait sans reponse la question de savoir qui detient quoi.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'recu_par_id' })
+  @ApiProperty({ type: () => User, nullable: true })
+  recuPar: User | null;
 }

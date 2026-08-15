@@ -98,11 +98,15 @@ describe('Justificatifs de paiement (e2e)', () => {
     return commande.id;
   };
 
-  const deposer = (reference: string, compte: CompteDeTest = payeur) =>
+  const deposer = (
+    reference: string,
+    montantDeclare = 5000,
+    compte: CompteDeTest = payeur,
+  ) =>
     request(app.getHttpServer())
       .post(JUSTIFS)
       .set(compte.entetes)
-      .send({ reference, cle: CLE, montantDeclare: 5000 });
+      .send({ reference, cle: CLE, montantDeclare });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -204,7 +208,7 @@ describe('Justificatifs de paiement (e2e)', () => {
 
       // 404 et non 403 : répondre « interdit » confirmerait que cette
       // référence existe.
-      await deposer(reference, tresoriere).expect(404);
+      await deposer(reference, 5000, tresoriere).expect(404);
     });
 
     it('n’accepte qu’une preuve en attente à la fois', async () => {
@@ -229,6 +233,7 @@ describe('Justificatifs de paiement (e2e)', () => {
       await request(app.getHttpServer())
         .post(`${JUSTIFS}/${id}/valider`)
         .set(tresoriere.entetes)
+        .send({ montantRecu: 5000 })
         .expect(201);
 
       await expect(
@@ -247,6 +252,7 @@ describe('Justificatifs de paiement (e2e)', () => {
       await request(app.getHttpServer())
         .post(`${JUSTIFS}/${id}/valider`)
         .set(admin.entetes)
+        .send({ montantRecu: 5000 })
         .expect(403);
     });
 
@@ -271,6 +277,36 @@ describe('Justificatifs de paiement (e2e)', () => {
       await deposer(reference).expect(201);
     });
 
+    it('consigne le montant recu et celui qui detient l’argent', async () => {
+      // « montantRecu » n'est pas « montantDeclare » : le declare est ce que
+      // le payeur affirme, le recu ce que la tresorerie certifie. Seul le
+      // second entre en comptabilite, et l'ecart doit rester visible.
+      const reference = await commandeEnAttente();
+      const { id } = (await deposer(reference, 9000).expect(201)).body as {
+        id: string;
+      };
+
+      const reponse = await request(app.getHttpServer())
+        .post(`${JUSTIFS}/${id}/valider`)
+        .set(tresoriere.entetes)
+        .send({ montantRecu: 5000 })
+        .expect(201);
+
+      const corps = reponse.body as {
+        montantDeclare: number;
+        montantRecu: number;
+        recuPar: { id: string } | null;
+        validateur: { id: string } | null;
+      };
+
+      expect(corps.montantDeclare).toBe(9000);
+      expect(corps.montantRecu).toBe(5000);
+      // A defaut de destinataire designe, le validateur est repute avoir recu
+      // l'argent : laisser le champ vide rendrait l'encaisse incalculable.
+      expect(corps.recuPar?.id).toBe(tresoriere.user.id);
+      expect(corps.validateur?.id).toBe(tresoriere.user.id);
+    });
+
     it('ne rejuge pas une preuve déjà tranchée', async () => {
       const reference = await commandeEnAttente();
       const { id } = (await deposer(reference).expect(201)).body as {
@@ -280,11 +316,13 @@ describe('Justificatifs de paiement (e2e)', () => {
       await request(app.getHttpServer())
         .post(`${JUSTIFS}/${id}/valider`)
         .set(tresoriere.entetes)
+        .send({ montantRecu: 5000 })
         .expect(201);
 
       await request(app.getHttpServer())
         .post(`${JUSTIFS}/${id}/valider`)
         .set(tresoriere.entetes)
+        .send({ montantRecu: 5000 })
         .expect(400);
     });
   });

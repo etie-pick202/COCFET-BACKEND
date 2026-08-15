@@ -6,6 +6,7 @@ import { MethodePaiement, StatutPaiement } from '../enums/paiement.enum';
 export enum OrigineTransaction {
   EVENEMENT = 'EVENEMENT',
   BOUTIQUE = 'BOUTIQUE',
+  COTISATION = 'COTISATION',
 }
 
 /**
