@@ -34,6 +34,27 @@ export class Commande extends BaseEntity {
   })
   total: number;
 
+  /**
+   * Part de Fapshi sur l'encaissement, et provision pour le futur retrait
+   * Mobile Money du solde — voir frais-paiement.ts.
+   */
+  @Column({ name: 'frais_fapshi', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  fraisFapshi: number | null;
+
+  @Column({ name: 'frais_retrait', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  fraisRetrait: number | null;
+
+  /**
+   * Ce qui est réellement envoyé à Fapshi — « total » plus les deux frais
+   * ci-dessus. C'est ce montant, et non « total », qui doit être transmis au
+   * prestataire de paiement.
+   */
+  @Column({ name: 'montant_ttc', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  montantTtc: number | null;
+
   @Column({
     type: 'enum',
     enum: StatutCommande,

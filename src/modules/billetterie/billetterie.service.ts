@@ -47,6 +47,11 @@ import { enUrlDeDonnees, genererQrBillet } from './qr-billet';
 import { EtatFenetre, etatFenetre, motifRefus } from './fenetre-scan';
 import { AffectationScanner } from './entities/affectation-scanner.entity';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
+import {
+  calculerFrais,
+  tauxFraisDepuisConfig,
+  TauxFrais,
+} from '../paiement/frais-paiement';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
@@ -72,6 +77,9 @@ export class BilletterieService {
    */
   private readonly secretQr: string;
 
+  /** Taux des frais répercutés sur l'acheteur — voir frais-paiement.ts. */
+  private readonly tauxFrais: TauxFrais;
+
   constructor(
     @InjectRepository(Inscription)
     private readonly inscriptions: Repository<Inscription>,
@@ -94,6 +102,7 @@ export class BilletterieService {
       createHmac('sha256', config.getOrThrow<string>('JWT_ACCESS_SECRET'))
         .update('billet-qr-tournant')
         .digest('hex');
+    this.tauxFrais = tauxFraisDepuisConfig(config);
   }
 
   /**
@@ -132,6 +141,13 @@ export class BilletterieService {
       throw new ConflictException('Cet événement est complet.');
     }
 
+    // Calcule ici, jamais dans lancerPaiement : le detail doit atterrir sur
+    // l'inscription des sa creation, pour que « mes billets » l'affiche meme
+    // si le paiement echoue avant d'aboutir.
+    const frais = payant
+      ? calculerFrais(prixApplicable, dto.methodePaiement!, this.tauxFrais)
+      : null;
+
     // Declaree hors du try : la reprise sur erreur doit pouvoir la supprimer,
     // et une variable interne au bloc n'y serait pas visible.
     let inscription: Inscription | null = null;
@@ -143,6 +159,9 @@ export class BilletterieService {
           evenement,
           codeBillet: this.genererCodeBillet(),
           prix: prixApplicable,
+          fraisFapshi: frais?.fraisFapshi ?? null,
+          fraisRetrait: frais?.fraisRetrait ?? null,
+          montantTtc: frais?.montantTtc ?? null,
           methodePaiement: dto.methodePaiement ?? null,
           statut: payant
             ? StatutInscription.EN_ATTENTE
@@ -821,12 +840,19 @@ export class BilletterieService {
     evenement: Evenement,
     dto: SInscrireDto,
   ): Promise<string | null> {
+    // « montantTtc », jamais « prix » : c'est ce total, prix plus les frais
+    // Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi
+    // chaque vente coûterait un peu d'argent à l'organisation au lieu de lui
+    // en rapporter. Non nul ici : lancerPaiement n'est appelé que si l'appel
+    // était payant, cas où sInscrire l'a calculé.
+    const montant = inscription.montantTtc!;
+
     // Ouverte **avant** l'appel au prestataire : si le webhook arrive pendant
     // que nous attendons encore la réponse, il trouve une ligne à mettre à
     // jour plutôt que rien, et le paiement n'est pas perdu.
     await this.transactionService.ouvrir({
       reference: inscription.codeBillet,
-      montant: inscription.prix,
+      montant,
       origine: OrigineTransaction.EVENEMENT,
       user: inscription.user,
       methodePaiement: dto.methodePaiement ?? null,
@@ -836,7 +862,7 @@ export class BilletterieService {
       // Le code du billet sert de référence : il est unique, et c'est lui qui
       // permet de retrouver l'inscription au retour du webhook.
       reference: inscription.codeBillet,
-      montant: inscription.prix,
+      montant,
       methode: dto.methodePaiement!,
       telephone: dto.telephone!,
       description: `Billet — ${evenement.titre}`,

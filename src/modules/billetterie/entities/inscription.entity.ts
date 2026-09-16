@@ -46,10 +46,34 @@ export class Inscription extends BaseEntity {
   @ApiProperty({ enum: StatutInscription })
   statut: StatutInscription;
 
-  /** Prix effectivement payé, figé au moment de l'inscription. */
+  /** Prix affiché de l'événement, figé au moment de l'inscription. */
   @Column({ type: 'int', default: 0 })
   @ApiProperty()
   prix: number;
+
+  /**
+   * Part de Fapshi sur l'encaissement, et provision pour le futur retrait
+   * Mobile Money du solde — voir frais-paiement.ts. Nuls sur un événement
+   * gratuit, où rien n'est encaissé.
+   */
+  @Column({ name: 'frais_fapshi', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  fraisFapshi: number | null;
+
+  @Column({ name: 'frais_retrait', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  fraisRetrait: number | null;
+
+  /**
+   * Ce qui est réellement envoyé à Fapshi — « prix » plus les deux frais
+   * ci-dessus. C'est ce montant, et non « prix », qui doit être transmis au
+   * prestataire de paiement : y encaisser « prix » seul laisserait Fapshi et
+   * le retrait grignoter la recette, centimes par centimes, vente après
+   * vente.
+   */
+  @Column({ name: 'montant_ttc', type: 'int', nullable: true })
+  @ApiProperty({ nullable: true })
+  montantTtc: number | null;
 
   @Column({
     name: 'methode_paiement',

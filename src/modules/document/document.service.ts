@@ -134,11 +134,17 @@ export class DocumentService {
             prixUnitaire: ligne.prix,
           })),
           total: commande.total,
+          fraisFapshi: commande.fraisFapshi,
+          fraisRetrait: commande.fraisRetrait,
+          montantTtc: commande.montantTtc,
           statutPaiement: commande.statutPaiement,
           methodePaiement: commande.methodePaiement,
         },
         titre: `Commande de ${commande.lignes?.length ?? 0} article(s)`,
-        montant: commande.total,
+        // Le montant réellement réglé, pas le total avant frais : sinon la
+        // facture d'une commande réglée 5155 FCFA afficherait « 5000 » sur sa
+        // propre ligne de montant.
+        montant: commande.montantTtc ?? commande.total,
       }),
     );
   }
@@ -182,10 +188,14 @@ export class DocumentService {
           lieu: inscription.evenement?.lieu ?? 'Non précisé',
           codeBillet: inscription.codeBillet,
           prix: inscription.prix,
+          fraisFapshi: inscription.fraisFapshi,
+          fraisRetrait: inscription.fraisRetrait,
+          montantTtc: inscription.montantTtc,
           methodePaiement: inscription.methodePaiement,
         },
         titre: `Inscription — ${inscription.evenement?.titre ?? 'Événement'}`,
-        montant: inscription.prix,
+        // Le montant réellement réglé, pas le prix avant frais.
+        montant: inscription.montantTtc ?? inscription.prix,
       }),
     );
   }
