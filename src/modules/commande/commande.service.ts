@@ -6,6 +6,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
@@ -28,6 +29,11 @@ import {
 } from './dto/commande.dto';
 import { Commande, StatutCommande } from './entities/commande.entity';
 import { LigneCommande } from './entities/ligne-commande.entity';
+import {
+  calculerFrais,
+  tauxFraisDepuisConfig,
+  TauxFrais,
+} from '../paiement/frais-paiement';
 
 const TRIS_AUTORISES = ['createdAt', 'total', 'statut'] as const;
 
@@ -63,6 +69,9 @@ interface LigneAPreparer {
 export class CommandeService {
   private readonly logger = new Logger(CommandeService.name);
 
+  /** Taux des frais répercutés sur l'acheteur — voir frais-paiement.ts. */
+  private readonly tauxFrais: TauxFrais;
+
   constructor(
     @InjectRepository(Commande)
     private readonly commandes: Repository<Commande>,
@@ -73,7 +82,10 @@ export class CommandeService {
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly dataSource: DataSource,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.tauxFrais = tauxFraisDepuisConfig(config);
+  }
 
   /**
    * Transforme un panier en commande.
@@ -97,6 +109,7 @@ export class CommandeService {
         (somme, ligne) => somme + ligne.prix * ligne.quantite,
         0,
       );
+      const frais = calculerFrais(total, dto.methodePaiement, this.tauxFrais);
 
       // Commande et lignes dans une seule transaction : une commande sans ses
       // lignes serait un total sans contenu, impossible à préparer.
@@ -105,6 +118,11 @@ export class CommandeService {
           gestionnaire.create(Commande, {
             user,
             total,
+            frais: {
+              fraisFapshi: frais.fraisFapshi,
+              fraisRetrait: frais.fraisRetrait,
+              montantTtc: frais.montantTtc,
+            },
             statut: StatutCommande.EN_ATTENTE,
             statutPaiement: StatutPaiement.EN_ATTENTE,
             methodePaiement: dto.methodePaiement,
@@ -519,6 +537,12 @@ export class CommandeService {
     commande: Commande,
     dto: CreerCommandeDto,
   ): Promise<string | null> {
+    // « frais.montantTtc », jamais « total » : c'est ce total, plus les frais
+    // Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi
+    // chaque vente coûterait un peu d'argent à l'organisation au lieu de lui
+    // en rapporter.
+    const montant = commande.frais.montantTtc!;
+
     // Ouverte **avant** l'appel au prestataire : si la notification arrive
     // pendant que nous attendons encore la réponse, elle trouve une ligne à
     // mettre à jour plutôt que rien, et le paiement n'est pas perdu.
@@ -527,7 +551,7 @@ export class CommandeService {
       // c'est lui qui permet de la retrouver au retour du webhook. Une
       // référence dédiée exigerait une colonne de plus sans rien apporter.
       reference: commande.id,
-      montant: commande.total,
+      montant,
       origine: OrigineTransaction.BOUTIQUE,
       user: commande.user,
       methodePaiement: dto.methodePaiement,
@@ -535,7 +559,7 @@ export class CommandeService {
 
     const resultat = await this.paiement.initier({
       reference: commande.id,
-      montant: commande.total,
+      montant,
       methode: dto.methodePaiement,
       telephone: dto.telephone,
       description: `Commande boutique — ${commande.total} FCFA`,

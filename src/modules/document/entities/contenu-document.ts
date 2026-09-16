@@ -48,7 +48,13 @@ export interface ContenuFacture extends ContenuCommun {
   genre: 'FACTURE_COMMANDE';
   titulaire: TitulaireFige;
   lignes: LigneFacture[];
+  /** Somme des lignes, avant les frais de paiement. */
   total: number;
+  /** Nuls sur une commande antérieure à la répercussion des frais. */
+  fraisFapshi: number | null;
+  fraisRetrait: number | null;
+  /** Ce qui a été réellement réglé — total plus les deux frais ci-dessus. */
+  montantTtc: number | null;
   statutPaiement: string;
   methodePaiement: string | null;
 }
@@ -61,7 +67,13 @@ export interface ContenuRecu extends ContenuCommun {
   dateEvenement: string;
   lieu: string;
   codeBillet: string;
+  /** Prix affiché du billet, avant les frais de paiement. */
   prix: number;
+  /** Nuls sur une inscription antérieure à la répercussion des frais. */
+  fraisFapshi: number | null;
+  fraisRetrait: number | null;
+  /** Ce qui a été réellement réglé — prix plus les deux frais ci-dessus. */
+  montantTtc: number | null;
   methodePaiement: string | null;
 }
 
