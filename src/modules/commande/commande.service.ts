@@ -118,9 +118,11 @@ export class CommandeService {
           gestionnaire.create(Commande, {
             user,
             total,
-            fraisFapshi: frais.fraisFapshi,
-            fraisRetrait: frais.fraisRetrait,
-            montantTtc: frais.montantTtc,
+            frais: {
+              fraisFapshi: frais.fraisFapshi,
+              fraisRetrait: frais.fraisRetrait,
+              montantTtc: frais.montantTtc,
+            },
             statut: StatutCommande.EN_ATTENTE,
             statutPaiement: StatutPaiement.EN_ATTENTE,
             methodePaiement: dto.methodePaiement,
@@ -535,11 +537,11 @@ export class CommandeService {
     commande: Commande,
     dto: CreerCommandeDto,
   ): Promise<string | null> {
-    // « montantTtc », jamais « total » : c'est ce total, plus les frais
+    // « frais.montantTtc », jamais « total » : c'est ce total, plus les frais
     // Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi
     // chaque vente coûterait un peu d'argent à l'organisation au lieu de lui
     // en rapporter.
-    const montant = commande.montantTtc!;
+    const montant = commande.frais.montantTtc!;
 
     // Ouverte **avant** l'appel au prestataire : si la notification arrive
     // pendant que nous attendons encore la réponse, elle trouve une ligne à

@@ -7,6 +7,7 @@ import {
 } from '../../paiement/enums/paiement.enum';
 import { Evenement } from '../../evenement/entities/evenement.entity';
 import { User } from '../../user/entities/user.entity';
+import { FraisEncaissement } from '../../paiement/entities/frais-encaissement.embed';
 
 export enum StatutInscription {
   EN_ATTENTE = 'EN_ATTENTE',
@@ -51,21 +52,9 @@ export class Inscription extends BaseEntity {
   @ApiProperty()
   prix: number;
 
-  // Détail des frais répercutés sur l'acheteur — calcul et raison d'être
-  // dans frais-paiement.ts. Nuls sur un événement gratuit, ou sur une
-  // inscription antérieure à cette fonctionnalité.
-  @Column({ name: 'frais_fapshi', type: 'int', nullable: true })
-  @ApiProperty({ nullable: true })
-  fraisFapshi: number | null;
-
-  @Column({ name: 'frais_retrait', type: 'int', nullable: true })
-  @ApiProperty({ nullable: true })
-  fraisRetrait: number | null;
-
-  /** Ce qui part réellement vers Fapshi — jamais « prix » seul. */
-  @Column({ name: 'montant_ttc', type: 'int', nullable: true })
-  @ApiProperty({ nullable: true })
-  montantTtc: number | null;
+  @Column(() => FraisEncaissement, { prefix: false })
+  @ApiProperty({ type: () => FraisEncaissement })
+  frais: FraisEncaissement;
 
   @Column({
     name: 'methode_paiement',

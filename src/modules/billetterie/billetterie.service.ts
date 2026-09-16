@@ -52,6 +52,7 @@ import {
   tauxFraisDepuisConfig,
   TauxFrais,
 } from '../paiement/frais-paiement';
+import { AUCUN_FRAIS } from '../paiement/entities/frais-encaissement.embed';
 
 const TRIS_AUTORISES = ['createdAt', 'statut'] as const;
 
@@ -159,9 +160,13 @@ export class BilletterieService {
           evenement,
           codeBillet: this.genererCodeBillet(),
           prix: prixApplicable,
-          fraisFapshi: frais?.fraisFapshi ?? null,
-          fraisRetrait: frais?.fraisRetrait ?? null,
-          montantTtc: frais?.montantTtc ?? null,
+          frais: frais
+            ? {
+                fraisFapshi: frais.fraisFapshi,
+                fraisRetrait: frais.fraisRetrait,
+                montantTtc: frais.montantTtc,
+              }
+            : AUCUN_FRAIS,
           methodePaiement: dto.methodePaiement ?? null,
           statut: payant
             ? StatutInscription.EN_ATTENTE
@@ -840,12 +845,12 @@ export class BilletterieService {
     evenement: Evenement,
     dto: SInscrireDto,
   ): Promise<string | null> {
-    // « montantTtc », jamais « prix » : c'est ce total, prix plus les frais
-    // Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi
+    // « frais.montantTtc », jamais « prix » : c'est ce total, prix plus les
+    // frais Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi
     // chaque vente coûterait un peu d'argent à l'organisation au lieu de lui
     // en rapporter. Non nul ici : lancerPaiement n'est appelé que si l'appel
     // était payant, cas où sInscrire l'a calculé.
-    const montant = inscription.montantTtc!;
+    const montant = inscription.frais.montantTtc!;
 
     // Ouverte **avant** l'appel au prestataire : si le webhook arrive pendant
     // que nous attendons encore la réponse, il trouve une ligne à mettre à
