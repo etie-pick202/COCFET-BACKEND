@@ -436,6 +436,58 @@ describe('Commandes (e2e)', () => {
       expect((reponse.body as { meta: { total: number } }).meta.total).toBe(2);
     });
 
+    it('porte l’identite du client', async () => {
+      // Sans la jointure, le bureau lisait une liste de montants sans savoir
+      // de qui ils venaient, et ne pouvait rapprocher aucun retrait de son
+      // titulaire.
+      const produitId = await creerProduit();
+      await commander([{ produitId, quantite: 1 }], finissant).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COMMANDES}/toutes`)
+        .set(admin.entetes)
+        .expect(200);
+
+      const corps = reponse.body as {
+        donnees: { user: { id: string; firstName: string } }[];
+      };
+      expect(corps.donnees[0].user.id).toBe(finissant.user.id);
+      expect(corps.donnees[0].user.firstName).toBeTruthy();
+    });
+
+    it('laisse le bureau lire le detail d’une commande d’autrui', async () => {
+      // Le proprietaire etait dans la condition de recherche meme pour une
+      // administration : la commande d'autrui repondait 404 comme si elle
+      // n'existait pas.
+      const produitId = await creerProduit();
+      const { id } = (
+        await commander([{ produitId, quantite: 1 }], finissant).expect(201)
+      ).body as { id: string };
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COMMANDES}/${id}`)
+        .set(admin.entetes)
+        .expect(200);
+
+      expect((reponse.body as { user: { id: string } }).user.id).toBe(
+        finissant.user.id,
+      );
+    });
+
+    it('ne laisse pas un client lire la commande d’un autre', async () => {
+      // Le relachement ne vaut que pour l'administration : entre clients, la
+      // cloison reste entiere.
+      const produitId = await creerProduit();
+      const { id } = (
+        await commander([{ produitId, quantite: 1 }], finissant).expect(201)
+      ).body as { id: string };
+
+      await request(app.getHttpServer())
+        .get(`${COMMANDES}/${id}`)
+        .set(autre.entetes)
+        .expect(404);
+    });
+
     it('filtre par statut', async () => {
       const produitId = await creerProduit();
       await commander([{ produitId, quantite: 1 }], finissant).expect(201);
