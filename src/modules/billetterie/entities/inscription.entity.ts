@@ -7,6 +7,7 @@ import {
 } from '../../paiement/enums/paiement.enum';
 import { Evenement } from '../../evenement/entities/evenement.entity';
 import { User } from '../../user/entities/user.entity';
+import { FraisEncaissement } from '../../paiement/entities/frais-encaissement.embed';
 
 export enum StatutInscription {
   EN_ATTENTE = 'EN_ATTENTE',
@@ -46,10 +47,14 @@ export class Inscription extends BaseEntity {
   @ApiProperty({ enum: StatutInscription })
   statut: StatutInscription;
 
-  /** Prix effectivement payé, figé au moment de l'inscription. */
+  /** Prix affiché de l'événement, figé au moment de l'inscription. */
   @Column({ type: 'int', default: 0 })
   @ApiProperty()
   prix: number;
+
+  @Column(() => FraisEncaissement, { prefix: false })
+  @ApiProperty({ type: () => FraisEncaissement })
+  frais: FraisEncaissement;
 
   @Column({
     name: 'methode_paiement',
