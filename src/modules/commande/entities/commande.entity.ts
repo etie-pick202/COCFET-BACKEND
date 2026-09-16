@@ -7,6 +7,7 @@ import {
 } from '../../paiement/enums/paiement.enum';
 import { User } from '../../user/entities/user.entity';
 import { LigneCommande } from './ligne-commande.entity';
+import { FraisEncaissement } from '../../paiement/entities/frais-encaissement.embed';
 
 export enum StatutCommande {
   EN_ATTENTE = 'EN_ATTENTE',
@@ -33,6 +34,10 @@ export class Commande extends BaseEntity {
     description: 'FCFA. Calcule cote serveur, jamais recu du client.',
   })
   total: number;
+
+  @Column(() => FraisEncaissement, { prefix: false })
+  @ApiProperty({ type: () => FraisEncaissement })
+  frais: FraisEncaissement;
 
   @Column({
     type: 'enum',

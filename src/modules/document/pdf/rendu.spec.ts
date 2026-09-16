@@ -30,6 +30,9 @@ const facture: ContenuFacture = {
     { designation: 'Mug émaillé', quantite: 1, prixUnitaire: 3500 },
   ],
   total: 33500,
+  fraisFapshi: 1050,
+  fraisRetrait: 340,
+  montantTtc: 34890,
   statutPaiement: 'COMPLETE',
   methodePaiement: 'MOBILE_MONEY',
 };
@@ -44,6 +47,9 @@ const recu: ContenuRecu = {
   lieu: 'Campus UCAC-ICAM',
   codeBillet: 'BIL-4821',
   prix: 10000,
+  fraisFapshi: 320,
+  fraisRetrait: 104,
+  montantTtc: 10424,
   methodePaiement: 'MOBILE_MONEY',
 };
 
@@ -82,6 +88,22 @@ describe('Composition des PDF', () => {
     // Un PDF vide pèse environ 800 octets : au-dessous, rien n'a été dessiné.
     expect(octets.length).toBeGreaterThan(1500);
   });
+
+  it.each([
+    ['une facture', facture],
+    ['un reçu', recu],
+  ])(
+    'compose %s antérieur(e) à la répercussion des frais, sans détail à afficher',
+    async (_libelle, contenu) => {
+      const octets = await composer(
+        { ...contenu, fraisFapshi: null, fraisRetrait: null, montantTtc: null },
+        'FAC-2027-0005',
+        null,
+      );
+
+      expect(estUnPdf(octets)).toBe(true);
+    },
+  );
 
   it('compose sans logo comme avec', async () => {
     // Le mandat peut n'en avoir désigné aucun, et le stockage peut être

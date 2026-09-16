@@ -88,6 +88,17 @@ function composerFacture(
   );
 
   total(page, 'Total', montant(contenu.total));
+  // Nulles sur une commande antérieure à la répercussion des frais : rien à
+  // détailler, le total ci-dessus est alors le montant réglé.
+  if (contenu.fraisFapshi !== null) {
+    ligneCle(page, 'Frais Fapshi', montant(contenu.fraisFapshi));
+  }
+  if (contenu.fraisRetrait !== null) {
+    ligneCle(page, 'Frais de retrait', montant(contenu.fraisRetrait));
+  }
+  if (contenu.montantTtc !== null) {
+    total(page, 'Montant réglé', montant(contenu.montantTtc));
+  }
 
   section(page, 'Règlement');
   ligneCle(page, 'Statut', contenu.statutPaiement);
@@ -121,7 +132,16 @@ function composerRecu(
 
   section(page, 'Règlement');
   ligneCle(page, 'Méthode', contenu.methodePaiement ?? 'Non renseignée');
-  total(page, 'Montant réglé', montant(contenu.prix));
+  ligneCle(page, 'Prix', montant(contenu.prix));
+  // Nulles sur une inscription antérieure à la répercussion des frais : le
+  // prix ci-dessus est alors directement le montant réglé.
+  if (contenu.fraisFapshi !== null) {
+    ligneCle(page, 'Frais Fapshi', montant(contenu.fraisFapshi));
+  }
+  if (contenu.fraisRetrait !== null) {
+    ligneCle(page, 'Frais de retrait', montant(contenu.fraisRetrait));
+  }
+  total(page, 'Montant réglé', montant(contenu.montantTtc ?? contenu.prix));
 
   mention(
     page,
