@@ -51,11 +51,9 @@ export class Inscription extends BaseEntity {
   @ApiProperty()
   prix: number;
 
-  /**
-   * Part de Fapshi sur l'encaissement, et provision pour le futur retrait
-   * Mobile Money du solde — voir frais-paiement.ts. Nuls sur un événement
-   * gratuit, où rien n'est encaissé.
-   */
+  // Détail des frais répercutés sur l'acheteur — calcul et raison d'être
+  // dans frais-paiement.ts. Nuls sur un événement gratuit, ou sur une
+  // inscription antérieure à cette fonctionnalité.
   @Column({ name: 'frais_fapshi', type: 'int', nullable: true })
   @ApiProperty({ nullable: true })
   fraisFapshi: number | null;
@@ -64,13 +62,7 @@ export class Inscription extends BaseEntity {
   @ApiProperty({ nullable: true })
   fraisRetrait: number | null;
 
-  /**
-   * Ce qui est réellement envoyé à Fapshi — « prix » plus les deux frais
-   * ci-dessus. C'est ce montant, et non « prix », qui doit être transmis au
-   * prestataire de paiement : y encaisser « prix » seul laisserait Fapshi et
-   * le retrait grignoter la recette, centimes par centimes, vente après
-   * vente.
-   */
+  /** Ce qui part réellement vers Fapshi — jamais « prix » seul. */
   @Column({ name: 'montant_ttc', type: 'int', nullable: true })
   @ApiProperty({ nullable: true })
   montantTtc: number | null;
