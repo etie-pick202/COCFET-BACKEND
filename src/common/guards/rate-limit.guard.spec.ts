@@ -19,7 +19,10 @@ jest.mock('@upstash/ratelimit', () => ({
   ),
 }));
 
-import { LIMITE_AUTHENTIFICATION } from './limite-debit.decorator';
+import {
+  LIMITE_AUTHENTIFICATION,
+  SANS_LIMITE_DEBIT_KEY,
+} from './limite-debit.decorator';
 import { RateLimitGuard } from './rate-limit.guard';
 
 describe('RateLimitGuard', () => {
@@ -33,8 +36,11 @@ describe('RateLimitGuard', () => {
     UPSTASH_REDIS_REST_TOKEN: 'jeton',
   };
 
-  const reflector = (options?: unknown) =>
-    ({ getAllAndOverride: () => options }) as unknown as Reflector;
+  const reflector = (options?: unknown, exemptee = false) =>
+    ({
+      getAllAndOverride: (cle: string) =>
+        cle === SANS_LIMITE_DEBIT_KEY ? exemptee : options,
+    }) as unknown as Reflector;
 
   const contexte = (requete: Record<string, unknown>): ExecutionContext =>
     ({
@@ -110,6 +116,23 @@ describe('RateLimitGuard', () => {
 
       const [premiere, seconde] = limiter.mock.calls.map(([cle]) => cle);
       expect(premiere).not.toBe(seconde);
+    });
+
+    it('ne consulte pas Upstash pour une route exemptée', async () => {
+      // La sonde de santé, interrogée en boucle par Docker, épuiserait sinon
+      // le quota Upstash sans rien protéger.
+      limiter.mockResolvedValue({ success: false });
+      const garde = new RateLimitGuard(
+        config(AVEC_UPSTASH),
+        reflector(undefined, true),
+      );
+
+      await expect(
+        garde.canActivate(
+          contexte(requete({ method: 'GET', path: '/api/v1/health' })),
+        ),
+      ).resolves.toBe(true);
+      expect(limiter).not.toHaveBeenCalled();
     });
 
     it('refuse au-delà du plafond', async () => {

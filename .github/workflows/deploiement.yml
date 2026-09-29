@@ -1,0 +1,95 @@
+name: Déploiement VPS
+
+# Recette et production vivent sur la VPS ; develop se déploie ailleurs
+# (Railway), par son propre mécanisme.
+#
+#   push sur staging  -> recette
+#   push sur main     -> production
+#
+# Prérequis (voir docs/VPS.md) :
+#   - secrets VPS_HOST, VPS_USER, VPS_SSH_KEY, VPS_KNOWN_HOSTS ;
+#   - variable VPS_ENABLED=true.
+# Tant que VPS_ENABLED n'est pas défini, le job est ignoré au lieu d'échouer :
+# la VPS n'existe pas encore au moment où ce fichier arrive dans le dépôt.
+#
+# Les deux branches ne reçoivent que des PR ayant passé la CI, que leur
+# protection exige : ce workflow ne rejoue donc pas les tests.
+
+on:
+  push:
+    branches: [staging, main]
+  workflow_dispatch:
+    inputs:
+      environnement:
+        description: Environnement à redéployer depuis la branche choisie
+        type: choice
+        options: [staging, production]
+
+permissions:
+  contents: read
+
+# Jamais deux déploiements du même environnement à la fois : le second
+# modifierait .env pendant que le premier attend sa sonde de santé. Pas
+# d'annulation non plus : interrompre des migrations en cours serait pire
+# qu'attendre.
+concurrency:
+  group: deploiement-${{ inputs.environnement || (github.ref_name == 'main' && 'production' || 'staging') }}
+  cancel-in-progress: false
+
+jobs:
+  deployer:
+    name: Déploiement de l'API
+    if: ${{ vars.VPS_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environnement || (github.ref_name == 'main' && 'production' || 'staging') }}
+    env:
+      ENVIRONNEMENT: ${{ inputs.environnement || (github.ref_name == 'main' && 'production' || 'staging') }}
+      TAG: ${{ github.sha }}
+      CIBLE: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+    steps:
+      # Un déclenchement manuel part de la branche choisie dans l'interface :
+      # sans ce contrôle, n'importe quelle branche de fonctionnalité pourrait
+      # partir en production sans être passée par main.
+      - name: Vérifier la branche
+        env:
+          BRANCHE: ${{ github.ref_name }}
+        run: |
+          attendue=$([ "$ENVIRONNEMENT" = production ] && echo main || echo staging)
+          if [ "$BRANCHE" != "$attendue" ]; then
+            echo "::error::$ENVIRONNEMENT se déploie depuis $attendue, pas depuis $BRANCHE."
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Construire l'image
+        run: docker build -t "cocfet-backend-$ENVIRONNEMENT:$TAG" .
+
+      # Empreinte de la VPS épinglée : sans elle, la connexion accepterait
+      # n'importe quelle machine se faisant passer pour elle, et lui
+      # remettrait la clé de déploiement.
+      - name: Préparer la connexion SSH
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/id_deploiement
+          chmod 600 ~/.ssh/id_deploiement
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host *\n  IdentityFile ~/.ssh/id_deploiement\n  IdentitiesOnly yes\n  StrictHostKeyChecking yes\n' > ~/.ssh/config
+
+      # La définition Compose et les scripts voyagent avec le code : une
+      # modification de l'infrastructure se déploie comme le reste, par PR.
+      - name: Envoyer les fichiers de déploiement
+        run: |
+          scp -q deploy/app/docker-compose.yml "$CIBLE:/opt/cocfet/$ENVIRONNEMENT/docker-compose.yml"
+          scp -q deploy/scripts/*.sh "$CIBLE:/opt/cocfet/scripts/"
+
+      # Transférée directement, sans registre : rien à authentifier sur la
+      # VPS, et aucune image de production stockée chez un tiers.
+      - name: Transférer l'image
+        run: docker save "cocfet-backend-$ENVIRONNEMENT:$TAG" | gzip | ssh "$CIBLE" 'gunzip | docker load'
+
+      - name: Mettre en service
+        run: ssh "$CIBLE" "bash /opt/cocfet/scripts/deployer.sh $ENVIRONNEMENT backend $TAG"

@@ -12,7 +12,11 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request } from 'express';
 import { normaliserEmail } from '../identite/identite-campus';
-import { LIMITE_DEBIT_KEY, OptionsLimiteDebit } from './limite-debit.decorator';
+import {
+  LIMITE_DEBIT_KEY,
+  OptionsLimiteDebit,
+  SANS_LIMITE_DEBIT_KEY,
+} from './limite-debit.decorator';
 
 /**
  * Limitation de débit distribuée (Upstash Redis).
@@ -77,11 +81,19 @@ export class RateLimitGuard implements CanActivate {
       return true;
     }
 
+    const cibles = [context.getHandler(), context.getClass()];
+
+    if (
+      this.reflector.getAllAndOverride<boolean>(SANS_LIMITE_DEBIT_KEY, cibles)
+    ) {
+      return true;
+    }
+
     const options =
-      this.reflector.getAllAndOverride<OptionsLimiteDebit>(LIMITE_DEBIT_KEY, [
-        context.getHandler(),
-        context.getClass(),
-      ]) ?? this.defaut;
+      this.reflector.getAllAndOverride<OptionsLimiteDebit>(
+        LIMITE_DEBIT_KEY,
+        cibles,
+      ) ?? this.defaut;
 
     const requete = context.switchToHttp().getRequest<Request>();
     // Le compteur est propre à la route : sans cela, consulter la liste des
