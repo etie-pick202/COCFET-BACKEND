@@ -1,0 +1,5 @@
+# Tout ce qui s'exécute ou se lit sur la VPS garde des fins de ligne Unix, même
+# extrait sur un poste Windows : un script en CRLF y échoue sur
+# « $'\r': command not found », et Caddy lirait mal son fichier.
+*.sh text eol=lf
+deploy/** text eol=lf

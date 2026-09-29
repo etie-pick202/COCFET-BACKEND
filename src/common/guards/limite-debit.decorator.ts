@@ -1,6 +1,7 @@
 import { SetMetadata } from '@nestjs/common';
 
 export const LIMITE_DEBIT_KEY = 'limiteDebit';
+export const SANS_LIMITE_DEBIT_KEY = 'sansLimiteDebit';
 
 export interface OptionsLimiteDebit {
   requetes: number;
@@ -17,6 +18,16 @@ export interface OptionsLimiteDebit {
  */
 export const LimiteDebit = (options: OptionsLimiteDebit) =>
   SetMetadata(LIMITE_DEBIT_KEY, options);
+
+/**
+ * Soustrait une route au limiteur.
+ *
+ * Réservé aux routes qui ne donnent accès à rien et qu'une machine appelle en
+ * boucle : la sonde de santé, interrogée toutes les dix secondes par Docker
+ * dans chaque environnement. La compter consommerait des milliers d'appels
+ * Upstash par jour — l'essentiel du quota gratuit — sans rien protéger.
+ */
+export const SansLimiteDebit = () => SetMetadata(SANS_LIMITE_DEBIT_KEY, true);
 
 /**
  * Plafond des routes d'authentification.
