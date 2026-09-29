@@ -1,0 +1,47 @@
+# Point d'entrée unique de la VPS, pour les deux environnements.
+#
+# Caddy obtient et renouvelle seul les certificats Let's Encrypt de chaque
+# domaine : il suffit que le DNS pointe vers la VPS et que les ports 80 et 443
+# soient ouverts. Les domaines viennent de deploy/edge/.env.
+#
+# Les noms joints (production-backend, staging-frontend…) sont les alias que
+# chaque environnement déclare sur le réseau cocfet-edge. Un environnement pas
+# encore déployé répond simplement 502 ; les autres n'en sont pas affectés.
+
+{
+	email {$EMAIL_ACME}
+}
+
+(commun) {
+	encode zstd gzip
+	# Inutile d'annoncer le serveur à qui cherche une version vulnérable.
+	header -Server
+}
+
+# ---------- Production ----------
+
+{$DOMAINE_API_PRODUCTION} {
+	import commun
+	reverse_proxy production-backend:3000
+}
+
+{$DOMAINE_FRONT_PRODUCTION} {
+	import commun
+	reverse_proxy production-frontend:3000
+}
+
+# ---------- Recette ----------
+
+{$DOMAINE_API_STAGING} {
+	import commun
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy staging-backend:3000
+}
+
+{$DOMAINE_FRONT_STAGING} {
+	import commun
+	# La recette ne doit jamais apparaître dans un moteur de recherche : un
+	# visiteur qui y paierait croirait régler sur le vrai site.
+	header X-Robots-Tag "noindex, nofollow"
+	reverse_proxy staging-frontend:3000
+}

@@ -16,6 +16,10 @@ lerna-debug.log*
 .env
 .env.local
 .env.*.local
+# Secrets et certificats des environnements VPS : seuls les modèles
+# (*.example) sont versionnés.
+deploy/**/*.env
+deploy/**/certs/
 
 # OS
 .DS_Store

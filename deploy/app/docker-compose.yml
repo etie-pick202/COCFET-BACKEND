@@ -1,0 +1,145 @@
+# Un environnement complet de COCFET : base, API et frontend.
+#
+# La même définition sert à la recette et à la production. Chacune vit dans
+# son propre dossier sur la VPS (/opt/cocfet/staging, /opt/cocfet/production)
+# avec son propre fichier .env, et devient un projet Compose distinct
+# (cocfet-staging, cocfet-production) : conteneurs, réseau interne et volume
+# de base séparés. Une fausse manœuvre en recette ne peut pas atteindre la
+# base de production, qui n'est même pas joignable depuis l'autre réseau.
+#
+# Seul Caddy (deploy/edge) est exposé sur Internet. Aucun port n'est publié
+# ici : la base n'est joignable que depuis le réseau interne de son
+# environnement, l'API et le frontend que depuis Caddy.
+#
+# Voir docs/VPS.md pour l'installation et l'exploitation.
+
+name: cocfet-${ENVIRONNEMENT:?ENVIRONNEMENT doit valoir staging ou production}
+
+# Commun au service qui tourne et à celui qui joue les migrations : les deux
+# doivent se connecter exactement de la même façon, sans quoi une migration
+# pourrait réussir là où l'application échouerait, ou l'inverse.
+x-backend: &backend
+  image: cocfet-backend-${ENVIRONNEMENT}:${BACKEND_TAG:-aucun}
+  env_file: ./backend.env
+  # Ces valeurs l'emportent sur backend.env : elles décrivent l'infrastructure
+  # de cette définition, pas un choix de l'environnement.
+  environment:
+    NODE_ENV: production
+    PORT: '3000'
+    # Le mot de passe est généré en hexadécimal par preparer-vps.sh : il n'a
+    # besoin d'aucun échappement pour tenir dans une URL.
+    DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    # TLS même sur le réseau interne : l'application refuse de démarrer sans
+    # lui en production, et c'est voulu. Le certificat du serveur est vérifié
+    # contre l'autorité générée pour cet environnement.
+    DATABASE_SSL: 'true'
+    DATABASE_SSL_CA_FILE: /run/secrets/postgres-ca.crt
+    # Un seul proxy devant l'API : Caddy. Sans cela, tous les visiteurs
+    # partageraient son adresse, donc un seul compteur de limitation de débit.
+    TRUST_PROXY: '1'
+  volumes:
+    - ./certs/ca.crt:/run/secrets/postgres-ca.crt:ro
+
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/certs/server.crt
+      -c ssl_key_file=/certs/server.key
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER requis}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD requis}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB requis}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./certs/server.crt:/certs/server.crt:ro
+      - ./certs/server.key:/certs/server.key:ro
+    networks:
+      - interne
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: ${POSTGRES_MEMOIRE:-512M}
+
+  backend:
+    <<: *backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      interne: {}
+      edge:
+        # Les deux environnements partagent le réseau de Caddy : l'alias les
+        # distingue, là où le nom de service « backend » serait ambigu.
+        aliases:
+          - ${ENVIRONNEMENT}-backend
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/api/v1/health']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${BACKEND_MEMOIRE:-512M}
+
+  # Jamais démarré par « up » : joué une fois par déploiement, avant de
+  # basculer l'API (voir deploy/scripts/deployer.sh). L'image de production ne
+  # contient pas pnpm, d'où l'appel direct au CLI TypeORM.
+  migrations:
+    <<: *backend
+    profiles: [outils]
+    restart: 'no'
+    command:
+      - node
+      - node_modules/typeorm/cli.js
+      - migration:run
+      - -d
+      - dist/config/data-source.js
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interne
+
+  frontend:
+    image: cocfet-frontend-${ENVIRONNEMENT}:${FRONTEND_TAG:-aucun}
+    restart: unless-stopped
+    environment:
+      PORT: '3000'
+      # Next écoute sinon sur le seul nom d'hôte du conteneur, et Caddy ne
+      # le joindrait pas.
+      HOSTNAME: 0.0.0.0
+    networks:
+      edge:
+        aliases:
+          - ${ENVIRONNEMENT}-frontend
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: ${FRONTEND_MEMOIRE:-512M}
+
+networks:
+  interne: {}
+  edge:
+    name: cocfet-edge
+    external: true
+
+volumes:
+  postgres-data: {}
