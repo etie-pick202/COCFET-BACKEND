@@ -28,7 +28,10 @@ dpkg-reconfigure -f noninteractive unattended-upgrades
 
 echo "==> Docker"
 if ! command -v docker >/dev/null; then
-  curl -fsSL https://get.docker.com | sh
+  # HTTPS imposé jusqu'au bout, redirections comprises : ce script s'exécute
+  # en root, et une redirection vers http:// laisserait n'importe qui sur le
+  # chemin réseau choisir ce qui s'exécute.
+  curl --proto '=https' --tlsv1.2 -fsSL https://get.docker.com | sh
 fi
 # Sans plafond, les journaux des conteneurs finissent par remplir le disque —
 # et une base qui ne peut plus écrire s'arrête.

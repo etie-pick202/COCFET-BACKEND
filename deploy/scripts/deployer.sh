@@ -44,7 +44,8 @@ grep -q "^$variable=" .env || echo "$variable=aucun" >>.env
 precedent=$(grep "^$variable=" .env | cut -d= -f2-)
 
 ecrire_tag() {
-  sed -i "s|^$variable=.*|$variable=$1|" .env
+  local valeur=$1
+  sed -i "s|^$variable=.*|$variable=$valeur|" .env
 }
 
 attendre_sante() {
