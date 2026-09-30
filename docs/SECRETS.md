@@ -146,14 +146,20 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 2. Relever `apiuser` et `apikey`. **Chaque environnement a les siens** : le bac à sable et la production sont deux services séparés, avec deux paires d'identifiants.
 3. Dans les réglages du service, poser un **secret de webhook** et déclarer l'URL `https://<domaine>/api/v1/webhooks/fapshi`.
 
-- **Où** : `.env` en local (identifiants du bac à sable), environnements GitHub pour `staging` et `production`.
+- **Où** : `.env` en local et `backend.env` de la recette (identifiants du bac à sable) ; `backend.env` de la production (service live). Voir `docs/VPS.md`.
 - **Nécessaire** : laisser les variables vides bascule sur la passerelle factice ; les renseigner suffit à passer au prestataire réel, sans toucher au code.
 - ⚠️ **Le secret de webhook n'est pas relisible** une fois posé — le tableau de bord ne l'affiche jamais, ni ne dit s'il en existe un. Notez-le au moment où vous le créez.
 
-| Environnement | URL de base |
-|---|---|
-| Développement | `https://sandbox.fapshi.com` |
-| Staging, production | `https://live.fapshi.com` |
+| Environnement | URL de base | Argent |
+|---|---|---|
+| Développement, recette | `https://sandbox.fapshi.com` | fictif |
+| Production | `https://live.fapshi.com` | réel |
+
+**La recette utilise le bac à sable, jamais le service live.** Elle sert à rejouer des parcours complets, et chaque test avec des clés live débiterait un vrai numéro sans rembourser facilement. Les numéros de test du bac à sable (`670000000` réussit, `670000001` échoue) suffisent à éprouver tout le circuit. La recette tourne pourtant avec `NODE_ENV=production`, donc elle **exige** des clés Fapshi : la passerelle factice lui est fermée.
+
+Ce que le bac à sable ne prouve pas : les clés live, le secret de webhook live et l'activation de `direct-pay` sur le service live. Ils ne sont éprouvés qu'en production, d'où un **test réel unique au lancement** : un événement à 100 FCFA (le minimum accepté), payé une fois avec un numéro à soi.
+
+**Un service Fapshi n'a qu'une seule URL de webhook.** Un service partagé entre la recette et le développement local ne peut donc notifier que l'un des deux. En recette, déclarer l'URL de la recette ; en local, laisser les variables Fapshi vides pour retomber sur la passerelle factice.
 
 **Une URL publique est nécessaire pour le webhook.** Le serveur de Fapshi doit joindre le nôtre : `localhost` ne convient pas. Pour essayer avant le déploiement, un tunnel (`ngrok http 3000`) fournit une URL temporaire à déclarer dans le service.
 
@@ -227,7 +233,7 @@ Chaque environnement possède ses propres identifiants Brevo et son propre jeton
 > node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))" | gh secret set JWT_ACCESS_SECRET --env staging --repo etie-pick202/COCFET-BACKEND
 > ```
 
-**`FAPSHI_*`** — le compte est ouvert et le service créé. Restent à poser : les identifiants du bac à sable en local, ceux du service live dans les environnements `staging` et `production`, et le secret de webhook côté tableau de bord.
+**`FAPSHI_*`** — le compte est ouvert et le service créé. Restent à poser : les identifiants du bac à sable en local et en recette, ceux du service live en production, et le secret de webhook côté tableau de bord.
 
 **Domaine d'envoi** — le COCFET n'a pas encore de nom de domaine. L'expéditeur validé est une adresse Gmail individuelle : suffisant pour tester, insuffisant en production. Sans SPF ni DKIM publiés sur un domaine propre, les messages de vérification partent en spam chez Gmail et Outlook — et sans message de vérification, aucun compte ne peut être créé.
 
