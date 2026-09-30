@@ -1,8 +1,10 @@
 import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { proxyDeConfiance } from './config/proxy.config';
 import { monterSwagger } from './swagger';
 import { FiltreExceptionGlobal } from './common/erreurs/filtre-exception-global';
 
@@ -11,8 +13,17 @@ async function bootstrap() {
   // Un corps deserialise puis reserialise reordonne les cles et change les
   // espaces — la signature ne correspond alors plus, et toutes les
   // notifications de paiement seraient rejetees.
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    rawBody: true,
+  });
   const config = app.get(ConfigService);
+
+  // Avant tout middleware : c'est ce réglage qui rend `req.ip` juste derrière
+  // un reverse proxy, et le limiteur de débit en dépend. Voir proxy.config.ts.
+  const proxy = proxyDeConfiance(config.get<string>('TRUST_PROXY'));
+  if (proxy !== false) {
+    app.set('trust proxy', proxy);
+  }
 
   app.use(helmet());
   app.setGlobalPrefix(config.get<string>('API_PREFIX', 'api/v1'));

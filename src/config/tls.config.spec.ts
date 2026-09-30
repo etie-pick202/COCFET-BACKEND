@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { optionsTls } from './tls.config';
 
 /**
@@ -13,6 +16,7 @@ describe('optionsTls', () => {
     process.env = { ...environnementInitial };
     delete process.env.DATABASE_SSL;
     delete process.env.DATABASE_SSL_CA;
+    delete process.env.DATABASE_SSL_CA_FILE;
     delete process.env.DATABASE_SSL_REJECT_UNAUTHORIZED;
   });
 
@@ -56,6 +60,60 @@ describe('optionsTls', () => {
     expect(optionsTls()).toEqual({
       ca: '-----BEGIN CERTIFICATE-----FAKE',
       rejectUnauthorized: true,
+    });
+  });
+
+  describe('autorité fournie par fichier', () => {
+    let dossier: string;
+
+    beforeEach(() => {
+      dossier = mkdtempSync(join(tmpdir(), 'cocfet-tls-'));
+    });
+
+    afterEach(() => {
+      rmSync(dossier, { recursive: true, force: true });
+    });
+
+    it('lit le certificat depuis DATABASE_SSL_CA_FILE', () => {
+      // La forme utilisée en conteneur : le PEM est monté, pas recopié dans
+      // une variable où ses retours à la ligne dépendraient de l'outil.
+      const chemin = join(dossier, 'ca.crt');
+      writeFileSync(chemin, '-----BEGIN CERTIFICATE-----\nFICHIER\n');
+      process.env.DATABASE_SSL = 'true';
+      process.env.DATABASE_SSL_CA_FILE = chemin;
+
+      expect(optionsTls()).toEqual({
+        ca: '-----BEGIN CERTIFICATE-----\nFICHIER\n',
+        rejectUnauthorized: true,
+      });
+    });
+
+    it('préfère la valeur directe quand les deux sont posées', () => {
+      const chemin = join(dossier, 'ca.crt');
+      writeFileSync(chemin, 'DEPUIS-LE-FICHIER');
+      process.env.DATABASE_SSL = 'true';
+      process.env.DATABASE_SSL_CA = 'DEPUIS-LA-VARIABLE';
+      process.env.DATABASE_SSL_CA_FILE = chemin;
+
+      expect(optionsTls()).toEqual({
+        ca: 'DEPUIS-LA-VARIABLE',
+        rejectUnauthorized: true,
+      });
+    });
+
+    it('lève sur un fichier absent plutôt que de continuer sans autorité', () => {
+      // Continuer sans l'autorité ferait refuser un certificat légitime, et
+      // l'erreur parlerait de certificat au lieu du fichier manquant.
+      process.env.DATABASE_SSL = 'true';
+      process.env.DATABASE_SSL_CA_FILE = join(dossier, 'absent.crt');
+
+      expect(() => optionsTls()).toThrow(/ENOENT/);
+    });
+
+    it("n'ouvre pas le fichier quand TLS est désactivé", () => {
+      process.env.DATABASE_SSL_CA_FILE = join(dossier, 'absent.crt');
+
+      expect(optionsTls()).toBe(false);
     });
   });
 

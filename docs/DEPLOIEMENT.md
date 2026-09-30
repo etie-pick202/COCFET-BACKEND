@@ -1,10 +1,20 @@
 # Déploiement
 
-L'hébergeur n'est pas choisi, et c'est délibéré. Tout ce qui en dépend est
-paramétré par variables d'environnement : le jour venu, il n'y a **aucune
-ligne de code à modifier**, seulement des valeurs à renseigner.
+| Environnement | Branche | Hébergement |
+|---|---|---|
+| Développement | `develop` | Railway — ce document |
+| Recette | `staging` | VPS — **[docs/VPS.md](VPS.md)** |
+| Production | `main` | VPS — **[docs/VPS.md](VPS.md)** |
 
-Ce document décrit ce qui est déjà prêt et les quatre étapes à suivre.
+Tout ce qui dépend de l'hébergeur est paramétré par variables
+d'environnement : changer d'hébergeur ne demande **aucune ligne de code**,
+seulement des valeurs à renseigner. La VPS dispose de sa propre procédure,
+outillée dans `deploy/` ; ce document couvre un hébergeur géré comme Railway.
+
+Sur Railway comme derrière tout proxy, poser **`TRUST_PROXY=1`** : sans lui,
+tous les visiteurs partagent l'adresse du proxy, donc un seul compteur de
+limitation de débit, et quelques tentatives de connexion ferment
+l'authentification à tout le monde.
 
 ## Ce qui est déjà en place
 
@@ -55,6 +65,7 @@ le tableau de bord de l'hébergeur.
 |---|---|
 | `NODE_ENV` | `production` |
 | `PORT` | fourni par l'hébergeur |
+| `TRUST_PROXY` | `1` derrière le routeur de l'hébergeur |
 | `API_PREFIX` | `api/v1` |
 | `CORS_ORIGIN` | URL du frontend, sans barre finale |
 | `DATABASE_URL`, `DATABASE_SSL` | étape 2 |
