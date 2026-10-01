@@ -9,6 +9,9 @@ export const LONGUEUR_MINIMALE = 12;
  */
 export const LONGUEUR_MAXIMALE = 72;
 
+/** Au moins une lettre et un caractère qui n'en est pas une. */
+export const REGLE_COMPOSITION = /^(?=.*[a-zA-Z])(?=.*[^a-zA-Z]).*$/;
+
 /**
  * Politique de mot de passe.
  *
@@ -33,7 +36,7 @@ export function EstUnMotDePasseValide(): PropertyDecorator {
     MaxLength(LONGUEUR_MAXIMALE, {
       message: `motDePasse ne peut pas dépasser ${LONGUEUR_MAXIMALE} caractères`,
     }),
-    Matches(/^(?=.*[a-zA-Z])(?=.*[^a-zA-Z]).*$/, {
+    Matches(REGLE_COMPOSITION, {
       message:
         'motDePasse doit mêler des lettres et au moins un chiffre ou symbole',
     }),
