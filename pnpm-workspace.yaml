@@ -21,11 +21,17 @@ minimumReleaseAgeExclude:
 # versions corrigées. À réévaluer quand les paquets parents auront été mis à
 # jour en amont.
 overrides:
-  # GHSA-hr3c-cwmq-4gpj : quadratique dans addressparser, sur toute adresse
-  # transmise a l'envoi — donc a chaque email.
-  # Borne haute explicite : sans elle, la plage resout vers la v10, une
-  # majeure jamais eprouvee ici et non demandee par le correctif.
-  nodemailer: '>=9.1.0 <10.0.0'
+  # Failles hautes (GHSA-v53p-9fqp-m79j, GHSA-prgh-xp8r-p3m5) sur la branche 9 :
+  # aucun correctif n'y est publie, ils ne le sont qu'a partir de la 10.0.9.
+  # Le passage a la v10 est donc imposé. Il est sans risque pour
+  # @nestjs-modules/mailer, dont le pair accepte « >=8.0.5 », et le code
+  # n'importe jamais nodemailer directement : il ne l'atteint que par lui.
+  # Borne haute explicite : la v11 ne serait ni eprouvee ni demandee.
+  nodemailer: '>=10.0.9 <11.0.0'
+  # undici : deni de service (GHSA-rfgv-xxqx-mfg5). Remonte par cheerio, dans
+  # l'arbre mjml de @nestjs-modules/mailer — donc au rendu des emails.
+  # Borne haute : cheerio attend la branche 6.
+  undici: '>=6.28.1 <7.0.0'
   tar: '>=7.5.19'
   linkify-it: '>=5.0.2'
   js-yaml: '>=5.2.2'
@@ -42,9 +48,9 @@ overrides:
   # la 5.x, la plus recente qui satisfait la contrainte. Or forcer la v5 sur
   # minimatch@3, dont l'API attend la v1 (export par defaut), casse ESLint.
   # Chaque branche majeure doit donc rester sur son propre correctif.
-  brace-expansion@^1.1.7: '1.1.18'
-  brace-expansion@^2.0.1: '2.1.4'
-  brace-expansion@^5.0.0: '5.0.9'
+  brace-expansion@^1.1.7: '1.1.21'
+  brace-expansion@^2.0.1: '2.1.7'
+  brace-expansion@^5.0.0: '5.0.12'
   # fast-uri : remonte par ajv, via le CLI NestJS et les schematics Angular —
   # outillage de developpement, jamais charge en production.
   # « >=3.1.5 » couvrait encore la fenetre vulnerable 4.0.0-4.1.2 : ajv ne

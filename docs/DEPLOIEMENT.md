@@ -72,7 +72,7 @@ le tableau de bord de l'hébergeur.
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | générés, distincts par environnement |
 | `MAIL_*` | Brevo — déjà dans les environnements GitHub |
 | `R2_*` | Cloudflare — déjà dans les environnements GitHub |
-| `FAPSHI_BASE_URL`, `FAPSHI_API_USER`, `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET` | Fapshi — service **live** en staging et production, bac à sable en local |
+| `FAPSHI_BASE_URL`, `FAPSHI_API_USER`, `FAPSHI_API_KEY`, `FAPSHI_WEBHOOK_SECRET` | Fapshi — service **live** en production, bac à sable en local et en recette |
 | `UPSTASH_REDIS_REST_*` | recommandé : sans eux, la limitation de débit se désactive |
 
 `CORS_ORIGIN` mérite attention : une valeur trop large annule la protection.
@@ -121,11 +121,20 @@ node node_modules/typeorm/cli.js migration:show -d dist/config/data-source.js
 4. Les journaux ne montrent aucun avertissement de limitation de débit
    désactivée.
 
-## Le seed en production
+## Le premier administrateur
 
-`pnpm run seed` **lève une erreur si `NODE_ENV=production`**. Créer le premier
-administrateur autrement : jouer le seed sur une base de préproduction, ou
-insérer la ligne à la main avec une empreinte bcrypt calculée hors ligne.
+`pnpm run seed` **lève une erreur si `NODE_ENV=production`** : il lit le mot de
+passe dans la configuration, où il resterait dans un fichier, un journal ou une
+capture d'écran. Un script de peuplement exécutable en production serait un
+compte administrateur créable par quiconque obtient un accès au conteneur.
 
-Un script de peuplement exécutable en production est un compte administrateur
-créable par quiconque obtient un accès au conteneur.
+Le premier administrateur se crée avec un outil dédié, qui demande le mot de
+passe au clavier, sans l'afficher, et refuse dès qu'un administrateur existe :
+
+```bash
+node dist/seed/creer-admin.js --email <adresse> --prenom <prénom> --nom <nom>
+```
+
+Il tourne dans le conteneur, depuis un terminal interactif — jamais avec un mot
+de passe en argument ou en variable. Sur la VPS, voir `docs/VPS.md`
+§ « Premier administrateur ».
