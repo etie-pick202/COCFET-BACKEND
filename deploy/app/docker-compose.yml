@@ -112,6 +112,23 @@ services:
     networks:
       - interne
 
+  # Commandes ponctuelles dans le même environnement que l'API : même base, même
+  # certificat, mêmes secrets. Jamais démarré par « up ».
+  #
+  #   docker compose run --rm cli node dist/seed/creer-admin.js --email … --prenom … --nom …
+  #
+  # Sans -T, Compose alloue un terminal : c'est ce que le mot de passe saisi au
+  # clavier exige (voir docs/VPS.md).
+  cli:
+    <<: *backend
+    profiles: [outils]
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - interne
+
   frontend:
     image: cocfet-frontend-${ENVIRONNEMENT}:${FRONTEND_TAG:-aucun}
     restart: unless-stopped
