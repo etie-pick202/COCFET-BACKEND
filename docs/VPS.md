@@ -225,15 +225,35 @@ une sauvegarde jamais restaurée n'est qu'une supposition.
 
 ### Premier administrateur
 
-Le seed refuse de s'exécuter avec `NODE_ENV=production` — donc sur toute la
-VPS. En recette, où le compte n'a qu'une valeur de test, le lever
-explicitement le temps d'une commande :
+Une seule commande, **identique en recette et en production**, qui demande le
+mot de passe au clavier :
 
 ```bash
-cd /opt/cocfet/staging
-docker compose run --rm -e NODE_ENV=staging -e SEED_ADMIN_PASSWORD='…' \
-  migrations node dist/seed/seed.js
+cd /opt/cocfet/production          # ou staging
+docker compose run --rm cli node dist/seed/creer-admin.js \
+  --email <adresse> --prenom <prénom> --nom <nom>
 ```
 
-En production, suivre `docs/DEPLOIEMENT.md` § « Le seed en production » : aucun
-mot de passe d'administrateur ne doit transiter par la configuration.
+Elle réclame le mot de passe deux fois, **sans l'afficher**, puis écrit
+`Administrateur créé : <adresse> (ADMIN).`
+
+- **Le mot de passe n'est ni en argument, ni dans la configuration, ni dans un
+  fichier** : un argument finirait dans l'historique du shell et la liste des
+  processus. Sans terminal interactif (tube, redirection), l'outil refuse.
+- **Même règle que l'inscription** : 12 caractères au moins, des lettres et au
+  moins un chiffre ou un symbole. Une phrase de passe longue convient.
+- **Il ne sert qu'une fois.** Dès qu'un administrateur existe, il refuse :
+  les suivants se nomment depuis l'application, où chaque ajout laisse une
+  trace.
+- **`--role`** vaut `ADMIN` par défaut, le rôle du bureau, que la passation
+  rétrograde à chaque changement de mandat. `SUPER_ADMIN` est le rôle
+  d'exploitation, que la passation n'atteint jamais et qu'aucun parcours de
+  l'application ne donne : seul cet outil ou un accès à la base le crée.
+  Le choisir pour le compte de la personne qui exploite la plateforme.
+
+Ensuite, tout se fait par l'application : la génération, les postes du bureau,
+ses membres.
+
+Le seed `pnpm run seed` reste réservé au développement : il refuse de
+s'exécuter en production, parce qu'il lit le mot de passe dans la
+configuration.
