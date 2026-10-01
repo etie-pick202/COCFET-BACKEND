@@ -1,4 +1,4 @@
-import { MailerModule } from '@nestjs-modules/mailer';
+import { MailerModule, MailerOptions } from '@nestjs-modules/mailer';
 import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.adapter';
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
@@ -50,12 +50,16 @@ import { transportBrevoApi } from './transports/brevo-api.transport';
                 // échouer la négociation SMTP.
                 ...(user && pass ? { auth: { user, pass } } : {}),
               },
+          // Valeurs par défaut de chaque message, pas options de transport. Le
+          // typage de @nestjs-modules/mailer ne connaît que les secondes : les
+          // types de nodemailer 10 séparent les deux, alors que les anciens les
+          // confondaient. À l'exécution rien ne change, `from` reste appliqué.
           defaults: {
             from: config.get<string>(
               'MAIL_FROM',
               'COCFET <no-reply@cocfet.com>',
             ),
-          },
+          } as unknown as MailerOptions['defaults'],
           template: {
             dir: join(__dirname, 'templates'),
             adapter: new HandlebarsAdapter(),
