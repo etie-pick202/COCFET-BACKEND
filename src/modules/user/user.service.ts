@@ -84,8 +84,21 @@ export class UserService {
     return this.trouverOuEchouer(id);
   }
 
-  async supprimer(id: string): Promise<void> {
+  /**
+   * Supprime un compte.
+   *
+   * Un super administrateur ne se supprime que de la main d'un autre : sans
+   * `acteur`, l'appel est interne (compte de partenaire retiré avec sa fiche)
+   * et ne peut donc pas viser un rôle d'exploitation.
+   */
+  async supprimer(id: string, acteur?: Role): Promise<void> {
     const user = await this.users.findOne({ where: { id } });
+
+    if (user?.role === Role.SUPER_ADMIN && acteur !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Seul un super administrateur peut supprimer un super administrateur.',
+      );
+    }
 
     await this.users.delete(id);
 
@@ -246,8 +259,17 @@ export class UserService {
     id: string,
     dto: MettreAJourUtilisateurDto,
     demandeurId: string,
+    demandeurRole?: Role,
   ): Promise<User> {
     const cible = await this.trouverOuEchouer(id);
+
+    // Désactiver ou rétrograder revient à retirer le compte : même règle que
+    // pour la suppression.
+    if (cible.role === Role.SUPER_ADMIN && demandeurRole !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Seul un super administrateur peut modifier un super administrateur.',
+      );
+    }
 
     if (id === demandeurId) {
       if (dto.role !== undefined && !estAdministrateur(dto.role)) {

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Role } from '../../common/enums/role.enum';
+import { Role, estAdministrateur } from '../../common/enums/role.enum';
 
 /**
  * Usages autorisés, et contraintes propres à chacun.
@@ -143,7 +143,13 @@ export function validerFichier(
   }
 
   const autorises = regles.roles as readonly Role[] | null;
-  if (autorises && !autorises.includes(role)) {
+  // Un usage ouvert à l'administration l'est à tous ses degrés : SUPER_ADMIN
+  // n'est dans aucune liste, et n'a pas à y figurer.
+  const autorise =
+    autorises === null ||
+    autorises.includes(role) ||
+    (estAdministrateur(role) && autorises.includes(Role.ADMIN));
+  if (!autorise) {
     // 403 et non 400 : la demande est bien formée, c'est le droit qui manque.
     throw new ForbiddenException(
       `Votre compte ne peut pas envoyer de fichier de type « ${usage} ».`,
