@@ -232,7 +232,12 @@ export class UserController {
     @Req() requete: Requete,
   ): Promise<UtilisateurExpose> {
     return exposerUtilisateur(
-      await this.userService.administrer(id, dto, requete.user.id),
+      await this.userService.administrer(
+        id,
+        dto,
+        requete.user.id,
+        requete.user.role,
+      ),
     );
   }
 }

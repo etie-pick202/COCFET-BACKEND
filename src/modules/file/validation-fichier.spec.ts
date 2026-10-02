@@ -236,6 +236,24 @@ describe('validerFichier', () => {
       }
     });
 
+    it("traite le SUPER_ADMIN comme l'administration pour tous les usages", () => {
+      for (const usage of Object.keys(USAGES) as (keyof typeof USAGES)[]) {
+        const regles = USAGES[usage].roles as readonly Role[] | null;
+        if (!regles?.includes(Role.ADMIN)) continue;
+        const types = USAGES[usage].types as readonly string[];
+        const entetes = types.includes('image') ? ENTETES.png : ENTETES.pdf;
+        expect(() =>
+          validerFichier(usage, fichier(entetes), Role.SUPER_ADMIN),
+        ).not.toThrow(ForbiddenException);
+      }
+    });
+
+    it('ne rouvre pas aux autres comptes ce que le SUPER_ADMIN obtient', () => {
+      expect(() =>
+        validerFichier('logo', fichier(ENTETES.png), Role.SPONSOR),
+      ).toThrow(ForbiddenException);
+    });
+
     it('laisse le partenaire deposer son logo, et le bureau le faire pour lui', () => {
       expect(() =>
         validerFichier('sponsor', fichier(ENTETES.png), Role.SPONSOR),
