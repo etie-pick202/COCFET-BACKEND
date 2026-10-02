@@ -57,7 +57,7 @@ import { transportBrevoApi } from './transports/brevo-api.transport';
           defaults: {
             from: config.get<string>(
               'MAIL_FROM',
-              'COCFET <no-reply@cocfet.com>',
+              'COCFET <contact@cocfet-ucac-icam.com>',
             ),
           } as unknown as MailerOptions['defaults'],
           template: {
