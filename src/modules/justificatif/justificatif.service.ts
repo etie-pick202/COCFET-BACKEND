@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
+import { CotisationService } from '../cotisation/cotisation.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -41,6 +42,7 @@ export class JustificatifService {
     private readonly transactionService: TransactionService,
     private readonly repercussion: RepercussionPaiementService,
     private readonly nettoyage: NettoyageFichiers,
+    private readonly cotisationService: CotisationService,
   ) {}
 
   /**
@@ -54,7 +56,35 @@ export class JustificatifService {
     user: Pick<User, 'id'>,
     dto: SoumettreJustificatifDto,
   ): Promise<JustificatifPaiement> {
-    const transaction = await this.transactionService.trouver(dto.reference);
+    if (!dto.participationId) {
+      return this.deposer(user, dto.reference!, dto, null);
+    }
+
+    // Cotisation : le règlement de l'échéance choisie est ouvert ici, et la
+    // pièce s'y rattache. S'il ne peut pas être déposé, le règlement est
+    // défait — sinon il bloquerait la personne sans qu'aucune pièce ne
+    // vienne jamais le trancher.
+    const prepare = await this.cotisationService.preparerJustificatif(
+      user,
+      dto.participationId,
+      dto.ordreTranche ?? null,
+    );
+
+    try {
+      return await this.deposer(user, prepare.reference, dto, prepare.libelle);
+    } catch (erreur) {
+      await this.cotisationService.annulerPreparation(prepare.reference);
+      throw erreur;
+    }
+  }
+
+  private async deposer(
+    user: Pick<User, 'id'>,
+    reference: string,
+    dto: Pick<SoumettreJustificatifDto, 'cle' | 'montantDeclare'>,
+    libelle: string | null,
+  ): Promise<JustificatifPaiement> {
+    const transaction = await this.transactionService.trouver(reference);
 
     if (!transaction) {
       throw new NotFoundException('Aucun règlement ne porte cette référence.');
@@ -72,7 +102,7 @@ export class JustificatifService {
 
     const enAttente = await this.justificatifs.findOne({
       where: {
-        reference: dto.reference,
+        reference,
         statut: StatutJustificatif.EN_ATTENTE,
       },
     });
@@ -87,8 +117,9 @@ export class JustificatifService {
 
     const justificatif = await this.justificatifs.save(
       this.justificatifs.create({
-        reference: dto.reference,
+        reference,
         origine: transaction.origine,
+        libelle,
         cle: dto.cle,
         montantDeclare: dto.montantDeclare,
         statut: StatutJustificatif.EN_ATTENTE,
@@ -97,7 +128,7 @@ export class JustificatifService {
     );
 
     this.logger.log(
-      `Preuve de paiement déposée pour ${dto.reference} ` +
+      `Preuve de paiement déposée pour ${reference} ` +
         `(${dto.montantDeclare} FCFA déclarés).`,
     );
 
@@ -129,6 +160,14 @@ export class JustificatifService {
       // rendrait l'encaisse incalculable.
       recuPar: { id: dto.recuParId ?? validateur.id },
     });
+
+    // Ce qui a été reçu, sans frais : l'argent n'est pas passé par le
+    // prestataire. Avant l'application, pour que le crédit d'une cotisation
+    // porte sur ce montant certifié et non sur celui d'abord annoncé.
+    await this.transactionService.certifier(
+      justificatif.reference,
+      dto.montantRecu,
+    );
 
     // La transaction d'abord : c'est elle qui dédoublonne. Sans ce passage,
     // une notification du prestataire arrivant ensuite rejouerait les effets.
@@ -163,7 +202,7 @@ export class JustificatifService {
     validateur: Pick<User, 'id'>,
     motif: string,
   ): Promise<JustificatifPaiement> {
-    await this.enAttenteOuEchouer(id);
+    const justificatif = await this.enAttenteOuEchouer(id);
 
     await this.justificatifs.update(id, {
       statut: StatutJustificatif.REFUSE,
@@ -171,6 +210,24 @@ export class JustificatifService {
       decideLe: new Date(),
       motifRefus: motif,
     });
+
+    // Une cotisation fait exception : son règlement a été ouvert pour cette
+    // seule pièce. Le laisser en attente bloquerait toutes les autres
+    // échéances de la personne ; il est clos, et elle est prévenue du motif.
+    // Une nouvelle pièce ouvrira un nouveau règlement.
+    if (
+      justificatif.origine === OrigineTransaction.COTISATION &&
+      (await this.transactionService.appliquer(
+        justificatif.reference,
+        StatutPaiement.ECHOUE,
+      ))
+    ) {
+      await this.repercussion.repercuter(
+        justificatif.reference,
+        StatutPaiement.ECHOUE,
+        motif,
+      );
+    }
 
     return this.trouver(id);
   }

@@ -123,6 +123,8 @@ export class TresorerieService {
         'Statut',
         'Methode',
         'Montant FCFA',
+        'Frais prestataire FCFA',
+        'Net encaisse FCFA',
         'Compte',
       ],
       transactions.map((t) => [
@@ -133,6 +135,8 @@ export class TresorerieService {
         t.statut,
         t.methodePaiement,
         t.montant,
+        t.fraisPrestataire,
+        t.montant - t.fraisPrestataire,
         t.user ? `${t.user.firstName} ${t.user.lastName}` : '',
       ]),
     );
@@ -184,11 +188,13 @@ export class TresorerieService {
     const requete = this.transactions
       .createQueryBuilder('t')
       .select('COALESCE(SUM(t.montant), 0)', 'somme')
+      .addSelect('COALESCE(SUM(t.frais_prestataire), 0)', 'frais')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE });
     this.borner(requete, 't', periode);
 
-    const brut = await requete.getRawOne<{ somme: string }>();
+    const brut = await requete.getRawOne<{ somme: string; frais: string }>();
     const recettesTotales = Number(brut?.somme ?? 0);
+    const fraisPrestataire = Number(brut?.frais ?? 0);
 
     const [abouties, enAttente, echouees] = await Promise.all([
       compter(StatutPaiement.COMPLETE),
@@ -198,6 +204,10 @@ export class TresorerieService {
 
     return {
       recettesTotales,
+      fraisPrestataire,
+      // Ce qui est réellement en caisse : le prestataire retient ses frais sur
+      // le débité, et le rapport ne doit pas promettre ce qu'il a gardé.
+      recettesNettes: recettesTotales - fraisPrestataire,
       transactionsAbouties: abouties,
       transactionsEnAttente: enAttente,
       transactionsEchouees: echouees,
@@ -239,6 +249,10 @@ export class TresorerieService {
       .createQueryBuilder('t')
       .select(colonne, 'libelle')
       .addSelect('COALESCE(SUM(t.montant), 0)', 'montant')
+      .addSelect(
+        'COALESCE(SUM(t.montant - t.frais_prestataire), 0)',
+        'montant_net',
+      )
       .addSelect('COUNT(*)', 'nombre')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
       .groupBy(colonne)
@@ -249,6 +263,7 @@ export class TresorerieService {
     const lignes = await requete.getRawMany<{
       libelle: string | null;
       montant: string;
+      montant_net: string;
       nombre: string;
     }>();
 
@@ -257,6 +272,7 @@ export class TresorerieService {
       // sans passer par un opérateur.
       libelle: ligne.libelle ?? 'NON_RENSEIGNE',
       montant: Number(ligne.montant),
+      montantNet: Number(ligne.montant_net),
       nombre: Number(ligne.nombre),
     }));
   }
@@ -278,16 +294,26 @@ export class TresorerieService {
       .createQueryBuilder('t')
       .select("to_char(date_trunc('month', t.created_at), 'YYYY-MM')", 'mois')
       .addSelect('COALESCE(SUM(t.montant), 0)', 'montant')
+      .addSelect(
+        'COALESCE(SUM(t.montant - t.frais_prestataire), 0)',
+        'montant_net',
+      )
       .addSelect('COUNT(*)', 'nombre')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
       .andWhere('t.createdAt >= :debut', { debut })
       .groupBy("date_trunc('month', t.created_at)")
       .orderBy("date_trunc('month', t.created_at)", 'ASC')
-      .getRawMany<{ mois: string; montant: string; nombre: string }>();
+      .getRawMany<{
+        mois: string;
+        montant: string;
+        montant_net: string;
+        nombre: string;
+      }>();
 
     return lignes.map((ligne) => ({
       mois: ligne.mois,
       montant: Number(ligne.montant),
+      montantNet: Number(ligne.montant_net),
       nombre: Number(ligne.nombre),
     }));
   }

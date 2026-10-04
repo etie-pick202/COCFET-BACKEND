@@ -38,8 +38,10 @@ import {
   CreerCotisationDto,
   DeclarerVersementDto,
   MettreAJourCotisationDto,
+  PayerEcheanceDto,
 } from './dto/cotisation.dto';
 import { Cotisation } from './entities/cotisation.entity';
+import { ReglementCotisation } from './entities/reglement-cotisation.entity';
 import { VersementFinance } from './entities/versement-finance.entity';
 
 type Requete = Request & { user: { id: string; role: Role } };
@@ -68,9 +70,60 @@ export class CotisationController {
       'Pour chaque cotisation à laquelle je suis appelé : ce que je dois, ce ' +
       'que j’ai versé, le pourcentage, et l’état de chaque tranche.',
   })
-  @ApiOkResponse({ description: 'Mes participations, avec leur avancement.' })
+  @ApiOkResponse({
+    description:
+      'Mes participations : avancement, échéances réglables et règlements.',
+  })
   mesCotisations(@Req() requete: Requete) {
     return this.cotisationService.mesCotisations(requete.user.id);
+  }
+
+  @Post('participations/:participationId/payer')
+  @ApiOperation({
+    summary: 'Régler une échéance en ligne',
+    description:
+      'L’échéance est la prochaine tranche non soldée (« ordreTranche ») ou, ' +
+      'sans « ordreTranche », la totalité du reste dû. Le payeur est débité ' +
+      'des frais du prestataire en plus du montant de l’échéance, comme pour ' +
+      'un billet ; seul le montant de l’échéance est crédité.',
+  })
+  @ApiCreatedResponse({ type: ReglementCotisation })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Échéance non réglable maintenant : un règlement attend déjà, ou une ' +
+      'tranche antérieure reste à payer.',
+    type: ReponseErreurDto,
+  })
+  payerEcheance(
+    @Req() requete: Requete,
+    @Param('participationId', ParseUUIDPipe) participationId: string,
+    @Body() dto: PayerEcheanceDto,
+  ): Promise<ReglementCotisation> {
+    return this.cotisationService.payerEcheance(
+      requete.user,
+      participationId,
+      dto,
+    );
+  }
+
+  @Delete('reglements/:reglementId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Abandonner un paiement en ligne resté en attente',
+    description:
+      'Ferme la page de paiement chez le prestataire et libère les autres ' +
+      'échéances. Un paiement qui aurait malgré tout abouti reste crédité.',
+  })
+  @ApiNoContentResponse({ description: 'Règlement abandonné.' })
+  abandonnerReglement(
+    @Req() requete: Requete,
+    @Param('reglementId', ParseUUIDPipe) reglementId: string,
+  ): Promise<void> {
+    return this.cotisationService.abandonnerReglement(
+      requete.user,
+      reglementId,
+    );
   }
 
   @ExigePrivilege(Privilege.TRESORERIE)

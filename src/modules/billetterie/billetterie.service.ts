@@ -861,6 +861,7 @@ export class BilletterieService {
       origine: OrigineTransaction.EVENEMENT,
       user: inscription.user,
       methodePaiement: dto.methodePaiement ?? null,
+      fraisPrestataire: inscription.frais.fraisFapshi ?? 0,
     });
 
     const resultat = await this.paiement.initier({

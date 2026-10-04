@@ -1,8 +1,25 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { GenerationService } from '../generation/generation.service';
+import { NotificationService } from '../notification/notification.service';
+import {
+  OrigineTransaction,
+  Transaction,
+} from '../paiement/entities/transaction.entity';
+import {
+  MethodePaiement,
+  StatutPaiement,
+} from '../paiement/enums/paiement.enum';
+import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
+import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
 import { CotisationService } from './cotisation.service';
+import { LIBELLE_TOTALITE } from './echeances';
 import {
   CibleCotisation,
   Cotisation,
@@ -12,6 +29,10 @@ import {
   ParticipationCotisation,
   StatutParticipation,
 } from './entities/participation-cotisation.entity';
+import {
+  ModeReglement,
+  ReglementCotisation,
+} from './entities/reglement-cotisation.entity';
 import { TrancheCotisation } from './entities/tranche-cotisation.entity';
 import { VersementFinance } from './entities/versement-finance.entity';
 
@@ -30,6 +51,10 @@ describe('CotisationService', () => {
   let versements: Record<string, jest.Mock>;
   let constructeur: Record<string, jest.Mock>;
   let trouverActive: jest.Mock;
+  let reglements: Record<string, jest.Mock>;
+  let notifications: Record<string, jest.Mock>;
+  let transactions: Record<string, jest.Mock>;
+  let passerelle: Record<string, jest.Mock>;
 
   const cotisation = (surcharge: Partial<Cotisation> = {}): Cotisation =>
     ({
@@ -74,6 +99,38 @@ describe('CotisationService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     trouverActive = jest.fn().mockResolvedValue({ annee: 2027 });
+    reglements = {
+      find: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn().mockResolvedValue(null),
+      findOneOrFail: jest
+        .fn()
+        .mockImplementation(() => Promise.resolve({ id: 'r1' })),
+      save: jest
+        .fn()
+        .mockImplementation((r: object) => Promise.resolve({ ...r, id: 'r1' })),
+      create: jest.fn().mockImplementation((r: unknown) => r),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
+    };
+    notifications = {
+      notifier: jest.fn().mockResolvedValue(null),
+      notifierPlusieurs: jest.fn().mockResolvedValue(0),
+    };
+    transactions = {
+      ouvrir: jest.fn().mockResolvedValue({}),
+      enregistrerReferenceExterne: jest.fn().mockResolvedValue(undefined),
+      abandonner: jest.fn().mockResolvedValue(true),
+      appliquer: jest.fn().mockResolvedValue(true),
+      trouver: jest.fn().mockResolvedValue(null),
+    };
+    passerelle = {
+      initier: jest.fn().mockResolvedValue({
+        reference: 'x',
+        referenceExterne: 'ext-1',
+        statut: StatutPaiement.EN_ATTENTE,
+        urlRedirection: null,
+      }),
+      expirer: jest.fn().mockResolvedValue(undefined),
+    };
 
     service = new CotisationService(
       cotisations as unknown as Repository<Cotisation>,
@@ -84,11 +141,16 @@ describe('CotisationService', () => {
       } as unknown as Repository<TrancheCotisation>,
       participations as unknown as Repository<ParticipationCotisation>,
       versements as unknown as Repository<VersementFinance>,
+      reglements as unknown as Repository<ReglementCotisation>,
       {
         createQueryBuilder: jest.fn().mockReturnValue(constructeur),
         findOne: jest.fn().mockResolvedValue({ id: 'u1' }),
       } as unknown as Repository<User>,
       { trouverActive } as unknown as GenerationService,
+      notifications as unknown as NotificationService,
+      transactions as unknown as TransactionService,
+      passerelle as unknown as PasserellePaiement,
+      { get: () => undefined } as unknown as ConfigService,
     );
   });
 
@@ -291,6 +353,334 @@ describe('CotisationService', () => {
       await expect(
         service.declarerVersement({ id: 'u1' } as User, { montant: 50_000 }),
       ).resolves.toMatchObject({ montant: 50_000, recuPar: null });
+    });
+  });
+  describe('règlement des échéances', () => {
+    const tranche = (ordre: number, montant: number, date: string) =>
+      ({
+        ordre,
+        libelle: `Tranche ${ordre}`,
+        montant,
+        dateLimite: new Date(date),
+      }) as TrancheCotisation;
+
+    const participation = (
+      surcharge: Partial<ParticipationCotisation> = {},
+      surchargeCotisation: Partial<Cotisation> = {},
+    ): ParticipationCotisation =>
+      ({
+        id: 'p1',
+        montantDu: 30_000,
+        montantRegle: 0,
+        statut: StatutParticipation.EN_COURS,
+        user: { id: 'u1', firstName: 'Awa' },
+        cotisation: cotisation({
+          titre: 'Cotisation 2027',
+          statut: StatutCotisation.OUVERTE,
+          fractionnable: true,
+          accepteJustificatif: true,
+          dateLimite: new Date('2099-06-30'),
+          tranches: [
+            tranche(1, 10_000, '2099-01-31'),
+            tranche(2, 20_000, '2099-03-31'),
+          ],
+          ...surchargeCotisation,
+        }),
+        ...surcharge,
+      }) as unknown as ParticipationCotisation;
+
+    const transaction = (surcharge: Partial<Transaction> = {}): Transaction =>
+      ({
+        reference: 'COT-1',
+        montant: 10_417,
+        origine: OrigineTransaction.COTISATION,
+        ...surcharge,
+      }) as Transaction;
+
+    describe('échéances proposées', () => {
+      it('propose la prochaine tranche et la totalité, pas la suivante', async () => {
+        participations.find.mockResolvedValue([participation()]);
+
+        const [mienne] = await service.mesCotisations('u1');
+
+        expect(mienne.participationId).toBe('p1');
+        expect(
+          mienne.echeances.map((e) => [e.ordreTranche, e.montant, e.payable]),
+        ).toEqual([
+          [1, 10_000, true],
+          [2, 20_000, false],
+          [null, 30_000, true],
+        ]);
+        expect(mienne.echeances[2].libelle).toBe(LIBELLE_TOTALITE);
+      });
+
+      it('bloque tout tant qu’un règlement attend son issue', async () => {
+        participations.find.mockResolvedValue([participation()]);
+        reglements.find.mockResolvedValue([
+          {
+            id: 'r0',
+            statut: StatutPaiement.EN_ATTENTE,
+            participation: { id: 'p1' },
+          },
+        ]);
+
+        const [mienne] = await service.mesCotisations('u1');
+
+        expect(mienne.echeances.every((e) => !e.payable)).toBe(true);
+        expect(mienne.reglements).toHaveLength(1);
+        expect(mienne.reglements[0]).not.toHaveProperty('participation');
+      });
+
+      it('ne propose que la totalité sans échéancier fractionné', async () => {
+        participations.find.mockResolvedValue([
+          participation({}, { fractionnable: false }),
+        ]);
+
+        const [mienne] = await service.mesCotisations('u1');
+
+        expect(mienne.echeances.map((e) => e.ordreTranche)).toEqual([null]);
+      });
+    });
+
+    describe('paiement en ligne', () => {
+      const payer = (ordreTranche?: number) =>
+        service.payerEcheance({ id: 'u1' }, 'p1', {
+          ordreTranche,
+          methodePaiement: MethodePaiement.ORANGE_MONEY,
+          telephone: '+237699000000',
+        });
+
+      beforeEach(() => {
+        participations.findOne.mockResolvedValue(participation());
+      });
+
+      it('débite les frais en plus, mais ne crédite que l’échéance', async () => {
+        await payer(1);
+
+        const ouverte = (
+          transactions.ouvrir.mock.calls as unknown[][]
+        )[0][0] as {
+          montant: number;
+          fraisPrestataire: number;
+          origine: OrigineTransaction;
+        };
+        expect(ouverte.origine).toBe(OrigineTransaction.COTISATION);
+        expect(ouverte.montant).toBeGreaterThan(10_000);
+        expect(ouverte.fraisPrestataire).toBeGreaterThan(0);
+        expect(passerelle.initier).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: ouverte.montant }),
+        );
+        expect(reglements.save).toHaveBeenCalledWith(
+          expect.objectContaining({
+            montant: 10_000,
+            ordreTranche: 1,
+            mode: ModeReglement.EN_LIGNE,
+          }),
+        );
+      });
+
+      it('refuse une tranche qui n’est pas la prochaine', async () => {
+        await expect(payer(2)).rejects.toThrow(ConflictException);
+        expect(transactions.ouvrir).not.toHaveBeenCalled();
+      });
+
+      it('refuse un second règlement pendant qu’un premier attend', async () => {
+        reglements.find.mockResolvedValue([
+          { statut: StatutPaiement.EN_ATTENTE },
+        ]);
+
+        await expect(payer()).rejects.toThrow(ConflictException);
+      });
+
+      it('referme tout quand l’opérateur refuse la demande', async () => {
+        passerelle.initier.mockResolvedValue({
+          reference: 'x',
+          referenceExterne: '',
+          statut: StatutPaiement.ECHOUE,
+          urlRedirection: null,
+        });
+
+        await expect(payer()).rejects.toThrow(BadRequestException);
+        expect(transactions.abandonner).toHaveBeenCalled();
+        expect(reglements.update).toHaveBeenCalledWith('r1', {
+          statut: StatutPaiement.ECHOUE,
+          urlPaiement: null,
+        });
+      });
+
+      it('ignore la participation d’autrui', async () => {
+        participations.findOne.mockResolvedValue(null);
+
+        await expect(payer()).rejects.toThrow(NotFoundException);
+      });
+    });
+
+    describe('justificatif', () => {
+      it('ouvre une transaction sans frais, rattachée à l’échéance', async () => {
+        participations.findOne.mockResolvedValue(participation());
+
+        const prepare = await service.preparerJustificatif(
+          { id: 'u1' },
+          'p1',
+          null,
+        );
+
+        expect(prepare.libelle).toBe(`Cotisation 2027 — ${LIBELLE_TOTALITE}`);
+        expect(transactions.ouvrir).toHaveBeenCalledWith(
+          expect.objectContaining({
+            montant: 30_000,
+            fraisPrestataire: 0,
+            methodePaiement: null,
+          }),
+        );
+      });
+
+      it('refuse une cotisation qui n’accepte pas de justificatif', async () => {
+        participations.findOne.mockResolvedValue(
+          participation({}, { accepteJustificatif: false }),
+        );
+
+        await expect(
+          service.preparerJustificatif({ id: 'u1' }, 'p1', null),
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    describe('issue d’un paiement', () => {
+      const reglement = (surcharge: Partial<ReglementCotisation> = {}) => ({
+        id: 'r1',
+        reference: 'COT-1',
+        libelle: 'Tranche 1',
+        montant: 10_000,
+        mode: ModeReglement.EN_LIGNE,
+        statut: StatutPaiement.EN_ATTENTE,
+        participation: participation(),
+        ...surcharge,
+      });
+
+      beforeEach(() => {
+        participations.findOne.mockResolvedValue({ id: 'p1' });
+        participations.findOneOrFail.mockResolvedValue({
+          montantDu: 30_000,
+          montantRegle: 10_000,
+          statut: StatutParticipation.EN_COURS,
+        });
+      });
+
+      it('crédite le montant de l’échéance, pas le débité', async () => {
+        reglements.findOne.mockResolvedValue(reglement());
+
+        await service.traiterIssue(transaction(), StatutPaiement.COMPLETE);
+
+        expect(participations.increment).toHaveBeenCalledWith(
+          { id: 'p1' },
+          'montantRegle',
+          10_000,
+        );
+        expect(notifications.notifier).toHaveBeenCalledWith(
+          expect.objectContaining({ lien: '/mon-espace/cotisations' }),
+        );
+      });
+
+      it('crédite le montant certifié d’un justificatif', async () => {
+        reglements.findOne.mockResolvedValue(
+          reglement({ mode: ModeReglement.JUSTIFICATIF }),
+        );
+
+        await service.traiterIssue(
+          transaction({ montant: 8_000 }),
+          StatutPaiement.COMPLETE,
+        );
+
+        expect(participations.increment).toHaveBeenCalledWith(
+          { id: 'p1' },
+          'montantRegle',
+          8_000,
+        );
+      });
+
+      it('clôt le règlement refusé et en donne le motif', async () => {
+        reglements.findOne.mockResolvedValue(
+          reglement({ mode: ModeReglement.JUSTIFICATIF }),
+        );
+
+        await service.traiterIssue(
+          transaction(),
+          StatutPaiement.ECHOUE,
+          'Capture illisible',
+        );
+
+        expect(reglements.update).toHaveBeenCalledWith('r1', {
+          statut: StatutPaiement.ECHOUE,
+          urlPaiement: null,
+        });
+        expect(participations.increment).not.toHaveBeenCalled();
+        const notifie = (
+          notifications.notifier.mock.calls as unknown[][]
+        )[0][0] as {
+          message: string;
+        };
+        expect(notifie.message).toContain('Capture illisible');
+      });
+
+      it('reste compatible avec l’ancienne référence de participation', async () => {
+        await service.traiterIssue(
+          transaction({ reference: 'p1', montant: 5_000 }),
+          StatutPaiement.COMPLETE,
+        );
+
+        expect(participations.increment).toHaveBeenCalledWith(
+          { id: 'p1' },
+          'montantRegle',
+          5_000,
+        );
+      });
+    });
+
+    describe('abandon', () => {
+      it('ferme le lien chez le prestataire et libère les échéances', async () => {
+        reglements.findOne.mockResolvedValue({
+          id: 'r1',
+          reference: 'COT-1',
+          mode: ModeReglement.EN_LIGNE,
+          statut: StatutPaiement.EN_ATTENTE,
+        });
+        transactions.trouver.mockResolvedValue({ referenceExterne: 'ext-1' });
+
+        await service.abandonnerReglement({ id: 'u1' }, 'r1');
+
+        expect(passerelle.expirer).toHaveBeenCalledWith('ext-1');
+        expect(transactions.appliquer).toHaveBeenCalledWith(
+          'COT-1',
+          StatutPaiement.ECHOUE,
+        );
+      });
+
+      it('refuse d’abandonner un justificatif', async () => {
+        reglements.findOne.mockResolvedValue({
+          id: 'r1',
+          mode: ModeReglement.JUSTIFICATIF,
+          statut: StatutPaiement.EN_ATTENTE,
+        });
+
+        await expect(
+          service.abandonnerReglement({ id: 'u1' }, 'r1'),
+        ).rejects.toThrow(ConflictException);
+      });
+    });
+
+    it('prévient les personnes nouvellement appelées à l’ouverture', async () => {
+      cotisations.findOne.mockResolvedValue(
+        cotisation({ dateLimite: new Date('2099-06-30') }),
+      );
+      constructeur.getMany.mockResolvedValue([{ id: 'u1' }, { id: 'u2' }]);
+
+      await service.ouvrir('c1');
+
+      expect(notifications.notifierPlusieurs).toHaveBeenCalledWith(
+        [{ id: 'u1' }, { id: 'u2' }],
+        expect.objectContaining({ lien: '/mon-espace/cotisations' }),
+      );
     });
   });
 });
