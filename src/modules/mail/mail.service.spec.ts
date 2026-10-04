@@ -1,4 +1,5 @@
 import { MailerService } from '@nestjs-modules/mailer';
+import { ConfigService } from '@nestjs/config';
 import {
   IdentiteVisuelle,
   IdentiteVisuelleService,
@@ -61,6 +62,46 @@ describe('MailService', () => {
       couleurPrimaire: '#123456',
       couleurSecondaire: '#ABCDEF',
       contrastePrimaire: '#FFFFFF',
+    });
+  });
+
+  describe('liens des notifications', () => {
+    // Un chemin relatif dans un email ne mène nulle part : il n'y a pas de
+    // site autour pour le résoudre, et le bouton aboutissait à une 404.
+    const avecFrontal = (origine: string): MailService =>
+      new MailService(
+        { sendMail } as unknown as MailerService,
+        { charte } as unknown as IdentiteVisuelleService,
+        { get: () => origine } as unknown as ConfigService,
+      );
+
+    it('ancre un chemin relatif sur le frontal', async () => {
+      const mail = avecFrontal('https://cocfet.test,https://autre.test');
+
+      await mail.envoyerNotification(
+        'a@b.test',
+        'Awa',
+        'Commande prête',
+        'Corps',
+        '/commandes/42',
+      );
+      await viderLaFile();
+
+      expect(messageRemis(0).context.lien).toBe(
+        'https://cocfet.test/commandes/42',
+      );
+    });
+
+    it('laisse passer un lien déjà absolu, et garde le nul', () => {
+      const mail = avecFrontal('https://cocfet.test/');
+
+      expect(mail.lienAbsolu('https://ailleurs.test/x')).toBe(
+        'https://ailleurs.test/x',
+      );
+      expect(mail.lienAbsolu('billets/7')).toBe(
+        'https://cocfet.test/billets/7',
+      );
+      expect(mail.lienAbsolu(null)).toBeNull();
     });
   });
 

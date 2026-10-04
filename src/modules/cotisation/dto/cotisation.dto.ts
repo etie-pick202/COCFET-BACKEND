@@ -11,11 +11,13 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { MethodePaiement } from '../../paiement/enums/paiement.enum';
 import { CibleCotisation } from '../entities/cotisation.entity';
 
 /** Au-delà, l'échéancier devient illisible et personne ne le suit. */
@@ -150,4 +152,39 @@ export class DeclarerVersementDto {
   @MaxLength(300)
   @IsOptional()
   note?: string;
+}
+
+/**
+ * Échéance choisie par la personne.
+ *
+ * Un rang de tranche, ou rien pour la totalité du reste dû. Un champ absent
+ * plutôt qu'une union « nombre ou "TOTALITE" » : le ValidationPipe réduit une
+ * union à `Object` et laisserait alors tout passer.
+ */
+export class ChoixEcheanceDto {
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'Rang de la tranche à régler. Absent : la totalité du reste dû.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  ordreTranche?: number;
+}
+
+export class PayerEcheanceDto extends ChoixEcheanceDto {
+  @ApiProperty({ enum: MethodePaiement })
+  @IsEnum(MethodePaiement)
+  methodePaiement: MethodePaiement;
+
+  @ApiProperty({
+    example: '+237699000002',
+    description: 'Numéro Mobile Money qui recevra la demande.',
+  })
+  @Matches(/^\+?\d{8,15}$/, {
+    message: 'telephone doit être un numéro valide, ex. +237699000002',
+  })
+  telephone: string;
 }

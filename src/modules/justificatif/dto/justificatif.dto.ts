@@ -10,15 +10,50 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { OrigineTransaction } from '../../paiement/entities/transaction.entity';
 import { StatutJustificatif } from '../entities/justificatif-paiement.entity';
 
+/**
+ * Dépôt d'une preuve de paiement.
+ *
+ * Deux façons de désigner ce qu'elle règle : la **référence** d'un règlement
+ * existant (un billet, une commande), ou, pour une cotisation, la
+ * **participation** et l'**échéance** choisie — tranche ou totalité. La
+ * seconde évite d'avoir à demander une référence au bureau : la personne
+ * choisit l'échéance dans sa liste, et la validation la ferme.
+ */
 export class SoumettreJustificatifDto {
-  @ApiProperty({ description: 'Référence du règlement à justifier.' })
+  @ApiPropertyOptional({
+    description:
+      'Référence du règlement à justifier. Exigée sauf pour une cotisation, ' +
+      'qui se désigne par « participationId ».',
+  })
+  @ValidateIf((dto: SoumettreJustificatifDto) => !dto.participationId)
   @IsString()
   @MaxLength(120)
-  reference: string;
+  reference?: string;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Participation à une cotisation que la preuve règle.',
+  })
+  @IsUUID()
+  @IsOptional()
+  participationId?: string;
+
+  @ApiPropertyOptional({
+    example: 1,
+    description:
+      'Avec « participationId » : rang de la tranche réglée. Absent : la ' +
+      'totalité du reste dû.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  ordreTranche?: number;
 
   /**
    * Le préfixe est imposé. Sans lui, n'importe quelle clé du stockage pourrait

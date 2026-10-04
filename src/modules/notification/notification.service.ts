@@ -95,8 +95,44 @@ export class NotificationService {
    * promotion entière, un aller-retour par utilisateur mettrait la base à
    * genoux et l'appel HTTP expirerait.
    */
+  /**
+   * Notifie une liste de personnes déjà connues, d'un même message.
+   *
+   * Même mécanique que `diffuser`, sans le ciblage : l'appelant sait déjà qui
+   * prévenir — les personnes appelées à une cotisation, par exemple. Les
+   * notifications sont écrites tout de suite, les emails partent en arrière-
+   * plan : ouvrir une cotisation pour une promotion entière ne doit pas faire
+   * attendre la trésorerie le temps de trois cents envois.
+   *
+   * **Ne lève jamais**, comme `notifier`.
+   */
+  async notifierPlusieurs(
+    destinataires: User[],
+    contenu: Omit<DemandeNotification, 'destinataire'>,
+  ): Promise<number> {
+    try {
+      return await this.inscrireEtDiffuser(destinataires, {
+        type: contenu.type,
+        titre: contenu.titre,
+        message: contenu.message,
+        lien: contenu.lien ?? undefined,
+      });
+    } catch (erreur) {
+      this.logger.error(
+        `Échec de notification groupée (${contenu.type}) : ${(erreur as Error).message}`,
+      );
+      return 0;
+    }
+  }
+
   async diffuser(dto: DiffuserNotificationDto): Promise<number> {
-    const destinataires = await this.cibler(dto);
+    return this.inscrireEtDiffuser(await this.cibler(dto), dto);
+  }
+
+  private async inscrireEtDiffuser(
+    destinataires: User[],
+    dto: Pick<DiffuserNotificationDto, 'type' | 'titre' | 'message' | 'lien'>,
+  ): Promise<number> {
     if (destinataires.length === 0) {
       return 0;
     }
@@ -363,7 +399,7 @@ export class NotificationService {
 
   private async diffuserEnArrierePlan(
     destinataires: User[],
-    dto: DiffuserNotificationDto,
+    dto: Pick<DiffuserNotificationDto, 'type' | 'titre' | 'message' | 'lien'>,
   ): Promise<void> {
     const coupes = await this.preferences.find({
       where: {

@@ -78,8 +78,17 @@ export class MontantVentile {
   @ApiProperty({ example: 'EVENEMENT' })
   libelle: string;
 
-  @ApiProperty({ example: 450_000, description: 'En FCFA.' })
+  @ApiProperty({
+    example: 450_000,
+    description: 'Débité, frais compris, FCFA.',
+  })
   montant: number;
+
+  @ApiProperty({
+    example: 436_500,
+    description: 'Encaissé net : débité moins les frais du prestataire.',
+  })
+  montantNet: number;
 
   @ApiProperty({ example: 37, description: 'Nombre de transactions.' })
   nombre: number;
@@ -91,6 +100,9 @@ export class PointTemporel {
 
   @ApiProperty({ example: 320_000 })
   montant: number;
+
+  @ApiProperty({ example: 310_400, description: 'Encaissé net du mois.' })
+  montantNet: number;
 
   @ApiProperty({ example: 24 })
   nombre: number;
@@ -123,9 +135,25 @@ export class ClassementEntree {
 export class TableauTresorerie {
   @ApiProperty({
     example: 1_250_000,
-    description: 'Recettes encaissées, FCFA.',
+    description:
+      'Montants débités aux payeurs, frais compris, FCFA. Ce n’est pas ce qui ' +
+      'est en caisse : voir « recettesNettes ».',
   })
   recettesTotales: number;
+
+  @ApiProperty({
+    example: 37_500,
+    description: 'Frais retenus par le prestataire de paiement, FCFA.',
+  })
+  fraisPrestataire: number;
+
+  @ApiProperty({
+    example: 1_212_500,
+    description:
+      'Encaissé net : ce qui arrive réellement en caisse, une fois les frais ' +
+      'du prestataire retenus.',
+  })
+  recettesNettes: number;
 
   @ApiProperty({ example: 320_000, description: 'Recettes du mois en cours.' })
   recettesDuMois: number;

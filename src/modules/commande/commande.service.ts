@@ -555,6 +555,7 @@ export class CommandeService {
       origine: OrigineTransaction.BOUTIQUE,
       user: commande.user,
       methodePaiement: dto.methodePaiement,
+      fraisPrestataire: commande.frais.fraisFapshi ?? 0,
     });
 
     const resultat = await this.paiement.initier({

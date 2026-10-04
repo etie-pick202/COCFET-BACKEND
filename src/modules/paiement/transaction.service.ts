@@ -11,6 +11,8 @@ export interface OuvertureTransaction {
   origine: OrigineTransaction;
   user: User | null;
   methodePaiement: MethodePaiement | null;
+  /** Frais que le prestataire retiendra sur `montant`. Nul hors ligne. */
+  fraisPrestataire?: number;
 }
 
 /**
@@ -48,6 +50,7 @@ export class TransactionService {
         origine: donnees.origine,
         user: donnees.user,
         methodePaiement: donnees.methodePaiement,
+        fraisPrestataire: donnees.fraisPrestataire ?? 0,
         statut: StatutPaiement.EN_ATTENTE,
       })
       .orIgnore()
@@ -87,6 +90,22 @@ export class TransactionService {
     }
 
     return change;
+  }
+
+  /**
+   * Fixe ce qui a réellement été reçu pour un paiement reconnu à la main.
+   *
+   * Un justificatif validé n'est pas passé par le prestataire : rien n'a été
+   * retenu, et le montant qui compte est celui que la trésorerie certifie —
+   * pas celui, frais compris, qu'une demande en ligne avait d'abord annoncé.
+   * Sans cela le journal compterait des frais jamais prélevés, et la caisse
+   * ne correspondrait plus à ce qui a été remis.
+   */
+  async certifier(reference: string, montantRecu: number): Promise<void> {
+    await this.transactions.update(
+      { reference },
+      { montant: montantRecu, fraisPrestataire: 0 },
+    );
   }
 
   /**
@@ -163,6 +182,34 @@ export class TransactionService {
       .orderBy('t.created_at', 'ASC')
       .take(taille)
       .getMany();
+  }
+
+  /**
+   * Page du frontal où retrouver ce qu'un paiement a réglé.
+   *
+   * Lue en SQL plutôt qu'à travers la billetterie : ce service est le socle
+   * des paiements, et lui faire dépendre des domaines qu'il sert ajouterait
+   * un cycle de plus pour une seule colonne.
+   */
+  async destination(transaction: Transaction): Promise<string> {
+    switch (transaction.origine) {
+      case OrigineTransaction.BOUTIQUE:
+        return `/commandes/${transaction.reference}`;
+      case OrigineTransaction.COTISATION:
+        return '/mon-espace/cotisations';
+      case OrigineTransaction.EVENEMENT: {
+        const [inscription] = await this.transactions.manager.query<
+          { id: string }[]
+        >('SELECT id FROM inscriptions WHERE code_billet = $1 LIMIT 1', [
+          transaction.reference,
+        ]);
+        return inscription
+          ? `/billets/${inscription.id}/qr`
+          : '/mon-espace/evenements';
+      }
+      default:
+        return '/mon-espace';
+    }
   }
 
   trouver(reference: string): Promise<Transaction | null> {
