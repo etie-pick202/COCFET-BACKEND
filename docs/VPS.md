@@ -223,6 +223,34 @@ sudo bash /opt/cocfet/scripts/restaurer-base.sh staging /var/backups/cocfet/prod
 Restaurer de temps en temps une sauvegarde de production **dans la recette** :
 une sauvegarde jamais restaurée n'est qu'une supposition.
 
+### Repartir d'une base vide
+
+Entre la phase de tests et l'ouverture au public :
+
+```bash
+sudo bash /opt/cocfet/scripts/reinitialiser-base.sh production
+```
+
+Le script prend une sauvegarde (il s'arrête si elle échoue), demande de retaper
+le nom de l'environnement — et, en production, une phrase de confirmation —,
+arrête l'API, recrée le schéma, rejoue les migrations et relance l'API. Il
+exige un terminal interactif et n'est pas dans l'image de l'API : à une
+commande de l'accident, un outil d'effacement n'a rien à faire dans le
+conteneur de production.
+
+Il ne nettoie pas tout :
+
+- **Le bucket R2** (photos, CV, logos, justificatifs) : les fichiers de test
+  restent, orphelins. À vider séparément.
+- **Fapshi** : les transactions réelles restent dans le tableau de bord du
+  prestataire, ni supprimables ni remboursables automatiquement. Tester avec de
+  petits montants.
+- **À recréer ensuite** : le premier administrateur (section suivante), la
+  génération active, le bureau, les produits et les événements.
+
+À ne faire qu'**avant** de vrais comptes et de vrais paiements : ensuite, on ne
+vide plus, on supprime au cas par cas.
+
 ### Premier administrateur
 
 Une seule commande, **identique en recette et en production**, qui demande le
