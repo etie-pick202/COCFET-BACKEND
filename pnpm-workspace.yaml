@@ -80,3 +80,12 @@ overrides:
 auditConfig:
   ignoreGhsas:
     - GHSA-mh99-v99m-4gvg
+    # braces <= 3.0.3 : epuisement de pile par motifs profondement imbriques
+    # (GHSA-vfj7-8cjw-p6xm, publie le 2026-09-18). AUCUN correctif n'existe : la
+    # derniere version publiee est la 3.0.3, et l'avis ne cite aucune version
+    # corrigee (« >=3.0.4 » n'est qu'un plancher theorique de l'outil d'audit).
+    # Un override est donc impossible. Remonte par lint-staged > micromatch :
+    # outillage de developpement, qui n'expanse que les noms de fichiers de nos
+    # propres commits — jamais charge en production. A retirer des qu'une
+    # version corrigee paraitra.
+    - GHSA-vfj7-8cjw-p6xm
