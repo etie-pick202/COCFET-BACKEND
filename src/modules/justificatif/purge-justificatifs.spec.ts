@@ -1,4 +1,5 @@
 import { Repository } from 'typeorm';
+import { CotisationService } from '../cotisation/cotisation.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { RepercussionPaiementService } from '../paiement/repercussion-paiement.service';
 import { TransactionService } from '../paiement/transaction.service';
@@ -37,6 +38,7 @@ describe('JustificatifService — purge', () => {
       {} as TransactionService,
       {} as RepercussionPaiementService,
       { retirer } as unknown as NettoyageFichiers,
+      {} as CotisationService,
     );
   });
 

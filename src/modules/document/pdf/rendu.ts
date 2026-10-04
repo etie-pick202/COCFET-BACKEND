@@ -3,6 +3,7 @@ import {
   ContenuFacture,
   ContenuRapport,
   ContenuRecu,
+  LigneVentilation,
 } from '../entities/contenu-document';
 import {
   dateLisible,
@@ -172,8 +173,26 @@ function composerRapport(
   ligneCle(page, 'Établi par', contenu.emisPar);
   ligneCle(page, 'Établi le', dateLisible(contenu.emisLe));
 
+  // Les rapports émis avant la prise en compte des frais n'en portent pas :
+  // ils se redessinent tels qu'ils ont été émis, sans net inventé après coup.
+  const avecFrais = contenu.recettesNettes !== undefined;
+
   section(page, 'Synthèse');
-  ligneCle(page, 'Recettes encaissées', montant(contenu.recettesTotales));
+  if (avecFrais) {
+    ligneCle(page, 'Montants débités', montant(contenu.recettesTotales));
+    ligneCle(
+      page,
+      'Frais du prestataire',
+      montant(contenu.fraisPrestataire ?? 0),
+    );
+    ligneCle(
+      page,
+      'Encaissé net (en caisse)',
+      montant(contenu.recettesNettes!),
+    );
+  } else {
+    ligneCle(page, 'Recettes encaissées', montant(contenu.recettesTotales));
+  }
   ligneCle(page, 'Paiements aboutis', String(contenu.transactionsAbouties));
   ligneCle(page, 'Paiements en attente', String(contenu.transactionsEnAttente));
   ligneCle(page, 'Paiements échoués', String(contenu.transactionsEchouees));
@@ -182,34 +201,22 @@ function composerRapport(
   section(page, 'Par origine');
   tableau(
     page,
-    [
-      { titre: 'Origine', part: 0.5 },
-      { titre: 'Nombre', part: 0.2, aDroite: true },
-      { titre: 'Montant', part: 0.3, aDroite: true },
-    ],
-    contenu.parOrigine.map((ligne) => [
-      ligne.libelle,
-      String(ligne.nombre),
-      montant(ligne.montant),
-    ]),
+    [...colonnesVentilation('Origine', avecFrais)],
+    contenu.parOrigine.map((ligne) => celluleVentilation(ligne, avecFrais)),
   );
 
   section(page, 'Par méthode de paiement');
   tableau(
     page,
-    [
-      { titre: 'Méthode', part: 0.5 },
-      { titre: 'Nombre', part: 0.2, aDroite: true },
-      { titre: 'Montant', part: 0.3, aDroite: true },
-    ],
-    contenu.parMethode.map((ligne) => [
-      ligne.libelle,
-      String(ligne.nombre),
-      montant(ligne.montant),
-    ]),
+    [...colonnesVentilation('Méthode', avecFrais)],
+    contenu.parMethode.map((ligne) => celluleVentilation(ligne, avecFrais)),
   );
 
-  total(page, 'Total encaissé', montant(contenu.recettesTotales));
+  total(
+    page,
+    avecFrais ? 'Total encaissé net' : 'Total encaissé',
+    montant(avecFrais ? contenu.recettesNettes! : contenu.recettesTotales),
+  );
 
   mention(
     page,
@@ -227,4 +234,33 @@ function mention(page: Page, texte: string): void {
     .text(texte, MARGE, page.y, { width: LARGEUR_UTILE })
     .fillColor('#1F2937')
     .fontSize(10);
+}
+
+/** En-têtes d'une ventilation : la colonne « Net » n'existe qu'avec les frais. */
+function colonnesVentilation(
+  premier: string,
+  avecFrais: boolean,
+): { titre: string; part: number; aDroite?: boolean }[] {
+  return avecFrais
+    ? [
+        { titre: premier, part: 0.4 },
+        { titre: 'Nombre', part: 0.14, aDroite: true },
+        { titre: 'Débité', part: 0.23, aDroite: true },
+        { titre: 'Net', part: 0.23, aDroite: true },
+      ]
+    : [
+        { titre: premier, part: 0.5 },
+        { titre: 'Nombre', part: 0.2, aDroite: true },
+        { titre: 'Montant', part: 0.3, aDroite: true },
+      ];
+}
+
+function celluleVentilation(
+  ligne: LigneVentilation,
+  avecFrais: boolean,
+): string[] {
+  const base = [ligne.libelle, String(ligne.nombre), montant(ligne.montant)];
+  return avecFrais
+    ? [...base, montant(ligne.montantNet ?? ligne.montant)]
+    : base;
 }

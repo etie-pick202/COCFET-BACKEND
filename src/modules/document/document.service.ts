@@ -231,6 +231,8 @@ export class DocumentService {
           depuis: periode.depuis ?? null,
           jusqua: periode.jusqua ?? null,
           recettesTotales: tableau.recettesTotales,
+          fraisPrestataire: tableau.fraisPrestataire,
+          recettesNettes: tableau.recettesNettes,
           transactionsAbouties: tableau.transactionsAbouties,
           transactionsEnAttente: tableau.transactionsEnAttente,
           transactionsEchouees: tableau.transactionsEchouees,

@@ -1,5 +1,6 @@
 import { MailerService } from '@nestjs-modules/mailer';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
 
 /**
@@ -15,10 +16,46 @@ export type ModeAcces = 'AUCUN' | 'QR_FIXE' | 'QR_TOURNANT';
 export class MailService {
   private readonly logger = new Logger(MailService.name);
 
+  /** Adresse du frontal, sans barre finale : la base des liens absolus. */
+  private readonly urlFrontal: string;
+
   constructor(
     private readonly mailerService: MailerService,
     private readonly identiteVisuelle: IdentiteVisuelleService,
-  ) {}
+    @Optional() config?: ConfigService,
+  ) {
+    // Même source que les liens d'authentification et le retour de paiement :
+    // la première origine autorisée est l'adresse du frontal.
+    let base = (
+      config?.get<string>('CORS_ORIGIN', 'http://localhost:5173') ??
+      'http://localhost:5173'
+    )
+      .split(',')[0]
+      .trim();
+    while (base.endsWith('/')) {
+      base = base.slice(0, -1);
+    }
+    this.urlFrontal = base;
+  }
+
+  /**
+   * Rend un lien de notification utilisable depuis une messagerie.
+   *
+   * Les notifications portent des chemins relatifs (`/commandes/…`) : dans
+   * l'application, le navigateur les résout contre le site. Dans un email, il
+   * n'y a pas de site autour — le bouton « Voir sur la plateforme » menait à
+   * une page introuvable. On les ancre donc sur l'adresse du frontal ; un lien
+   * déjà absolu passe tel quel.
+   */
+  lienAbsolu(lien: string | null): string | null {
+    if (!lien) {
+      return null;
+    }
+    if (/^https?:\/\//i.test(lien)) {
+      return lien;
+    }
+    return `${this.urlFrontal}/${lien.replace(/^\/+/, '')}`;
+  }
 
   async sendWelcome(to: string, prenom: string): Promise<void> {
     await this.send(to, 'Bienvenue sur COCFET', 'welcome', { prenom });
@@ -85,7 +122,7 @@ export class MailService {
       prenom,
       titre,
       message,
-      lien,
+      lien: this.lienAbsolu(lien),
     });
   }
 

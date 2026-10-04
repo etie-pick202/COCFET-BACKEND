@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BureauModule } from '../bureau/bureau.module';
+import { CotisationModule } from '../cotisation/cotisation.module';
 import { FileModule } from '../file/file.module';
 import { PaiementModule } from '../paiement/paiement.module';
 import { JustificatifPaiement } from './entities/justificatif-paiement.entity';
@@ -18,6 +19,7 @@ import { PurgeJustificatifsService } from './purge-justificatifs.service';
     PaiementModule,
     FileModule,
     BureauModule,
+    CotisationModule,
   ],
   controllers: [JustificatifController],
   providers: [JustificatifService, PurgeJustificatifsService],

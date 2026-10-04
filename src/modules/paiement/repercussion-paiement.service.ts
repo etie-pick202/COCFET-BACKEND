@@ -27,6 +27,7 @@ export class RepercussionPaiementService {
   private readonly logger = new Logger(RepercussionPaiementService.name);
 
   constructor(
+    @Inject(forwardRef(() => CotisationService))
     private readonly cotisationService: CotisationService,
     private readonly transactionService: TransactionService,
     private readonly billetterieService: BilletterieService,
@@ -34,7 +35,15 @@ export class RepercussionPaiementService {
     private readonly commandeService: CommandeService,
   ) {}
 
-  async repercuter(reference: string, statut: StatutPaiement): Promise<void> {
+  /**
+   * @param motif raison d'un échec, transmise à la personne quand elle a un
+   *   sens pour elle — le refus d'un justificatif de cotisation, par exemple.
+   */
+  async repercuter(
+    reference: string,
+    statut: StatutPaiement,
+    motif?: string,
+  ): Promise<void> {
     const transaction = await this.transactionService.trouver(reference);
 
     if (!transaction) {
@@ -43,15 +52,10 @@ export class RepercussionPaiementService {
     }
 
     // Une cotisation ne se confirme ni ne s'annule : elle se credite. Il n'y a
-    // ni place a liberer ni stock a rendre, seulement un solde qui avance. Un
-    // echec n'a donc rien a defaire — la personne devra simplement reessayer.
+    // ni place a liberer ni stock a rendre, seulement un solde qui avance et
+    // un reglement dont l'issue est consignee — et annoncee a la personne.
     if (transaction.origine === OrigineTransaction.COTISATION) {
-      if (statut === StatutPaiement.COMPLETE) {
-        await this.cotisationService.enregistrerReglement(
-          reference,
-          transaction.montant,
-        );
-      }
+      await this.cotisationService.traiterIssue(transaction, statut, motif);
       return;
     }
 
@@ -65,10 +69,10 @@ export class RepercussionPaiementService {
     }
 
     if (statut === StatutPaiement.ECHOUE) {
-      const motif = 'le paiement a été refusé par l’opérateur.';
+      const raison = motif ?? 'le paiement a été refusé par l’opérateur.';
       await (boutique
-        ? this.commandeService.echouerPaiement(reference, motif)
-        : this.billetterieService.echouerPaiement(reference, motif));
+        ? this.commandeService.echouerPaiement(reference, raison)
+        : this.billetterieService.echouerPaiement(reference, raison));
     }
   }
 }

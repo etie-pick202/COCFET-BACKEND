@@ -22,8 +22,23 @@ export class Transaction extends BaseEntity {
   @JoinColumn({ name: 'user_id' })
   user: User | null;
 
+  /** Ce que le payeur a été débité, frais compris, en FCFA. */
   @Column({ type: 'int' })
   montant: number;
+
+  /**
+   * Part du montant que le prestataire retient à l'encaissement, en FCFA.
+   *
+   * Fapshi prélève ses frais **sur** le montant débité : ce qui arrive en
+   * caisse est `montant - fraisPrestataire`. Sans cette colonne, le rapport
+   * affichait le débité comme s'il était encaissé, et la caisse ne
+   * correspondait jamais au relevé.
+   *
+   * Nul pour un paiement reconnu sur justificatif : l'argent n'est pas passé
+   * par le prestataire, rien n'a été retenu.
+   */
+  @Column({ name: 'frais_prestataire', type: 'int', default: 0 })
+  fraisPrestataire: number;
 
   @Column({
     type: 'enum',

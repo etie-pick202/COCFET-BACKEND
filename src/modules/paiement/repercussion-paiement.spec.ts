@@ -19,7 +19,7 @@ describe('RepercussionPaiementService', () => {
   let trouver: jest.Mock;
   let commande: { confirmerPaiement: jest.Mock; echouerPaiement: jest.Mock };
   let billet: { confirmerPaiement: jest.Mock; echouerPaiement: jest.Mock };
-  let enregistrerReglement: jest.Mock;
+  let traiterIssue: jest.Mock;
 
   const transaction = (origine: OrigineTransaction) =>
     ({ reference: 'REF-1', origine }) as Transaction;
@@ -36,10 +36,10 @@ describe('RepercussionPaiementService', () => {
       confirmerPaiement: jest.fn().mockResolvedValue(undefined),
       echouerPaiement: jest.fn().mockResolvedValue(undefined),
     };
-    enregistrerReglement = jest.fn().mockResolvedValue(undefined);
+    traiterIssue = jest.fn().mockResolvedValue(undefined);
 
     service = new RepercussionPaiementService(
-      { enregistrerReglement } as unknown as CotisationService,
+      { traiterIssue } as unknown as CotisationService,
       { trouver } as unknown as TransactionService,
       billet as unknown as BilletterieService,
       commande as unknown as CommandeService,
@@ -79,16 +79,21 @@ describe('RepercussionPaiementService', () => {
     expect(billet.echouerPaiement).toHaveBeenCalled();
   });
 
-  it('credite le solde d’une cotisation', async () => {
-    trouver.mockResolvedValue({
-      reference: 'PART-1',
+  it('confie l’issue d’une cotisation à son domaine', async () => {
+    const cotisation = {
+      reference: 'COT-1',
       origine: OrigineTransaction.COTISATION,
       montant: 10_000,
-    });
+    };
+    trouver.mockResolvedValue(cotisation);
 
-    await service.repercuter('PART-1', StatutPaiement.COMPLETE);
+    await service.repercuter('COT-1', StatutPaiement.COMPLETE);
 
-    expect(enregistrerReglement).toHaveBeenCalledWith('PART-1', 10_000);
+    expect(traiterIssue).toHaveBeenCalledWith(
+      cotisation,
+      StatutPaiement.COMPLETE,
+      undefined,
+    );
     expect(commande.confirmerPaiement).not.toHaveBeenCalled();
     expect(billet.confirmerPaiement).not.toHaveBeenCalled();
   });
@@ -102,9 +107,15 @@ describe('RepercussionPaiementService', () => {
       montant: 10_000,
     });
 
-    await service.repercuter('PART-1', StatutPaiement.ECHOUE);
+    await service.repercuter('PART-1', StatutPaiement.ECHOUE, 'Illisible');
 
-    expect(enregistrerReglement).not.toHaveBeenCalled();
+    // Le domaine consigne l'échec et en prévient la personne, motif compris ;
+    // rien d'autre n'est défait.
+    expect(traiterIssue).toHaveBeenCalledWith(
+      expect.objectContaining({ reference: 'PART-1' }),
+      StatutPaiement.ECHOUE,
+      'Illisible',
+    );
     expect(commande.echouerPaiement).not.toHaveBeenCalled();
   });
 

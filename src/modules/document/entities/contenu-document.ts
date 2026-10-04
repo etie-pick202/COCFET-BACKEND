@@ -80,6 +80,8 @@ export interface ContenuRecu extends ContenuCommun {
 export interface LigneVentilation {
   libelle: string;
   montant: number;
+  /** Absent des rapports émis avant la prise en compte des frais. */
+  montantNet?: number;
   nombre: number;
 }
 
@@ -88,7 +90,14 @@ export interface ContenuRapport extends ContenuCommun {
   /** Bornes demandées, en ISO. Nulles quand le rapport porte sur tout. */
   depuis: string | null;
   jusqua: string | null;
+  /** Montants débités aux payeurs, frais compris. */
   recettesTotales: number;
+  /**
+   * Frais retenus par le prestataire, et encaissé net. Absents des rapports
+   * émis avant leur prise en compte : un rapport figé ne se réécrit pas.
+   */
+  fraisPrestataire?: number;
+  recettesNettes?: number;
   transactionsAbouties: number;
   transactionsEnAttente: number;
   transactionsEchouees: number;

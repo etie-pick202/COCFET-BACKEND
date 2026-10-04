@@ -1,16 +1,21 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { BilletterieService } from '../billetterie/billetterie.service';
-import { CommandeService } from '../commande/commande.service';
-import { OrigineTransaction, Transaction } from './entities/transaction.entity';
+import { Transaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import type { PasserellePaiement } from './ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from './ports/passerelle-paiement';
+import { RepercussionPaiementService } from './repercussion-paiement.service';
 import { TransactionService } from './transaction.service';
 
 /** Transactions examinées par passage. */
 const PAR_PASSAGE = 50;
+
+/**
+ * Âge minimal d'un paiement avant une vérification à la demande. En deçà, la
+ * notification du prestataire est normalement en route.
+ */
+const DELAI_VERIFICATION_MS = 20_000;
 
 /**
  * Rattrape les paiements dont la notification ne nous est jamais parvenue.
@@ -60,10 +65,10 @@ export class ReconciliationService {
     private readonly transactionService: TransactionService,
     @Inject(PASSERELLE_PAIEMENT)
     private readonly passerelle: PasserellePaiement,
-    @Inject(forwardRef(() => BilletterieService))
-    private readonly billetterieService: BilletterieService,
-    @Inject(forwardRef(() => CommandeService))
-    private readonly commandeService: CommandeService,
+    // L'aiguillage commun, et non la billetterie et la boutique en direct :
+    // une cotisation dont le webhook se perdait était sinon confiée à la
+    // billetterie, qui ne la trouvait pas — l'argent débité, rien crédité.
+    private readonly repercussion: RepercussionPaiementService,
     config: ConfigService,
   ) {
     this.delaiGrace = config.get<number>('PAIEMENT_DELAI_GRACE_MINUTES', 3);
@@ -99,9 +104,34 @@ export class ReconciliationService {
     }
   }
 
+  /**
+   * Vérifie tout de suite un paiement précis, sans attendre le prochain
+   * passage.
+   *
+   * Appelée par la page de retour quand le payeur attend la confirmation : si
+   * le webhook tarde ou s'est perdu, il n'a pas à patienter cinq minutes
+   * devant un écran « en cours ». Le délai de grâce est respecté — avant lui,
+   * le webhook est simplement en route.
+   */
+  async verifierMaintenant(transaction: Transaction): Promise<void> {
+    if (
+      transaction.statut !== StatutPaiement.EN_ATTENTE ||
+      transaction.createdAt > new Date(Date.now() - DELAI_VERIFICATION_MS)
+    ) {
+      return;
+    }
+    await this.traiter(transaction);
+  }
+
   // ──────────────────────────────  Interne  ─────────────────────────────
 
   private async traiter(transaction: Transaction): Promise<void> {
+    if (!transaction.referenceExterne && !transaction.methodePaiement) {
+      // Règlement hors ligne : il attend la décision de la trésorerie sur un
+      // justificatif, le prestataire n'en sait rien. Rien à vérifier, ni à
+      // signaler.
+      return;
+    }
     if (!transaction.referenceExterne) {
       // Ouverte avant que cet identifiant ne soit conservé, ou prestataire
       // n'ayant jamais répondu. Rien à interroger : le signaler vaut mieux
@@ -189,15 +219,18 @@ export class ReconciliationService {
    * billet ou une commande, jamais les deux.
    */
   private confirmer(transaction: Transaction): Promise<void> {
-    return transaction.origine === OrigineTransaction.BOUTIQUE
-      ? this.commandeService.confirmerPaiement(transaction.reference)
-      : this.billetterieService.confirmerPaiement(transaction.reference);
+    return this.repercussion.repercuter(
+      transaction.reference,
+      StatutPaiement.COMPLETE,
+    );
   }
 
   private echouer(transaction: Transaction, motif: string): Promise<void> {
-    return transaction.origine === OrigineTransaction.BOUTIQUE
-      ? this.commandeService.echouerPaiement(transaction.reference, motif)
-      : this.billetterieService.echouerPaiement(transaction.reference, motif);
+    return this.repercussion.repercuter(
+      transaction.reference,
+      StatutPaiement.ECHOUE,
+      motif,
+    );
   }
 
   private ilYA(minutes: number): Date {
