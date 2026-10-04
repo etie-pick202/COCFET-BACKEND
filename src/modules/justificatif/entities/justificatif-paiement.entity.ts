@@ -45,6 +45,15 @@ export class JustificatifPaiement extends BaseEntity {
   @ApiProperty({ enum: OrigineTransaction })
   origine: OrigineTransaction;
 
+  /**
+   * Ce que la pièce prétend régler, en clair : « Cotisation 2027 — Première
+   * tranche ». Sans lui, la trésorerie ne voyait qu'une référence opaque et
+   * devait la rapprocher à la main de ce qu'elle était censée couvrir.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true, example: 'Cotisation 2027 — Totalité' })
+  libelle: string | null;
+
   /** Clé de stockage de la capture. Vidée par la purge des deux mois. */
   @Column({ type: 'varchar', nullable: true })
   @ApiProperty({
