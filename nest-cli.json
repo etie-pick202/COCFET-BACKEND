@@ -8,6 +8,10 @@
       {
         "include": "modules/mail/templates/**/*.hbs",
         "outDir": "dist"
+      },
+      {
+        "include": "modules/document/pdf/polices/*.ttf",
+        "outDir": "dist"
       }
     ],
     "watchAssets": true
