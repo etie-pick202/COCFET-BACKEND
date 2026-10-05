@@ -63,7 +63,7 @@ export function libelle(valeur: string | null | undefined): string {
   if (LIBELLES[valeur]) {
     return LIBELLES[valeur];
   }
-  const texte = valeur.replace(/_/g, ' ').toLowerCase();
+  const texte = valeur.replaceAll('_', ' ').toLowerCase();
   return texte.charAt(0).toUpperCase() + texte.slice(1);
 }
 

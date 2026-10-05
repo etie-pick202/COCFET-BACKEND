@@ -59,7 +59,7 @@ export function eclaircir(hexa: string, opacite: number): string {
       : brut;
 
   const canal = (position: number): string => {
-    const valeur = parseInt(complet.slice(position, position + 2), 16);
+    const valeur = Number.parseInt(complet.slice(position, position + 2), 16);
     const melange = Math.round(valeur * opacite + 255 * (1 - opacite));
     return melange.toString(16).padStart(2, '0');
   };

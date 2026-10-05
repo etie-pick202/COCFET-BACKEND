@@ -495,7 +495,9 @@ export function tableau(
   entete();
 
   lignes.forEach((ligne) => {
-    const hauteur = Math.max(...ligne.map(mesurer));
+    const hauteur = Math.max(
+      ...ligne.map((cellule, index) => mesurer(cellule, index)),
+    );
 
     if (page.y + hauteur + 2 * interligne > BAS_CONTENU) {
       page.addPage();
