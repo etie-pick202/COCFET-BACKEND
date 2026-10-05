@@ -16,6 +16,7 @@ import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { BilletterieModule } from './modules/billetterie/billetterie.module';
 import { BureauModule } from './modules/bureau/bureau.module';
+import { SoldeModule } from './modules/solde/solde.module';
 import { TableauDeBordModule } from './modules/tableau-de-bord/tableau-de-bord.module';
 import { BoutiqueModule } from './modules/boutique/boutique.module';
 import { CotisationModule } from './modules/cotisation/cotisation.module';
@@ -61,6 +62,7 @@ import { JustificatifModule } from './modules/justificatif/justificatif.module';
     GenerationModule,
     BureauModule,
     TableauDeBordModule,
+    SoldeModule,
     // M1 — Événements & billetterie
     EvenementModule,
     BilletterieModule,

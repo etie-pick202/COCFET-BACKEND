@@ -6,17 +6,29 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { timingSafeEqual } from 'node:crypto';
-import { MethodePaiement, StatutPaiement } from '../enums/paiement.enum';
+import {
+  MethodePaiement,
+  StatutPaiement,
+  StatutRetrait,
+} from '../enums/paiement.enum';
 import {
   DemandePaiement,
   EntetesWebhook,
   EvenementPaiement,
   PasserellePaiement,
   ResultatPaiement,
+  RetraitFournisseur,
+  SoldeFournisseur,
 } from '../ports/passerelle-paiement';
 
 /** Montant minimal accepté par Fapshi, en FCFA. */
 const MONTANT_MINIMAL = 100;
+
+/** Plafond de `GET /search` : au-delà, la liste est tronquée côté Fapshi. */
+const LIMITE_RECHERCHE = 100;
+
+/** Garde-fou de la découpe d'une fenêtre : 2^10 jours dépasse toute période. */
+const PROFONDEUR_MAX = 10;
 
 /** En-tête portant le secret de webhook, tel que Fapshi le nomme. */
 const ENTETE_SECRET = 'x-wh-secret';
@@ -274,6 +286,168 @@ export class PasserelleFapshi implements PasserellePaiement {
       statut: this.versStatut(this.chaine(corps, ['status'])),
       urlRedirection: null,
     };
+  }
+
+  async consulterSolde(): Promise<SoldeFournisseur> {
+    let corps: Record<string, unknown>;
+
+    try {
+      corps = await this.appeler('GET', '/balance');
+    } catch (erreur) {
+      throw this.enException(erreur);
+    }
+
+    const solde = corps.balance;
+
+    if (typeof solde !== 'number' || !Number.isFinite(solde)) {
+      // Un solde inventé serait pire qu'un solde absent : il serait affiché,
+      // comparé à nos encaissements, et ferait conclure à un écart.
+      this.logger.error(
+        `Réponse Fapshi sans solde : ${JSON.stringify(corps).slice(0, 300)}`,
+      );
+      throw new BadGatewayException(
+        'Réponse inattendue du service de paiement.',
+      );
+    }
+
+    return {
+      solde: Math.round(solde),
+      devise: this.chaine(corps, ['currency']) ?? 'XAF',
+    };
+  }
+
+  async listerRetraits(
+    depuis: Date,
+    jusqua: Date,
+  ): Promise<RetraitFournisseur[]> {
+    const parIdentifiant = new Map<string, RetraitFournisseur>();
+
+    for (const transaction of await this.rechercher(depuis, jusqua, 0)) {
+      const retrait = this.versRetrait(transaction);
+      if (retrait) {
+        parIdentifiant.set(retrait.referenceExterne, retrait);
+      }
+    }
+
+    return [...parIdentifiant.values()];
+  }
+
+  /**
+   * `GET /search` borne le résultat à cent transactions et n'offre aucune
+   * pagination. Une fenêtre qui en rend cent est donc peut-être tronquée : on
+   * la coupe en deux et on recommence, jusqu'à la journée. Les bornes se
+   * chevauchent d'un jour — le dédoublonnage par identifiant en vient à bout,
+   * alors qu'un retrait tombé entre deux fenêtres serait perdu pour de bon.
+   */
+  private async rechercher(
+    depuis: Date,
+    jusqua: Date,
+    profondeur: number,
+  ): Promise<Record<string, unknown>[]> {
+    const jour = (date: Date): string => date.toISOString().slice(0, 10);
+    const gabarit =
+      `/search?start=${jour(depuis)}&end=${jour(jusqua)}` +
+      `&limit=${LIMITE_RECHERCHE}&sort=desc`;
+
+    let brut: unknown;
+
+    try {
+      brut = await this.appeler('GET', gabarit);
+    } catch (erreur) {
+      throw this.enException(erreur);
+    }
+
+    if (!Array.isArray(brut)) {
+      this.logger.error(
+        `Réponse Fapshi inattendue pour ${gabarit} : ${JSON.stringify(brut).slice(0, 300)}`,
+      );
+      throw new BadGatewayException(
+        'Réponse inattendue du service de paiement.',
+      );
+    }
+
+    const transactions = brut as Record<string, unknown>[];
+    const unJour = jour(depuis) === jour(jusqua);
+
+    if (transactions.length < LIMITE_RECHERCHE) {
+      return transactions;
+    }
+    if (unJour || profondeur >= PROFONDEUR_MAX) {
+      this.logger.warn(
+        `Fapshi rend ${LIMITE_RECHERCHE} transactions pour ${jour(depuis)} → ` +
+          `${jour(jusqua)} : la liste est peut-être tronquée.`,
+      );
+      return transactions;
+    }
+
+    const milieu = new Date((depuis.getTime() + jusqua.getTime()) / 2);
+
+    return [
+      ...(await this.rechercher(depuis, milieu, profondeur + 1)),
+      ...(await this.rechercher(milieu, jusqua, profondeur + 1)),
+    ];
+  }
+
+  /** Ne garde que les sorties d'argent ; une encaissement n'est pas un retrait. */
+  private versRetrait(
+    transaction: Record<string, unknown>,
+  ): RetraitFournisseur | null {
+    if (this.chaine(transaction, ['transType'])?.toLowerCase() !== 'payout') {
+      return null;
+    }
+
+    const identifiant = this.chaine(transaction, ['transId']);
+    const montant = transaction.amount;
+    const initie = this.chaine(transaction, ['dateInitiated']);
+
+    if (
+      !identifiant ||
+      typeof montant !== 'number' ||
+      !initie ||
+      Number.isNaN(Date.parse(initie))
+    ) {
+      this.logger.warn(
+        `Retrait Fapshi illisible, ignoré : ${JSON.stringify(transaction).slice(0, 300)}`,
+      );
+      return null;
+    }
+
+    const confirme = this.chaine(transaction, ['dateConfirmed']);
+
+    return {
+      referenceExterne: identifiant,
+      montant: Math.round(montant),
+      statut: this.versStatutRetrait(this.chaine(transaction, ['status'])),
+      operateur: this.chaine(transaction, ['medium']) ?? null,
+      beneficiaire:
+        this.chaine(transaction, ['payerName']) ??
+        this.chaine(transaction, ['email']) ??
+        null,
+      motif: this.chaine(transaction, ['reason']) ?? null,
+      referenceFinanciere:
+        this.chaine(transaction, ['financialTransId']) ?? null,
+      initieLe: new Date(initie),
+      confirmeLe:
+        confirme && !Number.isNaN(Date.parse(confirme))
+          ? new Date(confirme)
+          : null,
+    };
+  }
+
+  /**
+   * Un statut inconnu reste « en cours » plutôt que de faire échouer toute la
+   * synchronisation : le retrait est enregistré, et relu à la fois suivante.
+   */
+  private versStatutRetrait(statut?: string | null): StatutRetrait {
+    switch (statut?.toUpperCase()) {
+      case 'SUCCESSFUL':
+        return StatutRetrait.REUSSI;
+      case 'FAILED':
+      case 'EXPIRED':
+        return StatutRetrait.ECHOUE;
+      default:
+        return StatutRetrait.EN_COURS;
+    }
   }
 
   async expirer(referenceExterne: string): Promise<void> {
