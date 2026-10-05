@@ -23,6 +23,7 @@ import { Generation } from './../src/modules/generation/entities/generation.enti
 import { MailService } from './../src/modules/mail/mail.service';
 import { Notification } from './../src/modules/notification/entities/notification.entity';
 import { MethodePaiement } from './../src/modules/paiement/enums/paiement.enum';
+import { calculerFrais } from './../src/modules/paiement/frais-paiement';
 import {
   CompteDeTest,
   creerCompteAuthentifie,
@@ -325,18 +326,30 @@ describe('Événements et billetterie (e2e)', () => {
       await sInscrire(id, finissant).expect(400);
     });
 
-    it('exige un moyen de paiement pour un événement payant', async () => {
+    it('accepte l’inscription payante sans opérateur ni numéro', async () => {
+      // Le payeur les saisit sur la page de paiement hébergée. Rien n'est
+      // débité ici : l'inscription attend son règlement, place réservée, avec
+      // les frais calculés au taux le plus élevé puisque l'opérateur est
+      // encore inconnu.
       const id = await creerEtPublier({
         type: TypeEvenement.PAYANT,
         prixCampus: 5000,
         prixExterne: 5000,
       });
 
-      await sInscrire(id, finissant).expect(400);
-      // Aucune place ne doit rester consommée par une tentative refusée.
+      const reponse = await sInscrire(id, finissant).expect(201);
+      const billet = reponse.body as { statut: StatutInscription };
+
+      expect(billet.statut).toBe(StatutInscription.EN_ATTENTE);
       await expect(
         evenements.findOne({ where: { id } }),
-      ).resolves.toMatchObject({ inscriptionsActuelles: 0 });
+      ).resolves.toMatchObject({ inscriptionsActuelles: 1 });
+      await expect(inscriptions.findOneByOrFail({})).resolves.toMatchObject({
+        methodePaiement: null,
+        frais: expect.objectContaining({
+          montantTtc: calculerFrais(5000, MethodePaiement.MTN_MOMO).montantTtc,
+        }) as unknown,
+      });
     });
 
     it('rend la place quand le paiement est refusé', async () => {

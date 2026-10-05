@@ -15,7 +15,9 @@ import { StatutInscription } from '../entities/inscription.entity';
 export class SInscrireDto {
   @ApiPropertyOptional({
     enum: MethodePaiement,
-    description: 'Obligatoire pour un événement payant, ignoré sinon.',
+    description:
+      'Facultative. Sans elle, le payeur choisit son opérateur sur la page de ' +
+      'paiement hébergée, et les frais sont calculés au taux le plus élevé.',
   })
   @IsEnum(MethodePaiement)
   @IsOptional()
@@ -23,7 +25,9 @@ export class SInscrireDto {
 
   @ApiPropertyOptional({
     example: '+237699000002',
-    description: 'Numéro Mobile Money. Obligatoire pour un événement payant.',
+    description:
+      'Numéro Mobile Money. Facultatif : sans lui, le payeur le saisit sur la ' +
+      'page de paiement hébergée.',
   })
   @Matches(/^\+?\d{8,15}$/, {
     message: 'telephone doit être un numéro valide, ex. +237699000002',
