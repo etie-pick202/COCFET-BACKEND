@@ -944,6 +944,7 @@ export class BilletterieService {
         inscription.user.email,
         inscription.user.firstName,
         {
+          id: inscription.id,
           titre: inscription.evenement.titre,
           dateDebut: inscription.evenement.dateDebut,
           lieu: inscription.evenement.lieu,

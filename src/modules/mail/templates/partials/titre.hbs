@@ -1,0 +1,13 @@
+{{!--
+  Titre du message, avec un surtitre facultatif (catégorie, nature d'alerte).
+  {{> titre texte="..." surtitre="..." couleurSurtitre="#…"}} ; `surtitre` et
+  `couleurSurtitre` sont omissibles.
+--}}
+{{#if surtitre}}
+  <div
+    style="font-size:11px;letter-spacing:2px;font-weight:700;color:{{#if couleurSurtitre}}{{couleurSurtitre}}{{else}}#57524D{{/if}};margin-bottom:10px;text-transform:uppercase"
+  >{{surtitre}}</div>
+{{/if}}
+<h1
+  style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:26px;line-height:1.25;color:#1C1917"
+>{{texte}}</h1>

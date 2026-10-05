@@ -1,47 +1,61 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Bienvenue au bureau, {{prenom}} !
-</h1>
-<p>
-  Vous voilà officiellement
-  <strong>{{poste}}</strong>
-  {{#if annee}}du mandat {{mandat}} {{annee}}{{else}}du bureau {{mandat}}{{/if}}.
+<h1
+  style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:28px;line-height:1.25;color:#1C1917"
+>Bienvenue au bureau, {{prenom}} !</h1>
+<p style="margin:0">
   Félicitations — et bon courage : le titre est court, la charge l’est moins.
 </p>
 
 <table
   role="presentation"
+  width="100%"
   cellpadding="0"
   cellspacing="0"
-  style="margin:24px 0;border-collapse:collapse"
+  style="margin:28px 0;border:1px solid {{charte.couleurSecondaire}};border-radius:4px;border-collapse:separate"
 >
   <tr>
-    <td style="padding:4px 16px 4px 0;color:#6b7280">Poste</td>
-    <td><strong>{{poste}}</strong></td>
-  </tr>
-  <tr>
-    <td style="padding:4px 16px 4px 0;color:#6b7280">Mandat</td>
-    <td><strong>{{mandat}}{{#if annee}} — {{annee}}{{/if}}</strong></td>
+    <td style="padding:4px">
+      <table
+        role="presentation"
+        width="100%"
+        cellpadding="0"
+        cellspacing="0"
+        style="border:1px solid {{charte.couleurSecondaire}};border-radius:2px;border-collapse:separate"
+      >
+        <tr>
+          <td align="center" style="padding:26px 24px;text-align:center">
+            <div style="font-size:10.5px;letter-spacing:3px;color:#6B6560">NOMINATION</div>
+            <div
+              style="margin-top:10px;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:{{charte.couleurPrimaire}}"
+            >{{poste}}</div>
+            <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:14px auto 0">
+              <tr>
+                <td width="40" style="width:40px;border-top:1px solid {{charte.couleurSecondaire}};font-size:0;line-height:0">&nbsp;</td>
+              </tr>
+            </table>
+            <div style="margin-top:12px;font-size:13.5px;color:#57524D">
+              Mandat {{mandat}}{{#if annee}} · Promotion {{annee}}{{/if}}
+            </div>
+          </td>
+        </tr>
+      </table>
+    </td>
   </tr>
 </table>
 
 {{#if mission}}
-  <p
-    style="background:#f9fafb;border-left:4px solid {{charte.couleurSecondaire}};padding:12px 16px"
-  >
-    <strong>Votre mission telle que le bureau la décrit :</strong>
-    {{mission}}
-  </p>
+  {{#> encart-info titre="Votre mission" marge="0"}}{{mission}}{{/encart-info}}
 {{/if}}
 
 {{#if administration}}
-  <p>
-    Ce poste ouvre l’<strong>administration de la plateforme</strong>. Vos accès
-    seront actifs dès l’activation du mandat — pensez à vous reconnecter à ce
-    moment-là, votre session actuelle ne les porte pas encore.
-  </p>
+  {{#> encart-attention titre="Accès à l’administration" marge="14px 0 0"}}
+    Ce poste ouvre l’administration de la plateforme. Vos accès seront actifs
+    dès l’activation du mandat : reconnectez-vous à ce moment-là, votre session
+    actuelle ne les porte pas encore.
+  {{/encart-attention}}
 {{/if}}
 
-<p>
-  Votre nom et votre fonction apparaîtront sur la page du bureau. Vous pouvez
-  compléter votre présentation depuis votre profil.
+<p style="margin:24px 0 0">
+  Votre nom et votre fonction apparaîtront sur la page du bureau. Ajoutez
+  quelques mots de présentation depuis votre profil.
 </p>
+{{> bouton lien=lienProfil libelle="Compléter ma présentation"}}

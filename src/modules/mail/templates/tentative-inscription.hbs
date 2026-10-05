@@ -1,14 +1,15 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Tentative d’inscription
-</h1>
-<p>Bonjour {{prenom}},</p>
-<p>
+{{> titre surtitre="Signalement" couleurSurtitre="#92400E" texte="Tentative d’inscription avec votre adresse"}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+<p style="margin:0 0 4px">
   Quelqu’un a tenté de créer un compte avec votre adresse. Votre compte existant
-  n’a <strong>pas</strong> été modifié et reste accessible avec votre mot de
+  <strong>n’a pas été modifié</strong> et reste accessible avec votre mot de
   passe habituel.
 </p>
-<p>
-  Si cette tentative vient de vous, connectez-vous simplement. Sinon, aucune
-  action n’est nécessaire — mais si vous avez oublié votre mot de passe,
-  utilisez la procédure de réinitialisation depuis la page de connexion.
+{{#> encart-info titre="Que faire ?"}}
+  C’était vous ? Connectez-vous simplement. Sinon, aucune action n’est
+  nécessaire.
+{{/encart-info}}
+{{> bouton-contour lien=lienConnexion libelle="Se connecter"}}
+<p style="margin:16px 0 0;font-size:14px">
+  <a href="{{lienMotDePasse}}" style="color:{{charte.couleurPrimaire}}">Mot de passe oublié ?</a>
 </p>

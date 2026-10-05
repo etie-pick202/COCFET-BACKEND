@@ -31,6 +31,10 @@ type AdresseBrute = string | Adresse | (string | Adresse)[];
 interface PieceJointe {
   filename?: string;
   content?: Buffer | string;
+  /** Image incrustée dans le corps, citée en `src="cid:…"`. */
+  cid?: string;
+  /** Image qui n'a de sens qu'affichée : retirée si on ne peut l'incruster. */
+  decorative?: boolean;
 }
 
 interface DonneesMessage {
@@ -98,13 +102,48 @@ function lirePiecesJointes(
   pieces: PieceJointe[] | undefined,
 ): { name: string; content: string }[] {
   return (pieces ?? [])
-    .filter((piece) => piece.content !== undefined)
+    .filter((piece) => piece.content !== undefined && !piece.decorative)
     .map((piece, index) => ({
       name: piece.filename ?? `piece-jointe-${index + 1}`,
       content: Buffer.isBuffer(piece.content)
         ? piece.content.toString('base64')
         : Buffer.from(String(piece.content)).toString('base64'),
     }));
+}
+
+/**
+ * Retire du HTML les images citées par `cid:`.
+ *
+ * L'API HTTP de Brevo ne sait pas rattacher une pièce jointe à un
+ * `Content-Id` : ces images arriveraient en cadres cassés. On les enlève, et
+ * le message reste lisible — l'en-tête garde le nom du mandat, le billet sa
+ * référence en toutes lettres, et le QR code part en pièce jointe.
+ *
+ * Le découpage se fait à l'index plutôt qu'avec une expression régulière
+ * englobant toute la balise : un motif de ce genre explose en temps de calcul
+ * sur une entrée construite pour.
+ */
+export function retirerImagesIncrustees(html: string): string {
+  let sortie = '';
+  let curseur = 0;
+
+  for (;;) {
+    const debut = html.indexOf('<img', curseur);
+    if (debut === -1) {
+      return sortie + html.slice(curseur);
+    }
+    const fin = html.indexOf('>', debut);
+    if (fin === -1) {
+      return sortie + html.slice(curseur);
+    }
+
+    const balise = html.slice(debut, fin + 1);
+    sortie += html.slice(curseur, debut);
+    if (!/src\s*=\s*["']cid:/i.test(balise)) {
+      sortie += balise;
+    }
+    curseur = fin + 1;
+  }
 }
 
 export interface OptionsTransportBrevo {
@@ -155,7 +194,9 @@ export function transportBrevoApi(options: OptionsTransportBrevo) {
         sender: expediteur,
         to: destinataires,
         subject: donnees.subject ?? '',
-        ...(donnees.html ? { htmlContent: donnees.html } : {}),
+        ...(donnees.html
+          ? { htmlContent: retirerImagesIncrustees(donnees.html) }
+          : {}),
         ...(donnees.text ? { textContent: donnees.text } : {}),
         ...(pieces.length > 0 ? { attachment: pieces } : {}),
       };
