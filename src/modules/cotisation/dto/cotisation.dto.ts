@@ -175,16 +175,25 @@ export class ChoixEcheanceDto {
 }
 
 export class PayerEcheanceDto extends ChoixEcheanceDto {
-  @ApiProperty({ enum: MethodePaiement })
+  @ApiPropertyOptional({
+    enum: MethodePaiement,
+    description:
+      'Facultative : sans elle, le payeur choisit son opérateur sur la page ' +
+      'de paiement hébergée, et les frais sont calculés au taux le plus élevé.',
+  })
   @IsEnum(MethodePaiement)
-  methodePaiement: MethodePaiement;
+  @IsOptional()
+  methodePaiement?: MethodePaiement;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '+237699000002',
-    description: 'Numéro Mobile Money qui recevra la demande.',
+    description:
+      'Numéro Mobile Money qui recevra la demande. Facultatif : sans lui, le ' +
+      'payeur le saisit sur la page de paiement hébergée.',
   })
   @Matches(/^\+?\d{8,15}$/, {
     message: 'telephone doit être un numéro valide, ex. +237699000002',
   })
-  telephone: string;
+  @IsOptional()
+  telephone?: string;
 }

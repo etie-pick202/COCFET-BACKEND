@@ -62,18 +62,27 @@ export class CreerCommandeDto {
   @Type(() => LignePanierDto)
   lignes: LignePanierDto[];
 
-  @ApiProperty({ enum: MethodePaiement })
+  @ApiPropertyOptional({
+    enum: MethodePaiement,
+    description:
+      'Facultative : sans elle, le payeur choisit son opérateur sur la page ' +
+      'de paiement hébergée, et les frais sont calculés au taux le plus élevé.',
+  })
   @IsEnum(MethodePaiement)
-  methodePaiement: MethodePaiement;
+  @IsOptional()
+  methodePaiement?: MethodePaiement;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '+237670000000',
-    description: 'Numéro Mobile Money qui recevra la demande de paiement.',
+    description:
+      'Numéro Mobile Money qui recevra la demande de paiement. Facultatif : ' +
+      'sans lui, le payeur le saisit sur la page de paiement hébergée.',
   })
   @Matches(/^\+?\d{8,15}$/, {
     message: 'telephone doit être un numéro valide, ex. +237670000000',
   })
-  telephone: string;
+  @IsOptional()
+  telephone?: string;
 }
 
 export class FiltreCommandeDto extends PaginationDto {

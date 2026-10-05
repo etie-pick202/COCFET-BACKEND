@@ -63,9 +63,13 @@ export interface DemandePaiement {
   reference: string;
   /** En FCFA. Entier : le franc CFA n'a pas de subdivision. */
   montant: number;
-  methode: MethodePaiement;
+  /**
+   * Nuls quand le payeur n'a rien saisi chez nous : le prestataire lui
+   * demande alors son opérateur et son numéro sur sa propre page de paiement.
+   */
+  methode?: MethodePaiement | null;
   /** Format international, ex. +237699000000. */
-  telephone: string;
+  telephone?: string | null;
   description: string;
 }
 
