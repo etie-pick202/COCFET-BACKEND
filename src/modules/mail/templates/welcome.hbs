@@ -1,11 +1,40 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Bienvenue, {{prenom}} !
-</h1>
-<p>
-  Votre compte a bien été créé sur la plateforme du Bureau des Finissants de
-  l’UCAC-ICAM.
+<h1
+  style="margin:0 0 18px;font-family:Georgia,'Times New Roman',serif;font-weight:400;font-size:28px;line-height:1.25;color:#1C1917"
+>Bienvenue, {{prenom}} !</h1>
+<p style="margin:0 0 26px">
+  Votre compte est créé sur la plateforme du Comité d’Organisation de la
+  Cérémonie de Fin d’Étude de l’institut Ucac-Icam.
 </p>
-<p>
-  Vous pouvez dès à présent compléter votre profil, consulter les offres et vous
-  inscrire aux événements.
-</p>
+<div
+  style="font-size:11px;letter-spacing:2px;font-weight:700;color:#57524D;margin-bottom:6px"
+>DÈS MAINTENANT</div>
+<table
+  role="presentation"
+  width="100%"
+  cellpadding="0"
+  cellspacing="0"
+  style="border-top:1px solid #EEEAE2"
+>
+  <tr>
+    <td width="52" valign="top" style="width:52px;padding:16px 0;border-bottom:1px solid #EEEAE2;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.2;color:{{charte.couleurPrimaire}}">01</td>
+    <td valign="top" style="padding:16px 0;border-bottom:1px solid #EEEAE2">
+      <div style="font-size:15.5px;font-weight:600;color:#1C1917">Vous inscrire aux événements</div>
+      <div style="margin-top:2px;font-size:14px;line-height:1.55;color:#57524D">Votre billet arrive par email et reste disponible dans votre espace.</div>
+    </td>
+  </tr>
+  <tr>
+    <td width="52" valign="top" style="width:52px;padding:16px 0;border-bottom:1px solid #EEEAE2;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.2;color:{{charte.couleurPrimaire}}">02</td>
+    <td valign="top" style="padding:16px 0;border-bottom:1px solid #EEEAE2">
+      <div style="font-size:15.5px;font-weight:600;color:#1C1917">Commander à la boutique</div>
+      <div style="margin-top:2px;font-size:14px;line-height:1.55;color:#57524D">Les articles de la promotion, à retirer sur le campus.</div>
+    </td>
+  </tr>
+  <tr>
+    <td width="52" valign="top" style="width:52px;padding:16px 0;border-bottom:1px solid #EEEAE2;font-family:Georgia,'Times New Roman',serif;font-size:22px;line-height:1.2;color:{{charte.couleurPrimaire}}">03</td>
+    <td valign="top" style="padding:16px 0;border-bottom:1px solid #EEEAE2">
+      <div style="font-size:15.5px;font-weight:600;color:#1C1917">Compléter votre profil</div>
+      <div style="margin-top:2px;font-size:14px;line-height:1.55;color:#57524D">Photo et informations personnelles, depuis vos paramètres.</div>
+    </td>
+  </tr>
+</table>
+{{> bouton lien=lienPlateforme libelle="Découvrir la plateforme"}}

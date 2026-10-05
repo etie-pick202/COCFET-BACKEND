@@ -1,11 +1,7 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">{{titre}}</h1>
-<p>Bonjour {{prenom}},</p>
-<p>{{message}}</p>
+{{> titre surtitre=categorie texte=titre}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+{{!-- `pre-line` : le message est du texte saisi, ses retours à la ligne comptent. --}}
+<p style="margin:0;white-space:pre-line">{{message}}</p>
 {{#if lien}}
   {{> bouton lien=lien libelle="Voir sur la plateforme"}}
 {{/if}}
-<p style="color:#6b7280;font-size:13px">
-  Vous recevez ce message parce que vous avez un compte sur la plateforme. Vous
-  pouvez régler quels messages vous recevez depuis vos préférences de
-  notification.
-</p>

@@ -393,6 +393,7 @@ export class NotificationService {
         demande.titre,
         demande.message,
         demande.lien ?? null,
+        demande.type,
       );
     }
   }
@@ -429,6 +430,7 @@ export class NotificationService {
             dto.titre,
             dto.message,
             dto.lien ?? null,
+            dto.type,
           );
         }
       } catch (erreur) {

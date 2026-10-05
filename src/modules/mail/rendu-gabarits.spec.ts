@@ -21,6 +21,9 @@ describe('Rendu des gabarits d’email', () => {
     couleurPrimaire: '#123456',
     couleurSecondaire: '#abcdef',
     contrastePrimaire: '#FFFFFF',
+    teinte: '#F7FAFD',
+    bordTeinte: '#E1EDF8',
+    logo: 'cid:logo@cocfet',
   };
 
   const optionsMailer: MailerOptions = {
@@ -42,9 +45,20 @@ describe('Rendu des gabarits d’email', () => {
   const rendre = (
     template: string,
     contexte: Record<string, unknown>,
+    surcharge: Record<string, unknown> = {},
   ): Promise<string> =>
     new Promise((resoudre, rejeter) => {
-      const message = { data: { template, context: { ...contexte, charte } } };
+      const message = {
+        data: {
+          template,
+          context: {
+            ...contexte,
+            charte,
+            pied: { preferences: null },
+            ...surcharge,
+          },
+        },
+      };
 
       adaptateur.compile(
         message,
@@ -61,20 +75,26 @@ describe('Rendu des gabarits d’email', () => {
 
   /** Un contexte par gabarit, identique à celui que passe `MailService`. */
   const contextes: Record<string, Record<string, unknown>> = {
-    welcome: { prenom: 'Awa' },
+    welcome: { prenom: 'Awa', lienPlateforme: 'https://cocfet.test/' },
     'password-reset': { prenom: 'Awa', resetUrl: 'https://cocfet.test/mdp' },
     'verification-email': {
       prenom: 'Awa',
       lienVerification: 'https://cocfet.test/verif',
     },
-    'tentative-inscription': { prenom: 'Awa' },
+    'tentative-inscription': {
+      prenom: 'Awa',
+      lienConnexion: 'https://cocfet.test/connexion',
+      lienMotDePasse: 'https://cocfet.test/mot-de-passe-oublie',
+    },
     'changement-email': {
       prenom: 'Awa',
       lienConfirmation: 'https://cocfet.test/nouvelle',
     },
     'alerte-changement-email': {
       prenom: 'Awa',
+      adresseActuelle: 'awa@ancienne.test',
       nouvelleAdresse: 'awa@exemple.test',
+      lienMotDePasse: 'https://cocfet.test/mot-de-passe-oublie',
     },
     'invitation-sponsor': {
       nomSponsor: 'Société Générale',
@@ -85,6 +105,7 @@ describe('Rendu des gabarits d’email', () => {
       titre: 'Nouvel article',
       message: 'Le bilan du mandat est en ligne.',
       lien: 'https://cocfet.test/articles/1',
+      categorie: 'Actualité',
     },
     'bienvenue-bureau': {
       prenom: 'Awa',
@@ -93,16 +114,20 @@ describe('Rendu des gabarits d’email', () => {
       annee: 2027,
       mission: 'Tient les comptes du mandat.',
       administration: false,
+      lienProfil: 'https://cocfet.test/mon-espace/parametres',
     },
     billet: {
       prenom: 'Awa',
       titre: 'Gala des finissants',
-      dateDebut: 'samedi 12 juin 2027 à 19:00',
+      jour: 'Samedi 12 juin 2027',
+      heure: '20 h 00',
       lieu: 'Campus UCAC-ICAM',
       codeBillet: 'BIL-4821',
-      avecImage: true,
+      fixe: true,
       tournant: false,
       sansControle: false,
+      qr: 'cid:qr@cocfet',
+      lienBillet: 'https://cocfet.test/billets/7/qr',
     },
   };
 
@@ -152,14 +177,48 @@ describe('Rendu des gabarits d’email', () => {
     await expect(rendre('welcome', {})).rejects.toThrow(/prenom/);
   });
 
-  it('n’annonce pas de billet joint quand il n’y en a pas', async () => {
+  it('incruste le QR du billet fixe dans le corps', async () => {
+    const html = await rendre('billet', contextes.billet);
+
+    expect(html).toContain('src="cid:qr@cocfet"');
+    expect(html).toContain('BIL-4821');
+    expect(html).not.toContain('Afficher mon QR code');
+  });
+
+  it('mène le billet tournant à la plateforme, sans image', async () => {
     const html = await rendre('billet', {
       ...contextes.billet,
-      avecImage: false,
+      fixe: false,
       tournant: true,
+      qr: null,
     });
 
-    expect(html).not.toContain('Votre QR code est joint');
+    expect(html).not.toContain('cid:qr@cocfet');
+    expect(html).toContain('href="https://cocfet.test/billets/7/qr"');
     expect(html).toContain('toutes les 30 secondes');
+  });
+
+  it('pose le logo du mandat dans l’en-tête, et s’en passe s’il manque', async () => {
+    const avec = await rendre('welcome', contextes.welcome);
+    const sans = await rendre('welcome', contextes.welcome, {
+      charte: { ...charte, logo: null },
+    });
+
+    expect(avec).toContain('src="cid:logo@cocfet"');
+    expect(sans).not.toContain('<img');
+    // Le nom du mandat reste, logo ou pas.
+    expect(sans).toContain('Promotion ATLAS');
+  });
+
+  it('ne propose le lien des préférences qu’aux notifications', async () => {
+    const lien = 'https://cocfet.test/mon-espace/parametres';
+    const notification = await rendre('notification', contextes.notification, {
+      pied: { preferences: lien },
+    });
+    const accueil = await rendre('welcome', contextes.welcome);
+
+    expect(notification).toContain(`href="${lien}"`);
+    expect(notification).toContain('Actualité');
+    expect(accueil).not.toContain('Choisir les messages');
   });
 });

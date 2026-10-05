@@ -2,6 +2,7 @@ import { MailerService } from '@nestjs-modules/mailer';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
+import { CID_QR, PieceJointeMail, preparerCharte } from './charte-email';
 
 /**
  * Régime de contrôle à l'entrée, décrit ici en union de chaînes.
@@ -11,6 +12,36 @@ import { IdentiteVisuelleService } from '../generation/identite-visuelle.service
  * dépendant d'un module qu'il n'a aucune raison de charger.
  */
 export type ModeAcces = 'AUCUN' | 'QR_FIXE' | 'QR_TOURNANT';
+
+/**
+ * Surtitre d'une notification, selon son type.
+ *
+ * Indexé par chaîne pour la même raison que {@link ModeAcces} : le courrier
+ * n'a pas à connaître l'énumération du module de notification. Un type absent
+ * de la table donne un message sans surtitre, jamais une erreur.
+ */
+const CATEGORIES_NOTIFICATION: Record<string, string> = {
+  EVENEMENT: 'Événement',
+  PAIEMENT: 'Paiement',
+  SONDAGE: 'Sondage',
+  ARTICLE: 'Actualité',
+  BOUTIQUE: 'Boutique',
+  RAPPEL: 'Rappel',
+  SYSTEME: 'Plateforme',
+};
+
+/**
+ * Fuseau des événements. Le serveur tourne en UTC : sans fuseau explicite, un
+ * gala à 18 h à Douala s'annoncerait à 17 h.
+ */
+const FUSEAU = 'Africa/Douala';
+
+/** Options d'un envoi, au-delà du gabarit et de son contexte. */
+interface OptionsEnvoi {
+  pieces?: PieceJointeMail[];
+  /** Ajoute au pied le lien vers les préférences de notification. */
+  avecPreferences?: boolean;
+}
 
 @Injectable()
 export class MailService {
@@ -57,8 +88,16 @@ export class MailService {
     return `${this.urlFrontal}/${lien.replace(/^\/+/, '')}`;
   }
 
+  /** Chemin du frontal rendu absolu : `/connexion` → `https://…/connexion`. */
+  private page(chemin: string): string {
+    return `${this.urlFrontal}${chemin}`;
+  }
+
   async sendWelcome(to: string, prenom: string): Promise<void> {
-    await this.send(to, 'Bienvenue sur COCFET', 'welcome', { prenom });
+    await this.send(to, 'Bienvenue sur COCFET', 'welcome', {
+      prenom,
+      lienPlateforme: this.page('/'),
+    });
   }
 
   async sendPasswordReset(
@@ -100,7 +139,11 @@ export class MailService {
       to,
       'Tentative d’inscription avec votre adresse — COCFET',
       'tentative-inscription',
-      { prenom },
+      {
+        prenom,
+        lienConnexion: this.page('/connexion'),
+        lienMotDePasse: this.page('/mot-de-passe-oublie'),
+      },
     );
   }
 
@@ -117,13 +160,22 @@ export class MailService {
     titre: string,
     message: string,
     lien: string | null,
+    type?: string,
   ): Promise<void> {
-    await this.send(to, `${titre} — COCFET`, 'notification', {
-      prenom,
-      titre,
-      message,
-      lien: this.lienAbsolu(lien),
-    });
+    await this.send(
+      to,
+      `${titre} — COCFET`,
+      'notification',
+      {
+        prenom,
+        titre,
+        message,
+        lien: this.lienAbsolu(lien),
+        categorie: (type && CATEGORIES_NOTIFICATION[type]) || null,
+      },
+      // Ces messages sont les seuls que l'on peut couper : le pied dit où.
+      { avecPreferences: true },
+    );
   }
 
   /** Part vers la **nouvelle** adresse : c'est elle qu'il faut prouver. */
@@ -156,7 +208,14 @@ export class MailService {
       to,
       'Changement d’adresse demandé — COCFET',
       'alerte-changement-email',
-      { prenom, nouvelleAdresse },
+      {
+        prenom,
+        adresseActuelle: to,
+        nouvelleAdresse,
+        // La réinitialisation, et non le changement depuis le profil : elle
+        // n'exige pas l'ancien mot de passe, que l'intrus a peut-être changé.
+        lienMotDePasse: this.page('/mot-de-passe-oublie'),
+      },
     );
   }
 
@@ -191,6 +250,7 @@ export class MailService {
         annee: affectation.annee,
         mission: affectation.mission,
         administration: affectation.administration,
+        lienProfil: this.page('/mon-espace/parametres'),
       },
     );
   }
@@ -209,22 +269,24 @@ export class MailService {
   }
 
   /**
-   * Envoie le billet, QR code compris.
+   * Envoie le billet.
    *
-   * Le QR voyage **dans** le message, en pièce jointe : une URL distante
-   * serait bloquée par défaut chez Outlook, et le destinataire arriverait à
-   * l'entrée avec un cadre vide.
+   * Sous `QR_FIXE`, le QR voyage **dans** le corps du message, en image
+   * incrustée (`cid:`) : une URL distante serait bloquée par défaut chez
+   * Outlook, et Gmail supprime les sources `data:`. Par le relais SMTP, il
+   * s'affiche donc sans réseau une fois l'email ouvert. Par l'API HTTP de
+   * Brevo, qui ne sait pas incruster, il part en pièce jointe ; la référence
+   * figure de toute façon en toutes lettres, comme recours.
    *
-   * Il était auparavant affiché dans le corps via `cid:`. L'API HTTP de Brevo
-   * ne sait pas rattacher une pièce jointe à un `Content-Id` — seul le relais
-   * SMTP le permettait, et il est injoignable depuis l'hébergeur. Le fichier
-   * est donc joint, et le gabarit dirige vers lui. Le code d'entrée figure de
-   * toute façon en toutes lettres, comme recours.
+   * Sous `QR_TOURNANT`, aucune image : elle périmerait en trente secondes. Le
+   * message mène à la page du billet, qui affiche le code courant.
    */
   async envoyerBillet(
     to: string,
     prenom: string,
     billet: {
+      /** Identifiant de l'inscription : celui de la page du billet. */
+      id: string;
       titre: string;
       dateDebut: Date;
       lieu: string;
@@ -234,6 +296,21 @@ export class MailService {
       modeAcces: ModeAcces;
     },
   ): Promise<void> {
+    const jour = billet.dateDebut.toLocaleDateString('fr-FR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: FUSEAU,
+    });
+    const heure = billet.dateDebut
+      .toLocaleTimeString('fr-FR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: FUSEAU,
+      })
+      .replace(':', ' h ');
+
     await this.send(
       to,
       billet.modeAcces === 'AUCUN'
@@ -243,27 +320,31 @@ export class MailService {
       {
         prenom,
         titre: billet.titre,
-        dateDebut: billet.dateDebut.toLocaleString('fr-FR', {
-          dateStyle: 'full',
-          timeStyle: 'short',
-        }),
+        jour: jour.charAt(0).toUpperCase() + jour.slice(1),
+        heure,
         lieu: billet.lieu,
         codeBillet: billet.codeBillet,
         // Trois variables plutôt qu'une : Handlebars ne compare pas, il teste
         // la véracité. Toutes sont passées, le mode strict faisant échouer le
         // rendu sur une variable citée mais absente.
-        avecImage: billet.qrPng !== null,
+        fixe: billet.modeAcces === 'QR_FIXE',
         tournant: billet.modeAcces === 'QR_TOURNANT',
         sansControle: billet.modeAcces === 'AUCUN',
+        qr: billet.qrPng ? `cid:${CID_QR}` : null,
+        lienBillet: this.page(`/billets/${billet.id}/qr`),
       },
-      billet.qrPng
-        ? [
-            {
-              filename: `billet-${billet.codeBillet}.png`,
-              content: billet.qrPng,
-            },
-          ]
-        : undefined,
+      {
+        pieces: billet.qrPng
+          ? [
+              {
+                filename: `billet-${billet.codeBillet}.png`,
+                content: billet.qrPng,
+                contentType: 'image/png',
+                cid: CID_QR,
+              },
+            ]
+          : [],
+      },
     );
   }
 
@@ -289,32 +370,36 @@ export class MailService {
     subject: string,
     template: string,
     context: Record<string, unknown>,
-    attachments?: { filename: string; content: Buffer }[],
+    options: OptionsEnvoi = {},
   ): Promise<void> {
     void this.identiteVisuelle
       .charte()
-      .then((charte) =>
-        this.mailerService.sendMail({
+      .then((identite) => {
+        // Le gabarit commun lit `charte` pour son en-tête et ses boutons. Le
+        // logo y figure sous forme de référence `cid:` ; ses octets partent en
+        // pièce jointe incrustée, jamais dans le contexte de rendu.
+        const { charte, logo } = preparerCharte(identite);
+        const attachments = [
+          ...(logo ? [logo] : []),
+          ...(options.pieces ?? []),
+        ];
+
+        return this.mailerService.sendMail({
           to,
           subject,
           template,
           context: {
             ...context,
-            // Le gabarit commun lit `charte` pour son en-tête et ses boutons.
-            // Le logo en est retiré : il ne s'affiche pas dans un email — voir
-            // l'en-tête de « gabarit.hbs » — et ses octets n'ont rien à faire
-            // dans un contexte de rendu.
-            charte: {
-              nom: charte.nom,
-              annee: charte.annee,
-              couleurPrimaire: charte.couleurPrimaire,
-              couleurSecondaire: charte.couleurSecondaire,
-              contrastePrimaire: charte.contrastePrimaire,
+            charte,
+            pied: {
+              preferences: options.avecPreferences
+                ? this.page('/mon-espace/parametres')
+                : null,
             },
           },
-          ...(attachments ? { attachments } : {}),
-        }),
-      )
+          ...(attachments.length > 0 ? { attachments } : {}),
+        });
+      })
       .then(() => {
         this.logger.log(`Email "${template}" remis au fournisseur pour ${to}.`);
       })

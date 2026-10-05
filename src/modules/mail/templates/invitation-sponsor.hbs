@@ -1,14 +1,13 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Votre accès partenaire
-</h1>
-<p>Bonjour,</p>
-<p>
-  Le Bureau des Finissants de l’UCAC-ICAM a ouvert un espace partenaire pour
-  <strong>{{nomSponsor}}</strong>. Définissez votre mot de passe pour y accéder :
-</p>
+{{> titre surtitre="Espace partenaire" texte="Votre accès partenaire est prêt"}}
+<p style="margin:0 0 14px">Bonjour,</p>
+{{#> fiche}}
+  {{> ligne-fiche cle="Partenaire" valeur=nomSponsor}}
+  {{> ligne-fiche cle="Accès" valeur="Annuaire des finissants, selon votre palier" dernier=true}}
+{{/fiche}}
 {{> bouton lien=lienActivation libelle="Définir mon mot de passe"}}
-<p>Ce lien est valable 7 jours et ne peut servir qu’une fois.</p>
-<p style="color:#6b7280;font-size:13px">
-  Personne d’autre que vous ne connaît ce mot de passe : il n’est ni généré ni
+{{> pastille texte="Lien valable 7 jours — à usage unique"}}
+{{#> encart-info titre="Confidentialité" marge="22px 0 0"}}
+  Personne d’autre que vous ne connaîtra ce mot de passe : il n’est ni généré ni
   transmis par le bureau.
-</p>
+{{/encart-info}}
+{{> lien-secours lien=lienActivation}}
