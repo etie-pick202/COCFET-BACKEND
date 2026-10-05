@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { MethodePaiement } from './enums/paiement.enum';
 import {
   calculerFrais,
+  METHODE_FRAIS_PAR_DEFAUT,
   TAUX_FRAIS_PAR_DEFAUT,
   tauxFraisDepuisConfig,
 } from './frais-paiement';
@@ -103,5 +104,19 @@ describe('tauxFraisDepuisConfig', () => {
     const taux = tauxFraisDepuisConfig(config);
 
     expect(taux).toEqual(TAUX_FRAIS_PAR_DEFAUT);
+  });
+
+  it('retient le taux de retrait le plus élevé quand l’opérateur est inconnu', () => {
+    // Le payeur choisit son opérateur sur la page de Fapshi, après que le
+    // montant a été fixé : le calcul ne peut pas en dépendre, et il doit
+    // couvrir le cas le plus coûteux pour ne jamais faire perdre la trésorerie.
+    const sansChoix = calculerFrais(10_000, null);
+    const mtn = calculerFrais(10_000, MethodePaiement.MTN_MOMO);
+    const orange = calculerFrais(10_000, MethodePaiement.ORANGE_MONEY);
+
+    expect(METHODE_FRAIS_PAR_DEFAUT).toBe(MethodePaiement.MTN_MOMO);
+    expect(sansChoix).toEqual(mtn);
+    expect(sansChoix.montantTtc).toBeGreaterThanOrEqual(orange.montantTtc);
+    expect(calculerFrais(10_000, undefined)).toEqual(mtn);
   });
 });

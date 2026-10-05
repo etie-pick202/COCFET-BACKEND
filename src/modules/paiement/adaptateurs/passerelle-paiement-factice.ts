@@ -99,7 +99,7 @@ export class PasserellePaiementFactice implements PasserellePaiement {
     const resultat: ResultatPaiement = {
       reference: demande.reference,
       referenceExterne: `factice_${randomUUID()}`,
-      statut: this.issue(demande.telephone),
+      statut: this.issue(demande.telephone ?? ''),
       urlRedirection: null,
     };
 
