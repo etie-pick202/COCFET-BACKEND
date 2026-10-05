@@ -125,8 +125,8 @@ export class CommandeService {
             },
             statut: StatutCommande.EN_ATTENTE,
             statutPaiement: StatutPaiement.EN_ATTENTE,
-            methodePaiement: dto.methodePaiement,
-            telephone: dto.telephone,
+            methodePaiement: dto.methodePaiement ?? null,
+            telephone: dto.telephone ?? null,
           }),
         );
 
@@ -554,15 +554,15 @@ export class CommandeService {
       montant,
       origine: OrigineTransaction.BOUTIQUE,
       user: commande.user,
-      methodePaiement: dto.methodePaiement,
+      methodePaiement: dto.methodePaiement ?? null,
       fraisPrestataire: commande.frais.fraisFapshi ?? 0,
     });
 
     const resultat = await this.paiement.initier({
       reference: commande.id,
       montant,
-      methode: dto.methodePaiement,
-      telephone: dto.telephone,
+      methode: dto.methodePaiement ?? null,
+      telephone: dto.telephone ?? null,
       description: `Commande boutique — ${commande.total} FCFA`,
     });
 

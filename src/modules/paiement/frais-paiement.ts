@@ -44,6 +44,17 @@ export const TAUX_FRAIS_PAR_DEFAUT: TauxFrais = {
   },
 };
 
+/**
+ * Méthode retenue pour les frais quand le payeur n'en a pas choisi.
+ *
+ * Le payeur désigne son opérateur sur la page hébergée de Fapshi, **après** que
+ * le montant à encaisser a été fixé : ce montant ne peut donc pas dépendre de
+ * son choix. On retient le taux de retrait le plus élevé des deux (MTN). La
+ * trésorerie ne perd jamais ; un payeur Orange paie un peu plus que le strict
+ * nécessaire, de l'ordre de 0,5 % du prix.
+ */
+export const METHODE_FRAIS_PAR_DEFAUT = MethodePaiement.MTN_MOMO;
+
 export interface DetailFrais {
   /** Prix de base, celui que l'acheteur voit sur l'événement ou le produit. */
   prixBase: number;
@@ -73,11 +84,12 @@ export interface DetailFrais {
  */
 export function calculerFrais(
   prixBase: number,
-  methode: MethodePaiement,
+  methode: MethodePaiement | null | undefined,
   taux: TauxFrais = TAUX_FRAIS_PAR_DEFAUT,
 ): DetailFrais {
+  const retenue = methode ?? METHODE_FRAIS_PAR_DEFAUT;
   const fraisRetrait = Math.ceil(
-    prixBase * taux.retraitTaux[methode] + taux.retraitFixe[methode],
+    prixBase * taux.retraitTaux[retenue] + taux.retraitFixe[retenue],
   );
 
   const sousTotal = prixBase + fraisRetrait;

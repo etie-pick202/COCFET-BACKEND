@@ -88,6 +88,28 @@ describe('PasserelleFapshi — repli sur le lien de paiement', () => {
     });
   });
 
+  it('va droit au lien de paiement quand le payeur n’a rien saisi', async () => {
+    // Notre formulaire est retiré : ni opérateur ni numéro n'arrivent. Sans
+    // eux direct-pay ne peut pas partir, et on ne l'appelle même pas — un
+    // appel en 403 de plus n'apporterait rien.
+    reponses = [repondre(200, { transId: 'trans_9', link: LIEN })];
+
+    const resultat = await passerelle.initier({
+      ...demande,
+      methode: null,
+      telephone: null,
+    });
+
+    expect(appels.map((a) => a.url)).toEqual([
+      'https://live.fapshi.test/initiate-pay',
+    ]);
+    expect(resultat).toMatchObject({
+      referenceExterne: 'trans_9',
+      urlRedirection: LIEN,
+      statut: StatutPaiement.EN_ATTENTE,
+    });
+  });
+
   it('ne demande ni numéro ni opérateur au lien de paiement', async () => {
     // La page hébergée les demande elle-même au payeur.
     reponses = [

@@ -118,7 +118,15 @@ export class PasserelleFapshi implements PasserellePaiement {
       );
     }
 
-    if (this.directPayIndisponible()) {
+    // Sans opérateur ni numéro, la demande ne peut pas partir sur un
+    // téléphone : on envoie le payeur sur la page hébergée, qui les lui
+    // demande. C'est désormais le parcours normal ; `direct-pay` reste pour
+    // l'appelant qui fournit les deux.
+    if (
+      !demande.methode ||
+      !demande.telephone ||
+      this.directPayIndisponible()
+    ) {
       return this.parLienDePaiement(demande);
     }
 

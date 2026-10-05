@@ -132,12 +132,6 @@ export class BilletterieService {
     );
     const payant = prixApplicable > 0;
 
-    if (payant && (!dto.methodePaiement || !dto.telephone)) {
-      throw new BadRequestException(
-        'Cet événement est payant : méthode de paiement et numéro sont requis.',
-      );
-    }
-
     if (!(await this.evenementService.reserverUnePlace(evenementId))) {
       throw new ConflictException('Cet événement est complet.');
     }
@@ -146,7 +140,7 @@ export class BilletterieService {
     // l'inscription des sa creation, pour que « mes billets » l'affiche meme
     // si le paiement echoue avant d'aboutir.
     const frais = payant
-      ? calculerFrais(prixApplicable, dto.methodePaiement!, this.tauxFrais)
+      ? calculerFrais(prixApplicable, dto.methodePaiement, this.tauxFrais)
       : null;
 
     // Declaree hors du try : la reprise sur erreur doit pouvoir la supprimer,
@@ -869,8 +863,8 @@ export class BilletterieService {
       // permet de retrouver l'inscription au retour du webhook.
       reference: inscription.codeBillet,
       montant,
-      methode: dto.methodePaiement!,
-      telephone: dto.telephone!,
+      methode: dto.methodePaiement ?? null,
+      telephone: dto.telephone ?? null,
       description: `Billet — ${evenement.titre}`,
     });
 

@@ -447,7 +447,7 @@ export class CotisationService {
       montant: frais.montantTtc,
       origine: OrigineTransaction.COTISATION,
       user: participation.user,
-      methodePaiement: dto.methodePaiement,
+      methodePaiement: dto.methodePaiement ?? null,
       fraisPrestataire: frais.fraisFapshi,
     });
 
@@ -455,8 +455,8 @@ export class CotisationService {
       const resultat = await this.paiement.initier({
         reference,
         montant: frais.montantTtc,
-        methode: dto.methodePaiement,
-        telephone: dto.telephone,
+        methode: dto.methodePaiement ?? null,
+        telephone: dto.telephone ?? null,
         description: `Cotisation — ${participation.cotisation.titre} — ${echeance.libelle}`,
       });
 
