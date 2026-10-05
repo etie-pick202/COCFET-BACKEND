@@ -10,7 +10,11 @@ import {
 import { Retrait } from '../paiement/entities/retrait.entity';
 import { ReleveSolde } from '../paiement/entities/releve-solde.entity';
 import { Transaction } from '../paiement/entities/transaction.entity';
-import { StatutPaiement, StatutRetrait } from '../paiement/enums/paiement.enum';
+import {
+  SourceRetrait,
+  StatutPaiement,
+  StatutRetrait,
+} from '../paiement/enums/paiement.enum';
 import {
   PASSERELLE_PAIEMENT,
   type PasserellePaiement,
@@ -20,6 +24,24 @@ import { EtatSolde } from './dto/solde.dto';
 
 /** Au-delà, le solde affiché est relu chez le prestataire à l'ouverture. */
 const FRAICHEUR_MS = 5 * 60_000;
+
+/**
+ * Durée pendant laquelle un manque doit persister avant d'être constaté.
+ *
+ * Deux lectures consécutives, espacées d'au moins ce délai : une seule lecture
+ * peut tomber entre la confirmation d'un paiement chez nous et son crédit chez
+ * Fapshi, et ferait inventer une sortie.
+ */
+const DELAI_CONSTAT_MS = 5 * 60_000;
+
+/**
+ * Manque minimal pour être constaté.
+ *
+ * Fapshi arrondit ses frais autrement que nous : quelques francs d'écart par
+ * paiement sont normaux et ne sont pas une sortie. 100 FCFA est aussi le
+ * montant minimal d'un retrait chez Fapshi — rien de plus petit n'a pu sortir.
+ */
+const SEUIL_CONSTAT = 100;
 
 /** Une photographie du solde au moins par jour, même si rien n'a bougé. */
 const PHOTO_QUOTIDIENNE_MS = 24 * 3_600_000;
@@ -180,12 +202,70 @@ export class SoldeService {
 
     await this.enregistrer(trouves);
 
-    return this.photographier({
-      soldeFapshi: solde.solde,
-      devise: solde.devise,
-      encaisseNet: await this.encaisseNet(),
-      retraitsReussis: await this.sommeRetraits(StatutRetrait.REUSSI),
-    });
+    const encaisseNet = await this.encaisseNet();
+    const precedent = await this.dernierReleve();
+    const maintenant = new Date();
+
+    // Le manque : ce que le compte devrait contenir, moins ce qu'il contient.
+    let reussis = await this.sommeRetraits(StatutRetrait.REUSSI);
+    const enCours = await this.sommeRetraits(StatutRetrait.EN_COURS);
+    const manque = encaisseNet - reussis - enCours - solde.solde;
+
+    let manqueDepuis: Date | null = null;
+
+    if (manque >= SEUIL_CONSTAT) {
+      manqueDepuis = precedent?.manqueDepuis ?? maintenant;
+
+      if (maintenant.getTime() - manqueDepuis.getTime() >= DELAI_CONSTAT_MS) {
+        await this.constater(manque, manqueDepuis, maintenant);
+        reussis = await this.sommeRetraits(StatutRetrait.REUSSI);
+        manqueDepuis = null;
+      }
+    }
+
+    return this.photographier(
+      {
+        soldeFapshi: solde.solde,
+        devise: solde.devise,
+        encaisseNet,
+        retraitsReussis: reussis,
+      },
+      manqueDepuis,
+    );
+  }
+
+  /**
+   * Consigne une baisse du solde que rien n'explique.
+   *
+   * Le service dont l'application détient les clés n'est pas le compte
+   * principal de Fapshi : pour retirer, il faut d'abord transférer les fonds
+   * du service vers ce compte, puis retirer depuis lui. Ni le transfert ni le
+   * retrait ne passent par l'API du service. L'application ne peut donc pas
+   * les relire ; elle constate la baisse, la garde, et laisse le bureau y
+   * consigner le motif.
+   */
+  private async constater(
+    montant: number,
+    vuLe: Date,
+    constateLe: Date,
+  ): Promise<void> {
+    await this.retraits.save(
+      this.retraits.create({
+        referenceExterne: `constate-${constateLe.getTime()}`,
+        source: SourceRetrait.CONSTATEE,
+        montant,
+        statut: StatutRetrait.REUSSI,
+        operateur: null,
+        beneficiaire: null,
+        motif: null,
+        referenceFinanciere: null,
+        initieLe: vuLe,
+        confirmeLe: constateLe,
+      }),
+    );
+    this.logger.warn(
+      `Baisse du solde constatée : ${montant} FCFA sans retrait relevé chez Fapshi.`,
+    );
   }
 
   /**
@@ -282,7 +362,11 @@ export class SoldeService {
    * d'un jour ; sinon, avance seulement `verifieLe`.
    */
   private async photographier(
-    donnees: Omit<ReleveSolde, 'id' | 'createdAt' | 'updatedAt' | 'verifieLe'>,
+    donnees: Omit<
+      ReleveSolde,
+      'id' | 'createdAt' | 'updatedAt' | 'verifieLe' | 'manqueDepuis'
+    >,
+    manqueDepuis: Date | null,
   ): Promise<ReleveSolde> {
     const maintenant = new Date();
     const dernier = await this.dernierReleve();
@@ -297,11 +381,12 @@ export class SoldeService {
 
     if (dernier && inchange) {
       dernier.verifieLe = maintenant;
+      dernier.manqueDepuis = manqueDepuis;
       return this.releves.save(dernier);
     }
 
     return this.releves.save(
-      this.releves.create({ ...donnees, verifieLe: maintenant }),
+      this.releves.create({ ...donnees, verifieLe: maintenant, manqueDepuis }),
     );
   }
 }

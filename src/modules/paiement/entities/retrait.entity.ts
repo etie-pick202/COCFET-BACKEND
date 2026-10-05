@@ -1,7 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
-import { StatutRetrait } from '../enums/paiement.enum';
+import { SourceRetrait, StatutRetrait } from '../enums/paiement.enum';
 
 /**
  * Sortie d'argent du solde, relevée chez le prestataire.
@@ -35,6 +35,20 @@ export class Retrait extends BaseEntity {
   @ApiProperty({ enum: StatutRetrait })
   statut: StatutRetrait;
 
+  @Column({
+    type: 'enum',
+    enum: SourceRetrait,
+    default: SourceRetrait.FAPSHI,
+  })
+  @ApiProperty({
+    enum: SourceRetrait,
+    description:
+      '`FAPSHI` : retrait relevé chez Fapshi. `CONSTATEE` : baisse du solde ' +
+      'que rien n’explique, constatée par l’application ; le détail est dans ' +
+      'l’espace de Fapshi.',
+  })
+  source: SourceRetrait;
+
   @Column({ type: 'varchar', nullable: true })
   @ApiPropertyOptional({ nullable: true })
   operateur: string | null;
@@ -53,6 +67,10 @@ export class Retrait extends BaseEntity {
   @ApiPropertyOptional({ nullable: true })
   referenceFinanciere: string | null;
 
+  /**
+   * Retrait : date d'initiation chez Fapshi. Sortie constatée : première
+   * lecture où la baisse a été vue.
+   */
   @Column({ name: 'initie_le', type: 'timestamptz' })
   @ApiProperty({ format: 'date-time' })
   initieLe: Date;
