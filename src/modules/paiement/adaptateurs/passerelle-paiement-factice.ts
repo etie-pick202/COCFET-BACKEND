@@ -8,6 +8,8 @@ import {
   EvenementPaiement,
   PasserellePaiement,
   ResultatPaiement,
+  RetraitFournisseur,
+  SoldeFournisseur,
 } from '../ports/passerelle-paiement';
 
 /**
@@ -109,6 +111,19 @@ export class PasserellePaiementFactice implements PasserellePaiement {
     );
 
     return resultat;
+  }
+
+  /**
+   * Le double ne détient aucun argent : solde nul, aucun retrait. Les
+   * développeurs qui veulent éprouver la synchronisation branchent le bac à
+   * sable Fapshi, comme pour les paiements.
+   */
+  consulterSolde(): Promise<SoldeFournisseur> {
+    return Promise.resolve({ solde: 0, devise: 'XAF' });
+  }
+
+  listerRetraits(): Promise<RetraitFournisseur[]> {
+    return Promise.resolve([]);
   }
 
   /**
