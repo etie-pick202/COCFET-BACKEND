@@ -1,67 +1,154 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  {{#if sansControle}}Inscription confirmée{{else}}Votre billet{{/if}}
-</h1>
-<p>Bonjour {{prenom}},</p>
-<p>
+{{!--
+  Trois régimes d'entrée, trois talons :
+  - `fixe` : le QR code est incrusté dans le message (`qr`, en `cid:`). Par
+    l'API HTTP de Brevo, l'image est retirée et part en pièce jointe ; la
+    référence écrite en dessous vaut le QR.
+  - `tournant` : aucun QR dans le message, il périmerait. Le bouton mène à la
+    page du billet sur la plateforme, qui l'affiche et le renouvelle.
+  - `sansControle` : rien à présenter.
+--}}
+{{#if sansControle}}
+  {{> titre texte="Inscription confirmée"}}
+{{else}}
+  {{> titre texte="Votre billet"}}
+{{/if}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+<p style="margin:0">
   Votre inscription à <strong>{{titre}}</strong> est confirmée.
   {{#if sansControle}}
     Il n’y a pas de billet à présenter : venez, tout simplement.
   {{else if tournant}}
-    L’entrée se fait avec le code affiché dans l’application.
+    L’entrée se fait avec le QR code affiché sur la plateforme.
   {{else}}
-    Présentez ce QR code à l’entrée.
+    Présentez le QR code ci-dessous à l’entrée.
   {{/if}}
 </p>
 
 <table
   role="presentation"
+  width="100%"
   cellpadding="0"
   cellspacing="0"
-  style="margin:24px 0;border-collapse:collapse"
+  style="margin:26px 0;border:1px solid #E2DCD0;border-radius:10px;background:#FDFCF9;border-collapse:separate"
 >
   <tr>
-    <td style="padding:4px 16px 4px 0;color:#6b7280">Date</td>
-    <td><strong>{{dateDebut}}</strong></td>
+    <td style="padding:22px 26px 20px">
+      <div
+        style="font-size:10.5px;letter-spacing:2.4px;font-weight:700;color:{{charte.couleurPrimaire}}"
+      >{{#if sansControle}}INSCRIPTION{{else}}BILLET D’ENTRÉE{{/if}}</div>
+      <div
+        style="margin-top:8px;font-family:Georgia,'Times New Roman',serif;font-size:23px;line-height:1.25;color:#1C1917"
+      >{{titre}}</div>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top:16px">
+        <tr>
+          <td width="50%" valign="top" style="width:50%;padding-right:12px">
+            <div style="font-size:10.5px;letter-spacing:1.6px;font-weight:700;color:#6B6560">DATE</div>
+            <div style="margin-top:3px;font-size:14.5px;font-weight:600;line-height:1.45;color:#1C1917">
+              {{jour}}<br />{{heure}}
+            </div>
+          </td>
+          <td width="50%" valign="top" style="width:50%">
+            <div style="font-size:10.5px;letter-spacing:1.6px;font-weight:700;color:#6B6560">LIEU</div>
+            <div style="margin-top:3px;font-size:14.5px;font-weight:600;line-height:1.45;color:#1C1917">{{lieu}}</div>
+          </td>
+        </tr>
+      </table>
+    </td>
   </tr>
   <tr>
-    <td style="padding:4px 16px 4px 0;color:#6b7280">Lieu</td>
-    <td><strong>{{lieu}}</strong></td>
+    <td style="border-top:2px dashed #D9D2C3;background:#FAF8F4;border-radius:0 0 10px 10px">
+      {{#if fixe}}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:26px 26px 24px;text-align:center">
+              {{#if qr}}
+                <table role="presentation" cellpadding="0" cellspacing="0" align="center">
+                  <tr>
+                    <td style="background:#FFFFFF;border:1px solid #E2DCD0;border-radius:10px;padding:10px">
+                      <img
+                        src="{{qr}}"
+                        alt="QR code du billet {{codeBillet}}"
+                        width="200"
+                        height="200"
+                        style="display:block;width:200px;height:200px;border:0"
+                      />
+                    </td>
+                  </tr>
+                </table>
+              {{/if}}
+              <div style="margin-top:16px;font-size:10.5px;letter-spacing:1.6px;font-weight:700;color:#6B6560">RÉFÉRENCE</div>
+              <div
+                style="margin-top:4px;font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:19px;letter-spacing:1.5px;font-weight:700;color:#1C1917"
+              >{{codeBillet}}</div>
+              <div style="margin-top:8px;font-size:13px;color:#57524D">À présenter à l’entrée · valable une seule fois</div>
+            </td>
+          </tr>
+        </table>
+      {{/if}}
+      {{#if tournant}}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:26px 26px 24px;text-align:center">
+              <div style="font-size:10.5px;letter-spacing:1.6px;font-weight:700;color:#6B6560">CODE À PRÉSENTER</div>
+              <div style="margin:8px auto 0;max-width:380px;font-size:14px;line-height:1.55;color:#292524">
+                Votre QR code s’affiche sur la plateforme et se renouvelle
+                toutes les 30 secondes.
+              </div>
+              <table role="presentation" cellpadding="0" cellspacing="0" align="center" style="margin:18px auto 0">
+                <tr>
+                  <td style="background:{{charte.couleurPrimaire}};border-radius:6px;padding:14px 30px">
+                    <a
+                      href="{{lienBillet}}"
+                      style="color:{{charte.contrastePrimaire}};font-weight:600;letter-spacing:0.2px;text-decoration:none;font-size:15px;line-height:1.2;display:inline-block"
+                      >Afficher mon QR code</a
+                    >
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top:14px;font-size:12.5px;color:#6B6560">
+                Référence :
+                <span style="font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-weight:700;color:#1C1917">{{codeBillet}}</span>
+              </div>
+            </td>
+          </tr>
+        </table>
+      {{/if}}
+      {{#if sansControle}}
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+          <tr>
+            <td align="center" style="padding:18px 26px 20px;text-align:center">
+              <div style="font-size:10.5px;letter-spacing:2.4px;font-weight:700;color:#6B6560">ENTRÉE LIBRE</div>
+              <div style="margin-top:4px;font-size:14px;color:#292524">Aucun billet à présenter à l’entrée.</div>
+            </td>
+          </tr>
+        </table>
+      {{/if}}
+    </td>
   </tr>
-  {{#unless sansControle}}
-    <tr>
-      <td style="padding:4px 16px 4px 0;color:#6b7280">Référence</td>
-      <td><strong>{{codeBillet}}</strong></td>
-    </tr>
-  {{/unless}}
 </table>
 
-{{#if avecImage}}
-  <p
-    style="background:#f9fafb;border-left:4px solid {{charte.couleurSecondaire}};padding:12px 16px"
-  >
-    <strong>Votre QR code est joint à ce message</strong>
-    (fichier
-    <em>billet-{{codeBillet}}.png</em>). Enregistrez-le sur votre téléphone avant
-    de venir : le réseau n’est pas garanti à l’entrée.
-  </p>
-  <p style="color:#6b7280;font-size:13px">
-    La référence écrite plus haut vaut le QR : si vous ne pouvez pas ouvrir la
-    pièce jointe, dictez-la à l’accueil. Ce billet n’est valable qu’une fois — ne
-    le publiez pas, quiconque le présenterait entrerait à votre place.
+{{#if fixe}}
+  {{#> encart-info titre="Enregistrez-le avant de venir" marge="0"}}
+    Le QR code fait partie de ce message : une fois l’email ouvert, il
+    s’affiche même sans réseau. Par précaution, enregistrez-le aussi dans vos
+    photos.
+  {{/encart-info}}
+  <p style="margin:16px 0 0;font-size:13.5px;line-height:1.6;color:#57524D">
+    La référence vaut le QR : si l’image ne s’affiche pas, dictez-la à
+    l’accueil. Ce billet n’est valable qu’une fois — ne le publiez pas,
+    quiconque le présenterait entrerait à votre place.
   </p>
 {{/if}}
 
 {{#if tournant}}
-  <p
-    style="background:#fef3c7;border-left:4px solid #f59e0b;padding:12px 16px;color:#78350f"
-  >
-    <strong>Aucun QR code n’est joint à ce message, et c’est voulu.</strong>
-    Pour cet événement, le code se renouvelle toutes les 30 secondes dans
-    l’application : une image transmise arriverait périmée. Ouvrez l’application
-    au moment d’entrer — pensez à votre connexion.
-  </p>
-  <p style="color:#6b7280;font-size:13px">
-    La référence ci-dessus permet à l’accueil de vous retrouver en cas de
-    difficulté. Elle ne suffit pas, à elle seule, à ouvrir l’entrée.
+  {{#> encart-attention titre="Pas de QR dans ce message — c’est voulu" marge="0"}}
+    Une image envoyée par email arriverait périmée. Ouvrez votre billet sur la
+    plateforme au moment d’entrer, avec du réseau.
+  {{/encart-attention}}
+  <p style="margin:16px 0 0;font-size:13.5px;line-height:1.6;color:#57524D">
+    Si vous n’êtes pas connecté, la plateforme vous demandera de vous
+    identifier puis vous ramènera directement sur votre billet. La référence
+    permet à l’accueil de vous retrouver en cas de difficulté ; elle ne suffit
+    pas, seule, à ouvrir l’entrée.
   </p>
 {{/if}}

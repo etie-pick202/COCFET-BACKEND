@@ -120,12 +120,30 @@ Les emails capturés se consultent sur **http://localhost:8025**.
 
 > Le module mail omet le bloc `auth` lorsque `MAIL_USER` et `MAIL_PASSWORD` sont vides : envoyer des identifiants vides ferait échouer la négociation SMTP avec Mailpit.
 
-**Staging et production — Brevo**
+**Recette et production — Brevo, relais SMTP puis API**
+
+Le serveur envoie par le **relais SMTP** de Brevo, et se rabat sur l'**API HTTP** si le relais ne répond pas (délai de connexion borné à 10 s). L'ordre compte : seul le SMTP sait incruster une image dans le corps d'un message — le logo du mandat dans l'en-tête de tous les emails, le QR code des billets à code fixe. Par l'API, les messages partent quand même, sans ces images (le QR est alors joint en fichier).
+
+| Variable | Valeur | Type |
+|---|---|---|
+| `MAIL_HOST` | `smtp-relay.brevo.com` | variable |
+| `MAIL_PORT` | `587` | variable |
+| `MAIL_SECURE` | `false` — STARTTLS est négocié sur le port 587 | variable |
+| `MAIL_USER` | login SMTP Brevo (onglet **SMTP**, de la forme `xxxx@smtp-brevo.com`) | secret |
+| `MAIL_PASSWORD` | **clé SMTP** (`xsmtpsib-…`), et non la clé API | secret |
+| `BREVO_API_KEY` | clé API (`xkeysib-…`), conservée comme recours | secret |
+| `MAIL_FROM` | expéditeur validé sur le domaine vérifié | variable |
 
 1. [app.brevo.com](https://app.brevo.com) > menu utilisateur > **SMTP & API** > onglet **SMTP**.
-2. Relever le serveur (`smtp-relay.brevo.com`), le port (`587`) et le login.
-3. **Generate a new SMTP key** — la clé sert de `MAIL_PASSWORD`.
-4. Valider le domaine d'envoi : **Senders, Domains & Dedicated IPs** > ajouter le domaine > publier les enregistrements DNS **SPF** et **DKIM** fournis.
+2. Relever le login, puis **Generate a new SMTP key** — la clé sert de `MAIL_PASSWORD`.
+3. Valider le domaine d'envoi : **Senders, Domains & Dedicated IPs** > ajouter le domaine > publier les enregistrements DNS **SPF** et **DKIM** fournis.
+4. Vérifier depuis le VPS que le port est ouvert : `nc -vz smtp-relay.brevo.com 587`.
+
+Choix du transport selon les variables présentes :
+
+- `MAIL_HOST` + `MAIL_USER` + `MAIL_PASSWORD` + `BREVO_API_KEY` : SMTP, puis API en recours (mode attendu).
+- `BREVO_API_KEY` seule : API uniquement, sans images incrustées.
+- `MAIL_HOST` seul : SMTP uniquement (Mailpit en développement).
 
 - **Où** : variables d'environnement de l'hébergeur. Inutile de renseigner Brevo dans `.env` en local, Mailpit y suffit.
 - **Nécessaire** : au déploiement en staging.
@@ -212,7 +230,7 @@ Deux environnements GitHub existent : `staging` (alimenté par la branche `stagi
 
 | Variable | staging | production | Type |
 |---|:---:|:---:|---|
-| `MAIL_USER`, `MAIL_PASSWORD` | ✅ | ✅ | secret |
+| `MAIL_USER`, `MAIL_PASSWORD`, `BREVO_API_KEY` | ✅ | ✅ | secret |
 | `MAIL_HOST`, `MAIL_PORT`, `MAIL_SECURE`, `MAIL_FROM` | ✅ | ✅ | variable |
 | `R2_ENDPOINT`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | ✅ | ✅ | secret |
 | `R2_BUCKET` | ✅ | ✅ | variable |
