@@ -36,4 +36,15 @@ export class ReleveSolde extends BaseEntity {
 
   @Column({ name: 'verifie_le', type: 'timestamptz' })
   verifieLe: Date;
+
+  /**
+   * Première lecture où le solde est apparu inférieur à ce que nos
+   * encaissements laissent attendre ; nul quand il n'y a pas de manque.
+   *
+   * Une baisse n'est constatée qu'après avoir **duré** : un paiement confirmé
+   * chez nous un instant avant d'être crédité chez Fapshi ferait sinon
+   * enregistrer une sortie qui n'a jamais eu lieu.
+   */
+  @Column({ name: 'manque_depuis', type: 'timestamptz', nullable: true })
+  manqueDepuis: Date | null;
 }

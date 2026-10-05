@@ -1,4 +1,4 @@
-import { StatutRetrait } from '../paiement/enums/paiement.enum';
+import { SourceRetrait, StatutRetrait } from '../paiement/enums/paiement.enum';
 import { ReleveSolde } from '../paiement/entities/releve-solde.entity';
 import { Retrait } from '../paiement/entities/retrait.entity';
 import { Transaction } from '../paiement/entities/transaction.entity';
@@ -58,9 +58,20 @@ describe('SoldeService', () => {
     consulterSolde = jest.fn(() => Promise.resolve({ solde, devise: 'XAF' }));
     listerRetraits = jest.fn(() => Promise.resolve(trouves));
     upsert = jest.fn((lignes: RetraitFournisseur[]) => {
-      retraitsEnBase = lignes.map(
-        (l, index) => ({ id: `r${index}`, note: null, ...l }) as Retrait,
-      );
+      // Les sorties constatées n'appartiennent pas à Fapshi : une lecture ne
+      // les efface pas.
+      retraitsEnBase = [
+        ...retraitsEnBase.filter((r) => r.source === SourceRetrait.CONSTATEE),
+        ...lignes.map(
+          (l, index) =>
+            ({
+              id: `r${index}`,
+              note: null,
+              source: SourceRetrait.FAPSHI,
+              ...l,
+            }) as Retrait,
+        ),
+      ];
       return Promise.resolve();
     });
 
@@ -87,7 +98,20 @@ describe('SoldeService', () => {
       findOneBy: jest.fn(({ id }: { id: string }) =>
         Promise.resolve(retraitsEnBase.find((r) => r.id === id) ?? null),
       ),
-      save: jest.fn((r: Retrait) => Promise.resolve(r)),
+      create: jest.fn(
+        (donnees: Partial<Retrait>) =>
+          ({
+            id: `c${retraitsEnBase.length}`,
+            note: null,
+            ...donnees,
+          }) as Retrait,
+      ),
+      save: jest.fn((r: Retrait) => {
+        if (!retraitsEnBase.includes(r)) {
+          retraitsEnBase.push(r);
+        }
+        return Promise.resolve(r);
+      }),
       findAndCount: jest.fn(() =>
         Promise.resolve([retraitsEnBase, retraitsEnBase.length]),
       ),
@@ -253,6 +277,130 @@ describe('SoldeService', () => {
     consulterSolde.mockRejectedValueOnce(new Error('injoignable'));
 
     await expect(service.synchroniserPeriodiquement()).resolves.toBeUndefined();
+  });
+
+  describe('baisse du solde constatée', () => {
+    // Le service dont l'application détient les clés n'est pas le compte
+    // principal de Fapshi : transférer vers ce compte puis retirer ne passe
+    // par aucune route lisible. On constate la baisse plutôt que de la voir
+    // comme un écart permanent.
+    const DIX_MINUTES = 10 * 60_000;
+
+    beforeEach(() => {
+      jest.useFakeTimers({
+        now: new Date('2026-10-05T10:00:00Z'),
+        doNotFake: [
+          'nextTick',
+          'setImmediate',
+          'setTimeout',
+          'setInterval',
+          'queueMicrotask',
+        ],
+      });
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const constatees = () =>
+      retraitsEnBase.filter((r) => r.source === SourceRetrait.CONSTATEE);
+
+    it('ne constate pas dès la première lecture', async () => {
+      solde = 0;
+
+      await service.synchroniser();
+
+      // Une seule lecture peut tomber entre la confirmation d'un paiement chez
+      // nous et son crédit chez Fapshi : elle noterait une sortie inventée.
+      expect(constatees()).toHaveLength(0);
+      expect(releves[0].manqueDepuis).toEqual(new Date('2026-10-05T10:00:00Z'));
+    });
+
+    it('constate la baisse une fois qu’elle a duré', async () => {
+      solde = 0;
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+
+      await service.synchroniser();
+      const etat = await service.etat();
+
+      expect(constatees()).toHaveLength(1);
+      expect(constatees()[0]).toMatchObject({
+        montant: 15_000,
+        statut: StatutRetrait.REUSSI,
+        source: SourceRetrait.CONSTATEE,
+        initieLe: new Date('2026-10-05T10:00:00Z'),
+        confirmeLe: new Date('2026-10-05T10:10:00Z'),
+      });
+      // La sortie est comptée : l'écart redevient nul, et le solde attendu
+      // épouse le solde réel.
+      expect(etat).toMatchObject({
+        retraitsReussis: 15_000,
+        soldeAttendu: 0,
+        ecart: 0,
+      });
+      expect(releves[0].manqueDepuis).toBeNull();
+    });
+
+    it('ne constate pas deux fois la même baisse', async () => {
+      solde = 0;
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+      await service.synchroniser();
+      await service.synchroniser();
+
+      expect(constatees()).toHaveLength(1);
+    });
+
+    it('oublie un manque qui disparaît', async () => {
+      solde = 0;
+      await service.synchroniser();
+      // Le paiement est enfin crédité chez Fapshi.
+      solde = 15_000;
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+
+      await service.synchroniser();
+
+      expect(constatees()).toHaveLength(0);
+      expect(releves[0].manqueDepuis).toBeNull();
+    });
+
+    it('ignore un manque sous le seuil', async () => {
+      // Fapshi arrondit ses frais autrement que nous : quelques francs par
+      // paiement ne sont pas une sortie.
+      solde = 14_950;
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+      await service.synchroniser();
+
+      expect(constatees()).toHaveLength(0);
+    });
+
+    it('ne constate pas un excédent : de l’argent entré hors application reste un écart', async () => {
+      solde = 20_000;
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+      await service.synchroniser();
+      const etat = await service.etat();
+
+      expect(constatees()).toHaveLength(0);
+      expect(etat.ecart).toBe(5_000);
+    });
+
+    it('n’attend pas une sortie qui a déjà un retrait relevé', async () => {
+      // Quand Fapshi expose le retrait, rien n'est à constater en plus.
+      solde = 3_000;
+      trouves = [retrait()];
+
+      await service.synchroniser();
+      jest.setSystemTime(new Date(Date.now() + DIX_MINUTES));
+      await service.synchroniser();
+
+      expect(constatees()).toHaveLength(0);
+    });
   });
 
   describe('annoter', () => {
