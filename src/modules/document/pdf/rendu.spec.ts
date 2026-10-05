@@ -5,7 +5,8 @@ import {
   ContenuRapport,
   ContenuRecu,
 } from '../entities/contenu-document';
-import { composer } from './rendu';
+import { dateLisible, periodeLisible } from './mise-en-page';
+import { composer, libelle } from './rendu';
 
 const charte: CharteFigee = {
   nom: 'Promotion ATLAS',
@@ -182,5 +183,27 @@ describe('Composition des PDF', () => {
     const pages = /\/Count (\d+)/.exec(octets.toString('latin1'));
 
     expect(Number(pages?.[1])).toBeGreaterThan(1);
+  });
+
+  it('traduit les valeurs du domaine en libellés lisibles', () => {
+    // Une pièce se lit par un payeur ou un auditeur : « MTN_MOMO » n'y a pas
+    // sa place, et une valeur inconnue doit encore se lire.
+    expect(libelle('MTN_MOMO')).toBe('MTN Mobile Money');
+    expect(libelle('EVENEMENT')).toBe('Billetterie');
+    expect(libelle('NOUVEAU_MOYEN')).toBe('Nouveau moyen');
+    expect(libelle(null)).toBe('Non renseigné');
+  });
+
+  it('écrit les dates à la française, dans le fuseau de Douala', () => {
+    expect(dateLisible('2026-09-30T23:30:00.000Z')).toBe('1er octobre 2026');
+    expect(
+      periodeLisible('2026-09-01T00:00:00.000Z', '2026-09-30T12:00:00.000Z'),
+    ).toBe('1er – 30 septembre 2026');
+    expect(
+      periodeLisible('2026-08-15T12:00:00.000Z', '2026-09-14T12:00:00.000Z'),
+    ).toBe('15 août – 14 septembre 2026');
+    expect(
+      periodeLisible('2025-12-15T12:00:00.000Z', '2026-01-14T12:00:00.000Z'),
+    ).toBe('15 décembre 2025 – 14 janvier 2026');
   });
 });

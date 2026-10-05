@@ -16,8 +16,19 @@ interface MessageRemis {
   subject: string;
   template: string;
   context: Record<string, unknown> & { charte: Record<string, unknown> };
-  attachments?: { filename: string; content: Buffer }[];
+  attachments?: {
+    filename: string;
+    content: Buffer;
+    cid?: string;
+    decorative?: boolean;
+  }[];
 }
+
+/** Signature PNG suivie de quelques octets : suffit à passer pour une image. */
+const LOGO_PNG = Buffer.concat([
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
+  Buffer.from('reste du logo'),
+]);
 
 describe('MailService', () => {
   let service: MailService;
@@ -62,6 +73,11 @@ describe('MailService', () => {
       couleurPrimaire: '#123456',
       couleurSecondaire: '#ABCDEF',
       contrastePrimaire: '#FFFFFF',
+      teinte: '#F7FAFD',
+      bordTeinte: '#D9E9F8',
+      // Les octets fournis ne sont pas une image : pas de logo, pas de cadre
+      // cassé dans l'en-tête.
+      logo: null,
     });
   });
 
@@ -105,13 +121,63 @@ describe('MailService', () => {
     });
   });
 
-  it('laisse le logo hors du contexte de rendu', async () => {
-    // Il ne s'affiche pas dans un email — voir l'en-tête de « gabarit.hbs ».
-    // Ses octets n'ont donc rien à faire dans un contexte Handlebars.
+  it('incruste le logo du mandat sans mettre ses octets dans le contexte', async () => {
+    charte.mockResolvedValue({ ...identite, logo: LOGO_PNG });
+
     await service.sendWelcome('awa@exemple.test', 'Awa');
     await viderLaFile();
 
-    expect(messageRemis(0).context.charte).not.toHaveProperty('logo');
+    const message = messageRemis(0);
+
+    // Le gabarit ne voit qu'une référence ; l'image part en pièce jointe
+    // incrustée, marquée décorative pour que l'API Brevo la retire.
+    expect(message.context.charte.logo).toBe('cid:logo@cocfet');
+    expect(message.attachments).toEqual([
+      expect.objectContaining({
+        content: LOGO_PNG,
+        cid: 'logo@cocfet',
+        decorative: true,
+      }),
+    ]);
+  });
+
+  it('écarte un logo qu’aucune messagerie n’afficherait', async () => {
+    charte.mockResolvedValue({
+      ...identite,
+      logo: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>'),
+    });
+
+    await service.sendWelcome('awa@exemple.test', 'Awa');
+    await viderLaFile();
+
+    expect(messageRemis(0).context.charte.logo).toBeNull();
+    expect(messageRemis(0)).not.toHaveProperty('attachments');
+  });
+
+  it('surtitre la notification et ouvre le lien des préférences', async () => {
+    const mail = new MailService(
+      { sendMail } as unknown as MailerService,
+      { charte } as unknown as IdentiteVisuelleService,
+      { get: () => 'https://cocfet.test' } as unknown as ConfigService,
+    );
+
+    await mail.envoyerNotification(
+      'a@b.test',
+      'Awa',
+      'T',
+      'C',
+      null,
+      'BOUTIQUE',
+    );
+    await mail.sendWelcome('a@b.test', 'Awa');
+    await viderLaFile();
+
+    expect(messageRemis(0).context.categorie).toBe('Boutique');
+    expect(messageRemis(0).context.pied).toEqual({
+      preferences: 'https://cocfet.test/mon-espace/parametres',
+    });
+    // Les autres messages ne se désactivent pas : pas de lien trompeur.
+    expect(messageRemis(1).context.pied).toEqual({ preferences: null });
   });
 
   it('rend la main sans attendre le fournisseur', async () => {
@@ -190,8 +256,9 @@ describe('MailService', () => {
     expect(message.context.charte).toMatchObject({ nom: 'Promotion ATLAS' });
   });
 
-  it('joint le QR code au billet, sans l’exiger', async () => {
+  it('incruste le QR code du billet fixe, sans l’exiger', async () => {
     const billet = {
+      id: '0b8e2c55-6f1d-4a57-9d4e-3a2b1c0d9e8f',
       titre: 'Gala des finissants',
       dateDebut: new Date('2027-06-12T19:00:00Z'),
       lieu: 'Campus UCAC-ICAM',
@@ -209,7 +276,26 @@ describe('MailService', () => {
     });
     await viderLaFile();
 
-    expect(messageRemis(0).attachments).toHaveLength(1);
+    expect(messageRemis(0).attachments).toEqual([
+      expect.objectContaining({
+        cid: 'qr@cocfet',
+        filename: 'billet-BIL-4821.png',
+      }),
+    ]);
+    expect(messageRemis(0).context).toMatchObject({
+      qr: 'cid:qr@cocfet',
+      fixe: true,
+      // 19 h UTC, 20 h à Douala : l'heure annoncée est celle du lieu.
+      jour: 'Samedi 12 juin 2027',
+      heure: '20 h 00',
+    });
+
     expect(messageRemis(1)).not.toHaveProperty('attachments');
+    expect(messageRemis(1).context).toMatchObject({
+      qr: null,
+      tournant: true,
+      lienBillet:
+        'http://localhost:5173/billets/0b8e2c55-6f1d-4a57-9d4e-3a2b1c0d9e8f/qr',
+    });
   });
 });

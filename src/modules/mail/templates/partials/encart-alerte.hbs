@@ -1,0 +1,22 @@
+{{!--
+  Encart d'alerte : réservé à la sécurité du compte.
+  S'utilise en bloc : {{#> encart-alerte titre="..."}}contenu{{/encart-alerte}}.
+--}}
+<table
+  role="presentation"
+  width="100%"
+  cellpadding="0"
+  cellspacing="0"
+  style="margin:{{#if marge}}{{marge}}{{else}}20px 0 0{{/if}};border-collapse:separate"
+>
+  <tr>
+    <td
+      style="background:#FEF3F2;border:1px solid #F7C9C4;border-radius:8px;padding:16px 20px"
+    >
+      <div
+        style="font-size:11px;letter-spacing:1.4px;font-weight:700;color:#991B1B;margin-bottom:6px;text-transform:uppercase"
+      >{{titre}}</div>
+      <div style="font-size:14.5px;line-height:1.6;color:#292524">{{> @partial-block}}</div>
+    </td>
+  </tr>
+</table>

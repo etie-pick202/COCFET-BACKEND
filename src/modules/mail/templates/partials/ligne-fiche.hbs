@@ -1,0 +1,12 @@
+{{!-- Une ligne de « fiche ». `dernier=true` retire le filet du bas. --}}
+<tr>
+  <td
+    width="130"
+    valign="top"
+    style="width:130px;padding:12px 16px 10px 0;font-size:11px;letter-spacing:1.4px;font-weight:700;color:#6B6560;text-transform:uppercase;{{#unless dernier}}border-bottom:1px solid #EEEAE2;{{/unless}}"
+  >{{cle}}</td>
+  <td
+    valign="top"
+    style="padding:10px 0;font-size:15px;font-weight:600;color:#1C1917;word-break:break-word;{{#unless dernier}}border-bottom:1px solid #EEEAE2;{{/unless}}"
+  >{{valeur}}</td>
+</tr>

@@ -1,74 +1,117 @@
 {{!--
-  Chrome commun à tous les messages : en-tête aux couleurs du mandat, carte
-  centrale, pied de page. Les gabarits ne portent plus que leur contenu.
+  Chrome commun à tous les messages : en-tête du mandat (logo, nom, promotion),
+  carte centrale, signature du comité, pied de page. Les gabarits ne portent
+  plus que leur contenu.
 
-  Aucune image n'est incrustée ici, et c'est délibéré : l'API HTTP de Brevo ne
-  sait pas rattacher une pièce jointe à un `Content-Id`, et Gmail supprime les
-  sources `data:`. Un logo posé par l'un ou l'autre moyen laisserait un cadre
-  vide chez une bonne partie des destinataires. Le mandat se reconnaît donc à
-  son nom et à ses couleurs — le logo, lui, sert aux PDF, où il s'incruste
-  vraiment.
+  Le logo est une pièce jointe incrustée, citée par `cid:` : c'est la seule
+  forme qu'affichent à la fois Gmail (qui supprime les sources `data:`) et
+  Outlook (qui bloque les images distantes). Elle exige le relais SMTP ; par
+  l'API HTTP de Brevo, le transport retire la balise et l'en-tête garde le nom
+  du mandat. Quand le mandat n'a pas de logo affichable, `charte.logo` est nul
+  et l'en-tête commence au nom.
 
   Mise en page en tableaux et styles en ligne : Outlook ignore `flex`, `grid`
-  et les feuilles de style externes.
+  et les feuilles de style externes. Les teintes sont des couleurs pleines
+  calculées côté serveur, Outlook ignorant aussi la transparence.
 --}}
 <!doctype html>
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
     <title>{{charte.nom}}</title>
   </head>
   <body
-    style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;color:#1f2937;line-height:1.6"
+    style="margin:0;padding:0;background:#F3F1EC;font-family:'Helvetica Neue',Helvetica,'Segoe UI',Arial,sans-serif;color:#292524;-webkit-text-size-adjust:100%"
   >
     <table
       role="presentation"
       width="100%"
       cellpadding="0"
       cellspacing="0"
-      style="background:#f3f4f6;padding:24px 12px"
+      style="background:#F3F1EC"
     >
       <tr>
-        <td align="center">
+        <td align="center" style="padding:32px 12px 0">
           <table
             role="presentation"
-            width="100%"
+            width="600"
             cellpadding="0"
             cellspacing="0"
-            style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden"
+            style="width:100%;max-width:600px;background:#FFFFFF;border:1px solid #E7E3DA;border-top:4px solid {{charte.couleurSecondaire}};border-radius:6px"
           >
             <tr>
-              <td
-                style="background:{{charte.couleurPrimaire}};padding:20px 28px"
-              >
-                <span
-                  style="color:{{charte.contrastePrimaire}};font-size:18px;font-weight:bold;letter-spacing:0.5px"
-                  >{{charte.nom}}</span
-                >
+              <td align="center" style="padding:34px 32px 26px;text-align:center">
+                {{#if charte.logo}}
+                  <img
+                    src="{{charte.logo}}"
+                    alt="{{charte.nom}}"
+                    height="72"
+                    style="display:block;margin:0 auto 14px;height:72px;width:auto;max-width:200px;border:0"
+                  />
+                {{/if}}
+                <div
+                  style="font-family:Georgia,'Times New Roman',serif;font-size:24px;letter-spacing:6px;text-transform:uppercase;color:{{charte.couleurPrimaire}}"
+                >{{charte.nom}}</div>
                 {{#if charte.annee}}
-                  <span
-                    style="color:{{charte.contrastePrimaire}};font-size:14px;opacity:0.85"
+                  <table
+                    role="presentation"
+                    cellpadding="0"
+                    cellspacing="0"
+                    align="center"
+                    style="margin:10px auto 0"
                   >
-                    — {{charte.annee}}</span
-                  >
+                    <tr>
+                      <td width="56" style="width:56px;border-top:1px solid {{charte.couleurSecondaire}};font-size:0;line-height:0">&nbsp;</td>
+                      <td
+                        style="padding:0 12px;font-size:10.5px;letter-spacing:2.4px;color:#6B6560;white-space:nowrap"
+                      >PROMOTION {{charte.annee}}</td>
+                      <td width="56" style="width:56px;border-top:1px solid {{charte.couleurSecondaire}};font-size:0;line-height:0">&nbsp;</td>
+                    </tr>
+                  </table>
                 {{/if}}
               </td>
             </tr>
             <tr>
-              <td style="height:4px;background:{{charte.couleurSecondaire}}">
-                &nbsp;
+              <td style="padding:0 32px">
+                <div style="height:1px;background:#EEEAE2;font-size:0;line-height:0">&nbsp;</div>
               </td>
             </tr>
             <tr>
-              <td style="padding:28px">{{body}}</td>
+              <td
+                style="padding:32px 32px 40px;font-size:15.5px;line-height:1.65;color:#292524"
+              >
+                {{{body}}}
+                <div
+                  style="margin-top:34px;font-family:Georgia,'Times New Roman',serif;font-style:italic;font-size:15px;color:#292524"
+                >Le Comité d’Organisation</div>
+                <div style="margin-top:2px;font-size:12.5px;color:#6B6560">
+                  Cérémonie de Fin d’Étude{{#if charte.annee}} — promotion {{charte.annee}}{{/if}}
+                </div>
+              </td>
             </tr>
+          </table>
+          <table
+            role="presentation"
+            width="600"
+            cellpadding="0"
+            cellspacing="0"
+            style="width:100%;max-width:600px"
+          >
             <tr>
               <td
-                style="border-top:1px solid #e5e7eb;padding:18px 28px;color:#6b7280;font-size:12px"
+                align="center"
+                style="padding:24px 32px 36px;text-align:center;font-size:12px;line-height:1.6;color:#6B6560"
               >
-                Bureau des Finissants de l’UCAC-ICAM. Message automatique,
-                merci de ne pas y répondre.
+                {{#if pied.preferences}}
+                  <div>Vous recevez ce message parce que vous avez un compte sur la plateforme.</div>
+                  <div><a href="{{pied.preferences}}" style="color:#57524D">Choisir les messages que je reçois</a></div>
+                  <div style="height:12px;font-size:0;line-height:0">&nbsp;</div>
+                {{/if}}
+                <div>COCFET · Comité d’Organisation de la Cérémonie de Fin d’Étude</div>
+                <div>L’institut Ucac-Icam</div>
+                <div style="margin-top:8px">Message automatique : merci de ne pas y répondre.</div>
               </td>
             </tr>
           </table>

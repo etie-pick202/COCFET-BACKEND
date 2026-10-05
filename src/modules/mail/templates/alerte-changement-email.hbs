@@ -1,18 +1,26 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Changement d’adresse demandé
-</h1>
-<p>Bonjour {{prenom}},</p>
-<p>
+{{> titre surtitre="Alerte de sécurité" couleurSurtitre="#991B1B" texte="Changement d’adresse demandé"}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+<p style="margin:0 0 20px">
   Une demande vient d’être faite pour remplacer l’adresse de connexion de votre
-  compte par <strong>{{nouvelleAdresse}}</strong>.
-</p>
-<p>
-  Elle ne prendra effet que si le lien envoyé à cette nouvelle adresse est
+  compte. Elle ne prendra effet que si le lien envoyé à la nouvelle adresse est
   suivi.
 </p>
-<p
-  style="background:#fef2f2;border-left:4px solid #b91c1c;padding:12px 16px;color:#7f1d1d"
->
-  <strong>Si vous n’êtes pas à l’origine de cette demande</strong>, changez votre
-  mot de passe sans attendre : quelqu’un a probablement accès à votre compte.
-</p>
+{{#> fiche}}
+  {{> ligne-fiche cle="Adresse actuelle" valeur=adresseActuelle}}
+  {{> ligne-fiche cle="Demandée" valeur=nouvelleAdresse dernier=true}}
+{{/fiche}}
+{{#> encart-alerte titre="Ce n’est pas vous ?"}}
+  Changez votre mot de passe sans attendre : quelqu’un a probablement accès à
+  votre compte. La demande restera sans effet tant que le lien n’est pas suivi.
+  <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:14px">
+    <tr>
+      <td style="background:#991B1B;border-radius:6px;padding:12px 24px">
+        <a
+          href="{{lienMotDePasse}}"
+          style="color:#FFFFFF;font-weight:600;text-decoration:none;font-size:14.5px;line-height:1.2;display:inline-block"
+          >Changer mon mot de passe</a
+        >
+      </td>
+    </tr>
+  </table>
+{{/encart-alerte}}

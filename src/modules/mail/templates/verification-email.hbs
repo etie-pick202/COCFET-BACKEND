@@ -1,14 +1,13 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Confirmez votre adresse
-</h1>
-<p>Bonjour {{prenom}},</p>
-<p>
+{{> titre texte="Confirmez votre adresse"}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+<p style="margin:0">
   Un compte vient d’être créé avec cette adresse. Confirmez-la pour pouvoir vous
-  connecter :
+  connecter.
 </p>
 {{> bouton lien=lienVerification libelle="Confirmer mon adresse"}}
-<p>Ce lien est valable 24 heures et ne peut servir qu’une fois.</p>
-<p style="color:#6b7280;font-size:13px">
-  Si vous n’êtes pas à l’origine de cette inscription, ignorez ce message :
-  aucun compte ne sera activé sans cette confirmation.
+{{> pastille texte="Lien valable 24 heures — à usage unique"}}
+<p style="margin:22px 0 0;font-size:14px;line-height:1.6;color:#57524D">
+  Vous n’êtes pas à l’origine de cette inscription ? Ignorez ce message : aucun
+  compte ne sera activé sans cette confirmation.
 </p>
+{{> lien-secours lien=lienVerification}}

@@ -1,15 +1,14 @@
-<h1 style="margin:0 0 16px;font-size:22px;color:#111827">
-  Confirmez votre nouvelle adresse
-</h1>
-<p>Bonjour {{prenom}},</p>
-<p>
+{{> titre texte="Confirmez votre nouvelle adresse"}}
+<p style="margin:0 0 14px">Bonjour {{prenom}},</p>
+<p style="margin:0">
   Vous avez demandé à utiliser cette adresse pour vous connecter. Confirmez-la
   pour rendre le changement effectif :
 </p>
 {{> bouton lien=lienConfirmation libelle="Confirmer cette adresse"}}
-<p>Ce lien est valable une heure et ne peut servir qu’une fois.</p>
-<p style="color:#6b7280;font-size:13px">
-  Tant que vous n’aurez pas cliqué, votre connexion continuera de se faire avec
-  votre adresse actuelle. Si vous n’êtes pas à l’origine de cette demande,
-  ignorez ce message.
+{{> pastille texte="Lien valable 1 heure — à usage unique"}}
+<p style="margin:22px 0 0;font-size:14px;line-height:1.6;color:#57524D">
+  Tant que vous n’aurez pas cliqué, vous continuez de vous connecter avec votre
+  adresse actuelle. Vous n’êtes pas à l’origine de cette demande ? Ignorez ce
+  message.
 </p>
+{{> lien-secours lien=lienConfirmation}}

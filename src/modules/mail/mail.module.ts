@@ -3,19 +3,25 @@ import { HandlebarsAdapter } from '@nestjs-modules/mailer/adapters/handlebars.ad
 import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'node:path';
+import { createTransport } from 'nodemailer';
 import { IdentiteVisuelleModule } from '../generation/identite-visuelle.module';
 import { MailService } from './mail.service';
 import { transportBrevoApi } from './transports/brevo-api.transport';
+import { transportAvecRepli } from './transports/repli.transport';
 
 /**
- * Deux transports, choisis par la configuration.
+ * Trois configurations, choisies selon les variables présentes.
  *
- * `BREVO_API_KEY` présente : envoi par l'**API HTTP** de Brevo. C'est le mode
- * attendu en staging et en production, parce que Railway filtre les ports SMTP
- * sortants — une connexion vers `smtp-relay.brevo.com:587` depuis un conteneur
- * n'aboutit jamais et expire au bout de deux minutes. HTTPS/443 passe toujours.
+ * **Relais SMTP et clé API** (`MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD` et
+ * `BREVO_API_KEY`) : le relais SMTP de Brevo d'abord, l'API HTTP en recours.
+ * C'est le mode attendu sur le VPS. Seul le SMTP sait incruster une image dans
+ * le corps d'un message — le logo du mandat, le QR code d'un billet — et l'API
+ * prend le relais si le serveur SMTP ne répond pas.
  *
- * Sinon : SMTP, pour Mailpit en développement, qui capture les messages
+ * **Clé API seule** : l'API HTTP, sans images incrustées. C'était le mode de
+ * l'hébergeur précédent, qui filtrait les ports SMTP sortants.
+ *
+ * **SMTP seul** : Mailpit en développement, qui capture les messages
  * localement sans compte ni clé.
  */
 @Module({
@@ -25,31 +31,65 @@ import { transportBrevoApi } from './transports/brevo-api.transport';
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const cleApi = config.get<string>('BREVO_API_KEY');
+        const hote = config.get<string>('MAIL_HOST');
         const user = config.get<string>('MAIL_USER');
         const pass = config.get<string>('MAIL_PASSWORD');
+        const logger = new Logger('MailModule');
 
-        if (!cleApi && config.get<string>('NODE_ENV') === 'production') {
-          // Averti et non bloquant : le reste de l'API doit continuer de
-          // servir. Mais sans cette clé, en production, aucun mail ne part —
-          // et c'est précisément la panne qui s'était déguisée en lenteur.
-          new Logger('MailModule').warn(
-            'BREVO_API_KEY absente en production : envoi en SMTP, filtré par ' +
-              'la plupart des hébergeurs. Les emails risquent de ne jamais partir.',
-          );
+        const smtp = () => ({
+          host: config.getOrThrow<string>('MAIL_HOST'),
+          port: Number(config.get<string>('MAIL_PORT', '587')),
+          secure: config.get<string>('MAIL_SECURE') === 'true',
+          // Mailpit n'exige aucune authentification : on omet `auth` plutôt
+          // que d'envoyer des identifiants vides, ce qui ferait échouer la
+          // négociation SMTP.
+          ...(user && pass ? { auth: { user, pass } } : {}),
+          // Bornés : par défaut, nodemailer attend deux minutes une connexion
+          // qui n'aboutit pas. Avec l'API en recours, mieux vaut abandonner
+          // vite et passer par elle.
+          connectionTimeout: 10_000,
+          greetingTimeout: 10_000,
+          socketTimeout: 20_000,
+        });
+
+        // `object` et non `MailerOptions['transport']` : nodemailer n'a pas de
+        // types dans ce projet, et ce dernier se résout en type inconnu.
+        let transport: object;
+
+        if (cleApi && hote && user && pass) {
+          transport = transportAvecRepli({
+            // `secure: false` sur le port 587 n'est pas du texte en clair :
+            // nodemailer y négocie STARTTLS, et Brevo l'exige.
+            // eslint-disable-next-line sonarjs/no-clear-text-protocols
+            principal: createTransport(smtp()),
+            repli: transportBrevoApi({ cleApi }),
+            nomPrincipal: `Relais SMTP ${hote}`,
+          });
+        } else if (cleApi) {
+          if (config.get<string>('NODE_ENV') === 'production') {
+            logger.warn(
+              "Relais SMTP non configuré : envoi par l'API Brevo, sans logo " +
+                'ni QR code dans le corps des messages.',
+            );
+          }
+          transport = transportBrevoApi({
+            cleApi,
+          });
+        } else {
+          if (config.get<string>('NODE_ENV') === 'production') {
+            // Averti et non bloquant : le reste de l'API doit continuer de
+            // servir. Mais sans recours, une panne du relais prive tout le
+            // monde de messages.
+            logger.warn(
+              'BREVO_API_KEY absente en production : aucun recours si le ' +
+                'relais SMTP ne répond pas.',
+            );
+          }
+          transport = smtp();
         }
 
         return {
-          transport: cleApi
-            ? transportBrevoApi({ cleApi })
-            : {
-                host: config.getOrThrow<string>('MAIL_HOST'),
-                port: config.get<number>('MAIL_PORT', 587),
-                secure: config.get<string>('MAIL_SECURE') === 'true',
-                // Mailpit n'exige aucune authentification : on omet `auth`
-                // plutôt que d'envoyer des identifiants vides, ce qui ferait
-                // échouer la négociation SMTP.
-                ...(user && pass ? { auth: { user, pass } } : {}),
-              },
+          transport,
           // Valeurs par défaut de chaque message, pas options de transport. Le
           // typage de @nestjs-modules/mailer ne connaît que les secondes : les
           // types de nodemailer 10 séparent les deux, alors que les anciens les
