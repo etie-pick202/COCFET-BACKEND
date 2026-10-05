@@ -1,4 +1,8 @@
-import { MethodePaiement, StatutPaiement } from '../enums/paiement.enum';
+import {
+  MethodePaiement,
+  StatutPaiement,
+  StatutRetrait,
+} from '../enums/paiement.enum';
 
 /**
  * Contrat que doit respecter tout prestataire de paiement mobile.
@@ -49,6 +53,44 @@ export interface PasserellePaiement {
     corpsBrut: Buffer,
     entetes: EntetesWebhook,
   ): Promise<EvenementPaiement>;
+
+  /**
+   * Solde **réel** du compte chez le prestataire.
+   *
+   * C'est le chiffre qui fait foi : nos propres encaissements ne disent pas
+   * ce qui a été retiré depuis, et un retrait se fait dans l'espace du
+   * prestataire, hors de cette application.
+   */
+  consulterSolde(): Promise<SoldeFournisseur>;
+
+  /**
+   * Retraits (sorties d'argent) initiés entre deux dates, bornes incluses.
+   *
+   * Rend tous les statuts : un retrait en cours doit pouvoir être relu plus
+   * tard, quand il aura abouti ou échoué.
+   */
+  listerRetraits(depuis: Date, jusqua: Date): Promise<RetraitFournisseur[]>;
+}
+
+export interface SoldeFournisseur {
+  /** En unités de la devise, entier : le franc CFA n'a pas de sous-unité. */
+  solde: number;
+  devise: string;
+}
+
+export interface RetraitFournisseur {
+  /** Identifiant du retrait chez le prestataire : clé de rapprochement. */
+  referenceExterne: string;
+  montant: number;
+  statut: StatutRetrait;
+  /** Opérateur de destination, tel que le prestataire le nomme. */
+  operateur: string | null;
+  beneficiaire: string | null;
+  motif: string | null;
+  /** Référence de l'opérateur Mobile Money, quand le retrait a abouti. */
+  referenceFinanciere: string | null;
+  initieLe: Date;
+  confirmeLe: Date | null;
 }
 
 /**
