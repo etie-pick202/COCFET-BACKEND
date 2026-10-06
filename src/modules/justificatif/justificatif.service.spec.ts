@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -22,6 +23,7 @@ describe('JustificatifService', () => {
   let transactions: Record<string, jest.Mock>;
   let repercuter: jest.Mock;
   let cotisations: Record<string, jest.Mock>;
+  let alertes: Record<string, jest.Mock>;
 
   const enAttente = (surcharge: Partial<JustificatifPaiement> = {}) => ({
     id: 'j1',
@@ -51,6 +53,7 @@ describe('JustificatifService', () => {
       appliquer: jest.fn().mockResolvedValue(true),
     };
     repercuter = jest.fn().mockResolvedValue(undefined);
+    alertes = { preuveADecider: jest.fn().mockResolvedValue(undefined) };
     cotisations = {
       preparerJustificatif: jest.fn().mockResolvedValue({
         reference: 'COT-1',
@@ -65,6 +68,7 @@ describe('JustificatifService', () => {
       { repercuter } as unknown as RepercussionPaiementService,
       {} as NettoyageFichiers,
       cotisations as unknown as CotisationService,
+      alertes as unknown as AlerteTresorerieService,
     );
   });
 
@@ -87,6 +91,9 @@ describe('JustificatifService', () => {
         { id: 'u1' },
         'p1',
         1,
+        // Le montant déclaré suit : c'est lui qui est contrôlé contre ce qu'il
+        // reste sur l'échéance.
+        10_000,
       );
       expect(justificatifs.save).toHaveBeenCalledWith(
         expect.objectContaining({

@@ -108,6 +108,29 @@ describe('MailService', () => {
       );
     });
 
+    it('porte sur le bouton le libellé demandé, ou un libellé par défaut', async () => {
+      const mail = avecFrontal('https://cocfet.test');
+
+      await mail.envoyerNotification(
+        'a@b.test',
+        'Awa',
+        'Paiement confirmé',
+        'Corps',
+        '/commandes/42',
+        'BOUTIQUE',
+        'Voir ma commande et ma facture',
+      );
+      await mail.envoyerNotification('a@b.test', 'Awa', 'Autre', 'Corps', '/x');
+      await viderLaFile();
+
+      expect(messageRemis(0).context.libelleLien).toBe(
+        'Voir ma commande et ma facture',
+      );
+      expect(messageRemis(1).context.libelleLien).toBe(
+        'Voir sur la plateforme',
+      );
+    });
+
     it('laisse passer un lien déjà absolu, et garde le nul', () => {
       const mail = avecFrontal('https://cocfet.test/');
 

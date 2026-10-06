@@ -7,6 +7,10 @@ import { Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Commande } from '../commande/entities/commande.entity';
+import {
+  ModeReglement,
+  ReglementCotisation,
+} from '../cotisation/entities/reglement-cotisation.entity';
 import { GenerationService } from '../generation/generation.service';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -32,6 +36,7 @@ describe('DocumentService', () => {
   };
   let commandes: { findOne: jest.Mock };
   let inscriptions: { findOne: jest.Mock };
+  let reglements: { findOne: jest.Mock };
   let tresorerie: { tableau: jest.Mock };
   let generations: { trouverActive: jest.Mock };
   let stockage: {
@@ -118,6 +123,7 @@ describe('DocumentService', () => {
     };
     commandes = { findOne: jest.fn().mockResolvedValue(commande()) };
     inscriptions = { findOne: jest.fn().mockResolvedValue(null) };
+    reglements = { findOne: jest.fn().mockResolvedValue(null) };
     tresorerie = { tableau: jest.fn() };
     generations = { trouverActive: jest.fn().mockResolvedValue(null) };
     stockage = {
@@ -131,6 +137,7 @@ describe('DocumentService', () => {
       documents as unknown as Repository<Document>,
       commandes as unknown as Repository<Commande>,
       inscriptions as unknown as Repository<Inscription>,
+      reglements as unknown as Repository<ReglementCotisation>,
       {
         findOne: jest.fn().mockResolvedValue(utilisateur),
       } as unknown as Repository<User>,
@@ -250,7 +257,9 @@ describe('DocumentService', () => {
 
       const document = await service.recuBilletterie('ins-1', AWA);
 
-      expect(document.numero).toMatch(/^REC-\d{4}-0001$/);
+      // Une facture, depuis qu'un reçu et une facture ne font plus qu'une
+      // pièce : même compteur, même préfixe.
+      expect(document.numero).toMatch(/^FAC-\d{4}-0001$/);
       expect(document.montant).toBe(10000);
     });
 
@@ -281,6 +290,96 @@ describe('DocumentService', () => {
       const document = await service.recuBilletterie('ins-1', AWA);
 
       expect(document.titre).toContain('Événement');
+    });
+  });
+
+  describe('facture d’un règlement de cotisation', () => {
+    const reglement = (surcharge: Partial<ReglementCotisation> = {}) => ({
+      id: 'reg-1',
+      libelle: 'Première tranche',
+      montant: 5_000,
+      montantDebite: 5_211,
+      reference: 'COT-ABC123',
+      mode: ModeReglement.EN_LIGNE,
+      statut: StatutPaiement.COMPLETE,
+      updatedAt: new Date('2027-02-10T09:00:00.000Z'),
+      participation: {
+        user: utilisateur,
+        cotisation: { titre: 'Cotisation des finissants 2027' },
+      },
+      ...surcharge,
+    });
+
+    it('émet la facture d’un règlement abouti, frais compris', async () => {
+      reglements.findOne.mockResolvedValue(reglement());
+
+      const document = await service.factureReglementCotisation('reg-1', AWA);
+
+      expect(document.numero).toMatch(/^FAC-\d{4}-0001$/);
+      expect(document.type).toBe(TypeDocument.FACTURE_COTISATION);
+      // Le montant réglé est le débité : c'est ce qui figure sur le relevé.
+      expect(document.montant).toBe(5_211);
+      expect(document.contenu).toMatchObject({
+        genre: 'FACTURE_COTISATION',
+        cotisation: 'Cotisation des finissants 2027',
+        echeance: 'Première tranche',
+        montant: 5_000,
+        fraisPaiement: 211,
+        montantTtc: 5_211,
+        reference: 'COT-ABC123',
+      });
+    });
+
+    it('n’ajoute aucun frais à une preuve validée', async () => {
+      reglements.findOne.mockResolvedValue(
+        reglement({ mode: ModeReglement.JUSTIFICATIF, montantDebite: null }),
+      );
+
+      const document = await service.factureReglementCotisation('reg-1', AWA);
+
+      expect(document.montant).toBe(5_000);
+      expect(document.contenu).toMatchObject({
+        fraisPaiement: null,
+        montantTtc: 5_000,
+      });
+    });
+
+    it('refuse de facturer un règlement qui n’a pas abouti', async () => {
+      reglements.findOne.mockResolvedValue(
+        reglement({ statut: StatutPaiement.EN_ATTENTE }),
+      );
+
+      await expect(
+        service.factureReglementCotisation('reg-1', AWA),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('refuse le règlement d’un autre compte', async () => {
+      reglements.findOne.mockResolvedValue(reglement());
+
+      await expect(
+        service.factureReglementCotisation('reg-1', {
+          id: 'intrus',
+          role: Role.STUDENT,
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('signale un règlement inconnu', async () => {
+      await expect(
+        service.factureReglementCotisation('absent', AWA),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('rend la même pièce quand on la redemande', async () => {
+      reglements.findOne.mockResolvedValue(reglement());
+      const premiere = await service.factureReglementCotisation('reg-1', AWA);
+      documents.findOne.mockResolvedValue(premiere);
+
+      const seconde = await service.factureReglementCotisation('reg-1', AWA);
+
+      expect(seconde.numero).toBe(premiere.numero);
+      expect(documents.save).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -77,6 +77,36 @@ export interface ContenuRecu extends ContenuCommun {
   methodePaiement: string | null;
 }
 
+/**
+ * Facture du règlement d'une échéance de cotisation.
+ *
+ * Une cotisation se règle en plusieurs fois : chaque règlement abouti a sa
+ * facture, qui dit ce qu'il a couvert — « Première tranche », « Tout le reste
+ * dû » — et ce qu'il a coûté en frais de paiement.
+ */
+export interface ContenuFactureCotisation extends ContenuCommun {
+  genre: 'FACTURE_COTISATION';
+  titulaire: TitulaireFige;
+  cotisation: string;
+  /** Ce que le règlement couvre : le libellé de l'échéance, figé. */
+  echeance: string;
+  /** Montant crédité à la cotisation, frais exclus. */
+  montant: number;
+  /**
+   * Frais de paiement en ligne, retenus en plus du montant. Nul pour une
+   * preuve validée : l'argent n'est pas passé par le prestataire.
+   */
+  fraisPaiement: number | null;
+  /** Ce qui a été réellement réglé — le montant, plus les frais. */
+  montantTtc: number;
+  /** `EN_LIGNE` ou `JUSTIFICATIF` : comment l'argent est parvenu au bureau. */
+  mode: string;
+  /** Référence du règlement, la même que celle de la transaction. */
+  reference: string;
+  /** Date du règlement, en ISO. */
+  recuLe: string;
+}
+
 export interface LigneVentilation {
   libelle: string;
   montant: number;
@@ -108,4 +138,5 @@ export interface ContenuRapport extends ContenuCommun {
   emisPar: string;
 }
 
-export type ContenuDocument = ContenuFacture | ContenuRecu | ContenuRapport;
+export type ContenuDocument =
+  ContenuFacture | ContenuRecu | ContenuFactureCotisation | ContenuRapport;

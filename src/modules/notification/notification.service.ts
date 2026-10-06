@@ -26,7 +26,15 @@ export interface DemandeNotification {
   titre: string;
   message: string;
   lien?: string | null;
+  /** Texte du bouton de l'email, quand « Voir sur la plateforme » est trop vague. */
+  libelleLien?: string | null;
 }
+
+/** Ce qu'une diffusion transmet : le message, et où mène son bouton. */
+type ContenuDiffusion = Pick<
+  DiffuserNotificationDto,
+  'type' | 'titre' | 'message' | 'lien'
+> & { libelleLien?: string | null };
 
 @Injectable()
 export class NotificationService {
@@ -116,6 +124,7 @@ export class NotificationService {
         titre: contenu.titre,
         message: contenu.message,
         lien: contenu.lien ?? undefined,
+        libelleLien: contenu.libelleLien,
       });
     } catch (erreur) {
       this.logger.error(
@@ -131,7 +140,7 @@ export class NotificationService {
 
   private async inscrireEtDiffuser(
     destinataires: User[],
-    dto: Pick<DiffuserNotificationDto, 'type' | 'titre' | 'message' | 'lien'>,
+    dto: ContenuDiffusion,
   ): Promise<number> {
     if (destinataires.length === 0) {
       return 0;
@@ -394,13 +403,14 @@ export class NotificationService {
         demande.message,
         demande.lien ?? null,
         demande.type,
+        demande.libelleLien ?? null,
       );
     }
   }
 
   private async diffuserEnArrierePlan(
     destinataires: User[],
-    dto: Pick<DiffuserNotificationDto, 'type' | 'titre' | 'message' | 'lien'>,
+    dto: ContenuDiffusion,
   ): Promise<void> {
     const coupes = await this.preferences.find({
       where: {
@@ -431,6 +441,7 @@ export class NotificationService {
             dto.message,
             dto.lien ?? null,
             dto.type,
+            dto.libelleLien ?? null,
           );
         }
       } catch (erreur) {
