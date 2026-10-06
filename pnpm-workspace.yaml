@@ -10,6 +10,13 @@ allowBuilds:
 # Le delai de carence bloque les versions publiees depuis moins de 7 jours.
 # Ces correctifs de securite doivent etre adoptes sans attendre.
 minimumReleaseAgeExclude:
+  - proxy-addr@2.0.8
+  - source-map-js@1.2.2
+  - qs@6.16.0
+  - postcss-selector-parser@7.1.6
+  - js-yaml@5.4.1
+  - js-yaml@5.4.2
+  - js-yaml@5.4.3
   - brace-expansion@1.1.18
   - brace-expansion@2.1.4
   - brace-expansion@5.0.9
@@ -34,7 +41,26 @@ overrides:
   undici: '>=6.28.1 <7.0.0'
   tar: '>=7.5.19'
   linkify-it: '>=5.0.2'
-  js-yaml: '>=5.2.2'
+  # js-yaml : le plafond de fusions de cles (maxTotalMergeKeys) n'empeche pas
+  # l'epuisement du processeur sur des sources de fusion vides
+  # (GHSA-r3ph-w7gj-g6xm). Remonte par cosmiconfig, dans l'arbre mjml.
+  js-yaml: '>=5.4.1'
+  # proxy-addr : usurpation d'adresse IP par un sous-reseau de confiance
+  # exprime en IPv4 mappe en IPv6 (GHSA-jqcg-44mw-7w3h, critique). Remonte par
+  # express — donc sur chaque requete. La 2.0.8 est un correctif de la meme
+  # branche que celle qu'express demande (~2.0.7).
+  proxy-addr: '>=2.0.8 <3.0.0'
+  # source-map-js : deni de service de la boucle d'evenements par des decalages
+  # de section d'un index de source map (GHSA-68fv-2mgg-jv7q, haute). Remonte
+  # par postcss, dans l'arbre mjml — donc au rendu des emails.
+  source-map-js: '>=1.2.2 <2.0.0'
+  # qs : deux avis de deni de service (GHSA-x5fp-wj9c-mxmx, GHSA-4mjr-xmp4-gh2g).
+  # Remonte par body-parser, via express. Meme branche 6, borne haute explicite.
+  qs: '>=6.16.0 <7.0.0'
+  # postcss-selector-parser : complexite quadratique a l'analyse d'un selecteur
+  # plat (GHSA-rj75-hqrm-r3gf). Remonte par cssnano, dans l'arbre mjml. Scope a
+  # la branche 7, la seule installee ici.
+  postcss-selector-parser@^7.0.0: '>=7.1.6 <8.0.0'
   # multer : deni de service par nom de champ ou index de tableau surdimensionne,
   # et fuite de descripteur de fichier sur un televersement interrompu. Remonte
   # par @nestjs/platform-express — donc sur chaque route qui accepte un fichier.
