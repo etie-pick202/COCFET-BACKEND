@@ -288,7 +288,8 @@ describe('Documents (e2e)', () => {
 
       expect(reponse.body).toMatchObject({
         montant: 10000,
-        numero: expect.stringMatching(/^REC-/) as unknown,
+        // Une facture, comme toutes les autres pièces : même compteur, même préfixe.
+        numero: expect.stringMatching(/^FAC-/) as unknown,
       });
     });
 
@@ -368,6 +369,11 @@ describe('Documents (e2e)', () => {
         .expect('Content-Type', 'application/pdf');
 
       expect((reponse.body as Buffer).subarray(0, 4).toString()).toBe('%PDF');
+      // Le fichier se nomme « Facture <titulaire> de <objet> », accents
+      // compris dans le nom étendu, avec un repli ASCII.
+      const entete = String(reponse.headers['content-disposition']);
+      expect(entete).toMatch(/^attachment; filename="Facture [^"]+\.pdf"/);
+      expect(entete).toContain("filename*=UTF-8''Facture%20");
     });
 
     it('régénère la pièce dont le fichier a été purgé', async () => {

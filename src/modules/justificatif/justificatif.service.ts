@@ -8,6 +8,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -43,6 +44,7 @@ export class JustificatifService {
     private readonly repercussion: RepercussionPaiementService,
     private readonly nettoyage: NettoyageFichiers,
     private readonly cotisationService: CotisationService,
+    private readonly alerteTresorerie: AlerteTresorerieService,
   ) {}
 
   /**
@@ -68,6 +70,7 @@ export class JustificatifService {
       user,
       dto.participationId,
       dto.ordreTranche ?? null,
+      dto.montantDeclare,
     );
 
     try {
@@ -126,6 +129,16 @@ export class JustificatifService {
         user: { id: user.id } as User,
       }),
     );
+
+    // La trésorerie a une décision à prendre : elle l'apprend sans avoir à
+    // ouvrir la liste des preuves pour le découvrir.
+    if (transaction.user) {
+      await this.alerteTresorerie.preuveADecider(
+        transaction.user,
+        libelle ?? `le règlement ${reference}`,
+        dto.montantDeclare,
+      );
+    }
 
     this.logger.log(
       `Preuve de paiement déposée pour ${reference} ` +

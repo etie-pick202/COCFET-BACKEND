@@ -23,6 +23,7 @@ import {
 import { EvenementService } from '../evenement/evenement.service';
 import { MailService } from '../mail/mail.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NotificationService } from '../notification/notification.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
@@ -94,6 +95,7 @@ export class BilletterieService {
     private readonly transactionService: TransactionService,
     private readonly activiteService: ActiviteService,
     private readonly userService: UserService,
+    private readonly alerteTresorerie: AlerteTresorerieService,
     config: ConfigService,
   ) {
     // `||` et non `??` : une variable posée mais vide doit retomber sur la
@@ -495,8 +497,19 @@ export class BilletterieService {
       destinataire: inscription.user,
       type: TypeNotification.PAIEMENT,
       titre: 'Paiement confirmé',
-      message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}.`,
+      message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}. Votre facture est disponible sur la page du billet.`,
       lien: `/billets/${inscription.id}`,
+      libelleLien: 'Voir mon billet et ma facture',
+    });
+
+    // La trésorerie apprend ce qui entre. Le montant est celui qui a été
+    // débité, frais compris — c'est ce qu'elle retrouvera sur le relevé.
+    await this.alerteTresorerie.encaissement({
+      origine: 'billetterie',
+      payeur: inscription.user,
+      objet: `le billet « ${inscription.evenement.titre} »`,
+      montant: inscription.frais?.montantTtc ?? inscription.prix,
+      fraisPrestataire: inscription.frais?.fraisFapshi ?? null,
     });
 
     await this.activiteService.journaliser({
@@ -974,6 +987,9 @@ export class BilletterieService {
         ? `Votre billet est valide. Code d'entrée : ${inscription.codeBillet}.`
         : 'Votre place est réservée le temps du paiement.',
       lien: `/billets/${inscription.id}`,
+      libelleLien: confirmee
+        ? 'Voir mon billet et ma facture'
+        : 'Voir mon inscription',
     });
   }
 }

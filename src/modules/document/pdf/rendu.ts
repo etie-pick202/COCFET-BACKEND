@@ -2,6 +2,7 @@ import {
   CharteFigee,
   ContenuDocument,
   ContenuFacture,
+  ContenuFactureCotisation,
   ContenuRapport,
   ContenuRecu,
   LigneVentilation,
@@ -48,6 +49,7 @@ const LIBELLES: Record<string, string> = {
   BILLETTERIE: 'Billetterie',
   BOUTIQUE: 'Boutique',
   COTISATION: 'Cotisations',
+  JUSTIFICATIF: 'Preuve de paiement validée par la trésorerie',
 };
 
 const STATUTS: Record<string, string> = {
@@ -90,6 +92,9 @@ export async function composer(
       break;
     case 'RECU_BILLETTERIE':
       composerRecu(page, contenu, numero, logo);
+      break;
+    case 'FACTURE_COTISATION':
+      composerFactureCotisation(page, contenu, numero, logo);
       break;
     case 'RAPPORT_TRESORERIE':
       composerRapport(page, contenu, numero, logo);
@@ -227,14 +232,14 @@ function composerRecu(
     page,
     charte,
     logo,
-    'Reçu',
+    'Facture',
     numero,
-    `Émis le ${dateLisible(contenu.emisLe)}`,
+    `Émise le ${dateLisible(contenu.emisLe)}`,
   );
 
   informations(page, [
     {
-      cle: 'Remis à',
+      cle: 'Facturé à',
       valeur: contenu.titulaire.nom,
       detail: contenu.titulaire.email,
     },
@@ -319,8 +324,89 @@ function composerRecu(
 
   mention(
     page,
-    'Ce reçu atteste du règlement. Il ne tient pas lieu de billet : ' +
-      'l’entrée se fait avec la référence ci-dessus.',
+    'Cette facture atteste du règlement. Elle ne tient pas lieu de billet : ' +
+      'l’entrée se fait avec la référence ci-dessus. Délivrée par le Comité ' +
+      'd’Organisation de la Cérémonie de Fin d’Étude, elle ne vaut pas ' +
+      'facture fiscale.',
+    48,
+  );
+}
+
+function composerFactureCotisation(
+  page: Page,
+  contenu: ContenuFactureCotisation,
+  numero: string,
+  logo: Buffer | null,
+): void {
+  const charte = contenu.charte;
+  enTete(
+    page,
+    charte,
+    logo,
+    'Facture',
+    numero,
+    `Émise le ${dateLisible(contenu.emisLe)}`,
+  );
+
+  informations(page, [
+    {
+      cle: 'Facturé à',
+      valeur: contenu.titulaire.nom,
+      detail: contenu.titulaire.email,
+    },
+    {
+      cle: 'Règlement',
+      valeur: '',
+      dessiner: reglement(charte, 'COMPLETE', contenu.mode),
+    },
+  ]);
+
+  page.y += 30;
+  tableau(
+    page,
+    [
+      { titre: 'Désignation', part: 0.75 },
+      { titre: 'Montant', part: 0.25, aDroite: true },
+    ],
+    [
+      [
+        {
+          texte: `Cotisation — ${contenu.cotisation}`,
+          detail: `${contenu.echeance} · réglée le ${dateLisible(contenu.recuLe)}`,
+        },
+        montant(contenu.montant),
+      ],
+    ],
+  );
+
+  // Nul pour une preuve validée : l'argent n'a pas transité par le
+  // prestataire, rien n'a été retenu en plus.
+  const detail = [
+    { libelle: 'Versement à la cotisation', valeur: montant(contenu.montant) },
+  ];
+  if (contenu.fraisPaiement !== null && contenu.fraisPaiement > 0) {
+    detail.push({
+      libelle: 'Frais de paiement',
+      valeur: montant(contenu.fraisPaiement),
+    });
+  }
+  const bloc = totaux(
+    page,
+    charte,
+    detail,
+    { libelle: 'Montant réglé', valeur: montant(contenu.montantTtc) },
+    { avant: 22.5 },
+  );
+
+  tampon(page, charte, contenu.recuLe, MARGE + 18, bloc.haut + 12);
+
+  mention(
+    page,
+    `Référence du règlement : ${contenu.reference}. Cette facture atteste du ` +
+      'règlement d’une échéance de cotisation ; seul le montant du versement ' +
+      'est porté à la cotisation, les frais couvrent l’opérateur de paiement. ' +
+      'Délivrée par le Comité d’Organisation de la Cérémonie de Fin d’Étude, ' +
+      'elle ne vaut pas facture fiscale.',
     48,
   );
 }

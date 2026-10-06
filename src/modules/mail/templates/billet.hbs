@@ -127,6 +127,13 @@
   </tr>
 </table>
 
+{{!--
+  Dans tous les régimes : la page du billet est aussi celle de la facture. Le
+  QR du message vaut billet ; la facture, elle, ne se joint pas — elle se
+  consulte et se télécharge là.
+--}}
+{{> bouton lien=lienBillet libelle="Voir mon billet et ma facture"}}
+
 {{#if fixe}}
   {{#> encart-info titre="Enregistrez-le avant de venir" marge="0"}}
     Le QR code fait partie de ce message : une fois l’email ouvert, il
