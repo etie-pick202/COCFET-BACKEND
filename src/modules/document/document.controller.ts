@@ -32,6 +32,7 @@ import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
 import { PeriodeDto } from '../tableau-de-bord/dto/tableau-de-bord.dto';
 import { Demandeur, DocumentService } from './document.service';
+import { enteteTelechargement, nomFichierDocument } from './nom-fichier';
 import { Document } from './entities/document.entity';
 
 type RequeteAuthentifiee = Request & { user: { id: string; role: Role } };
@@ -79,14 +80,46 @@ export class DocumentController {
     return this.documentService.factureCommande(commandeId, demandeur(requete));
   }
 
+  @Post('facture-cotisation/:reglementId')
+  @ApiOperation({
+    summary: 'Émettre la facture d’un règlement de cotisation',
+    description:
+      'Une cotisation se règle en plusieurs fois : chaque règlement abouti a ' +
+      'sa facture. Idempotent, comme les autres. Refusé tant que le règlement ' +
+      'n’a pas abouti.',
+  })
+  @ApiCreatedResponse({ description: 'La facture.', type: Document })
+  @ApiNotFoundResponse({
+    description: 'Règlement inconnu.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Règlement non abouti.',
+    type: ReponseErreurDto,
+  })
+  @ApiForbiddenResponse({
+    description: 'Règlement d’un autre compte.',
+    type: ReponseErreurDto,
+  })
+  factureReglementCotisation(
+    @Param('reglementId', ParseUUIDPipe) reglementId: string,
+    @Req() requete: RequeteAuthentifiee,
+  ): Promise<Document> {
+    return this.documentService.factureReglementCotisation(
+      reglementId,
+      demandeur(requete),
+    );
+  }
+
   @Post('recu-billetterie/:inscriptionId')
   @ApiOperation({
-    summary: 'Émettre le reçu d’une inscription',
+    summary: 'Émettre la facture d’une inscription',
     description:
-      'Idempotent, comme la facture. Le reçu atteste du règlement ; il ne ' +
-      'tient pas lieu de billet.',
+      'Idempotent, comme les autres. Elle atteste du règlement ; elle ne ' +
+      'tient pas lieu de billet. (Le chemin garde son nom d’origine.)',
   })
-  @ApiCreatedResponse({ description: 'Le reçu.', type: Document })
+  @ApiCreatedResponse({ description: 'La facture.', type: Document })
   @ApiNotFoundResponse({
     description: 'Inscription inconnue.',
     type: ReponseErreurDto,
@@ -167,7 +200,11 @@ export class DocumentController {
     reponse
       .set({
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="${document.numero}.pdf"`,
+        // « Facture Awa Ndiaye de Gala des finissants » : le nom dit à qui
+        // est la pièce et de quoi elle traite, pas seulement son numéro.
+        'Content-Disposition': enteteTelechargement(
+          nomFichierDocument(document.contenu, document.numero),
+        ),
         'Content-Length': String(octets.length),
       })
       .end(octets);

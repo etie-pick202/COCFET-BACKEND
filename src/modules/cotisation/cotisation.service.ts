@@ -14,6 +14,7 @@ import { In, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { GenerationService } from '../generation/generation.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NotificationService } from '../notification/notification.service';
 import {
   OrigineTransaction,
@@ -38,7 +39,13 @@ import {
   MettreAJourCotisationDto,
   PayerEcheanceDto,
 } from './dto/cotisation.dto';
-import { EcheancePayable, echeancesPayables } from './echeances';
+import {
+  EcheancePayable,
+  echeancesPayables,
+  FraisParMethode,
+  fraisParMethode,
+  montantAutorise,
+} from './echeances';
 import {
   ModeReglement,
   ReglementCotisation,
@@ -76,6 +83,17 @@ export interface ReglementPrepare {
 export class CotisationService {
   private readonly logger = new Logger(CotisationService.name);
   private readonly tauxFrais: TauxFrais;
+  /**
+   * Une file par participation, pour que deux demandes simultanées ne se
+   * partagent pas le même reste.
+   *
+   * Sans elle, deux clics rapprochés lisaient tous deux « il reste 10 000 » et
+   * engageaient chacun 10 000 : la personne aurait pu verser le double de ce
+   * qu'elle devait. Le contrôle et l'écriture du règlement se font donc l'un
+   * après l'autre, par participation. Suffisant tant que l'API tourne en un
+   * seul processus, comme aujourd'hui ; au-delà, il faudrait un verrou en base.
+   */
+  private readonly verrous = new Map<string, Promise<void>>();
 
   constructor(
     @InjectRepository(Cotisation)
@@ -92,6 +110,7 @@ export class CotisationService {
     private readonly users: Repository<User>,
     private readonly generationService: GenerationService,
     private readonly notificationService: NotificationService,
+    private readonly alerteTresorerie: AlerteTresorerieService,
     @Inject(forwardRef(() => TransactionService))
     private readonly transactionService: TransactionService,
     @Inject(PASSERELLE_PAIEMENT)
@@ -233,6 +252,7 @@ export class CotisationService {
             titre: `Cotisation ouverte : ${cotisation.titre}`,
             message: this.messageOuverture(cotisation),
             lien: '/mon-espace/cotisations',
+            libelleLien: 'Régler ma cotisation',
           },
         );
       }
@@ -297,24 +317,53 @@ export class CotisationService {
       order: { createdAt: 'DESC' },
     });
 
-    return participations.map((participation) => {
-      const siens = reglements.filter(
-        (r) => r.participation.id === participation.id,
-      );
-      return {
-        participationId: participation.id,
-        cotisation: participation.cotisation,
-        ...this.situation(participation, siens),
-        // La participation n'a rien à faire dans la réponse : elle est déjà
-        // portée par « participationId », et la répéter alourdirait chaque
-        // règlement de l'objet qui le contient.
-        reglements: siens.map((reglement) => {
-          const allege: Partial<ReglementCotisation> = { ...reglement };
-          delete allege.participation;
-          return allege as ReglementCotisation;
-        }),
-      };
+    return participations.map((participation) =>
+      this.composerMaCotisation(
+        participation,
+        reglements.filter((r) => r.participation.id === participation.id),
+      ),
+    );
+  }
+
+  /**
+   * Une cotisation de la personne, avec ses échéances et ses règlements.
+   *
+   * C'est la page de détail : celle où mène l'email, et où la facture de
+   * chaque règlement abouti se consulte. Le titulaire fait partie de la
+   * recherche — connaître l'identifiant d'une participation ne donne pas accès
+   * à celle d'autrui.
+   */
+  async maCotisation(
+    userId: string,
+    participationId: string,
+  ): Promise<MaCotisation> {
+    const participation = await this.sienne(userId, participationId);
+    const reglements = await this.reglements.find({
+      where: { participation: { id: participationId } },
+      relations: { participation: true },
+      order: { createdAt: 'DESC' },
     });
+
+    return this.composerMaCotisation(participation, reglements);
+  }
+
+  private composerMaCotisation(
+    participation: ParticipationCotisation,
+    siens: ReglementCotisation[],
+  ): MaCotisation {
+    return {
+      participationId: participation.id,
+      cotisation: participation.cotisation,
+      ...this.situation(participation, siens),
+      // La participation n'a rien à faire dans la réponse : elle est déjà
+      // portée par « participationId », et la répéter alourdirait chaque
+      // règlement de l'objet qui le contient.
+      reglements: siens.map((reglement) => {
+        const allege: Partial<ReglementCotisation> = { ...reglement };
+        delete allege.participation;
+        return allege as ReglementCotisation;
+      }),
+    };
   }
 
   async trouver(id: string): Promise<Cotisation> {
@@ -415,41 +464,59 @@ export class CotisationService {
     participationId: string,
     dto: PayerEcheanceDto,
   ): Promise<ReglementCotisation> {
-    const participation = await this.sienne(user.id, participationId);
-    const echeance = await this.echeanceChoisie(
-      participation,
-      dto.ordreTranche ?? null,
-    );
-    const frais = calculerFrais(
-      echeance.montant,
-      dto.methodePaiement,
-      this.tauxFrais,
-    );
-    const reference = this.genererReference();
+    // Le contrôle du reste et l'enregistrement du règlement se font d'un
+    // bloc : dès qu'il est écrit, il compte comme engagé pour les demandes
+    // suivantes. L'appel au prestataire, lui, se fait hors du verrou — il est
+    // lent, et n'a rien à protéger.
+    const { participation, echeance, montant, frais, reference, reglement } =
+      await this.exclusif(participationId, async () => {
+        const participation = await this.sienne(user.id, participationId);
+        const { echeance, montant } = await this.echeanceChoisie(
+          participation,
+          dto.ordreTranche ?? null,
+          dto.montant,
+        );
+        const frais = calculerFrais(
+          montant,
+          dto.methodePaiement,
+          this.tauxFrais,
+        );
+        const reference = this.genererReference();
 
-    const reglement = await this.reglements.save(
-      this.reglements.create({
-        participation,
-        ordreTranche: echeance.ordreTranche,
-        libelle: echeance.libelle,
-        montant: echeance.montant,
-        montantDebite: frais.montantTtc,
-        reference,
-        mode: ModeReglement.EN_LIGNE,
-        statut: StatutPaiement.EN_ATTENTE,
-      }),
-    );
+        const reglement = await this.reglements.save(
+          this.reglements.create({
+            participation,
+            ordreTranche: echeance.ordreTranche,
+            libelle: echeance.libelle,
+            montant,
+            montantDebite: frais.montantTtc,
+            reference,
+            mode: ModeReglement.EN_LIGNE,
+            statut: StatutPaiement.EN_ATTENTE,
+          }),
+        );
 
-    // Ouverte **avant** l'appel au prestataire : un webhook arrivant pendant
-    // l'attente de sa réponse trouve ainsi une ligne à mettre à jour.
-    await this.transactionService.ouvrir({
-      reference,
-      montant: frais.montantTtc,
-      origine: OrigineTransaction.COTISATION,
-      user: participation.user,
-      methodePaiement: dto.methodePaiement ?? null,
-      fraisPrestataire: frais.fraisFapshi,
-    });
+        // Ouverte **avant** l'appel au prestataire : un webhook arrivant
+        // pendant l'attente de sa réponse trouve ainsi une ligne à mettre à
+        // jour.
+        await this.transactionService.ouvrir({
+          reference,
+          montant: frais.montantTtc,
+          origine: OrigineTransaction.COTISATION,
+          user: participation.user,
+          methodePaiement: dto.methodePaiement ?? null,
+          fraisPrestataire: frais.fraisFapshi,
+        });
+
+        return {
+          participation,
+          echeance,
+          montant,
+          frais,
+          reference,
+          reglement,
+        };
+      });
 
     try {
       const resultat = await this.paiement.initier({
@@ -457,7 +524,7 @@ export class CotisationService {
         montant: frais.montantTtc,
         methode: dto.methodePaiement ?? null,
         telephone: dto.telephone ?? null,
-        description: `Cotisation — ${participation.cotisation.titre} — ${echeance.libelle}`,
+        description: `Cotisation — ${participation.cotisation.titre} — ${echeance.libelle} (${montant} FCFA)`,
       });
 
       if (resultat.referenceExterne) {
@@ -575,44 +642,66 @@ export class CotisationService {
     user: Pick<User, 'id'>,
     participationId: string,
     ordreTranche: number | null,
+    montantDeclare?: number,
   ): Promise<ReglementPrepare> {
-    const participation = await this.sienne(user.id, participationId);
+    return this.exclusif(participationId, async () => {
+      const participation = await this.sienne(user.id, participationId);
 
-    if (!participation.cotisation.accepteJustificatif) {
-      throw new ConflictException(
-        'Cette cotisation se règle en ligne : elle n’accepte pas de justificatif.',
-      );
-    }
+      if (!participation.cotisation.accepteJustificatif) {
+        throw new ConflictException(
+          'Cette cotisation se règle en ligne : elle n’accepte pas de justificatif.',
+        );
+      }
 
-    const echeance = await this.echeanceChoisie(participation, ordreTranche);
-    const reference = this.genererReference();
-
-    await this.reglements.save(
-      this.reglements.create({
+      // Le montant déclaré est ce que la personne dit avoir versé : il est
+      // contrôlé comme un paiement en ligne — jamais plus que ce qui reste sur
+      // l'échéance — et la trésorerie certifie ensuite ce qu'elle a vraiment
+      // reçu, qui est ce qui sera crédité.
+      const { echeance, montant } = await this.echeanceChoisie(
         participation,
-        ordreTranche: echeance.ordreTranche,
-        libelle: echeance.libelle,
-        montant: echeance.montant,
-        montantDebite: null,
+        ordreTranche,
+        montantDeclare,
+      );
+      const reference = this.genererReference();
+
+      await this.reglements.save(
+        this.reglements.create({
+          participation,
+          ordreTranche: echeance.ordreTranche,
+          libelle: echeance.libelle,
+          montant,
+          montantDebite: null,
+          reference,
+          mode: ModeReglement.JUSTIFICATIF,
+          statut: StatutPaiement.EN_ATTENTE,
+        }),
+      );
+
+      await this.transactionService.ouvrir({
         reference,
-        mode: ModeReglement.JUSTIFICATIF,
-        statut: StatutPaiement.EN_ATTENTE,
-      }),
-    );
+        montant,
+        origine: OrigineTransaction.COTISATION,
+        user: participation.user,
+        methodePaiement: null,
+        fraisPrestataire: 0,
+      });
 
-    await this.transactionService.ouvrir({
-      reference,
-      montant: echeance.montant,
-      origine: OrigineTransaction.COTISATION,
-      user: participation.user,
-      methodePaiement: null,
-      fraisPrestataire: 0,
+      return {
+        reference,
+        libelle: `${participation.cotisation.titre} — ${echeance.libelle}`,
+      };
     });
+  }
 
-    return {
-      reference,
-      libelle: `${participation.cotisation.titre} — ${echeance.libelle}`,
-    };
+  /**
+   * Ce que coûterait un paiement en ligne de ce montant, par opérateur.
+   *
+   * Le montant étant libre, les frais ne se connaissent plus d'avance : la
+   * personne les voit se recalculer pendant qu'elle saisit, avec la même
+   * formule que celle qui fixera le débit.
+   */
+  fraisPour(montant: number): FraisParMethode {
+    return fraisParMethode(montant, this.tauxFrais);
   }
 
   /**
@@ -647,7 +736,9 @@ export class CotisationService {
   ): Promise<void> {
     const reglement = await this.reglements.findOne({
       where: { reference: transaction.reference },
-      relations: { participation: { cotisation: true, user: true } },
+      relations: {
+        participation: { cotisation: { tranches: true }, user: true },
+      },
     });
 
     if (!reglement) {
@@ -680,7 +771,11 @@ export class CotisationService {
       const apres = await this.participations.findOneOrFail({
         where: { id: participation.id },
       });
-      const reste = Math.max(0, apres.montantDu - apres.montantRegle);
+      const avancement = calculerAvancement(
+        apres.montantDu,
+        apres.montantRegle,
+        participation.cotisation.tranches ?? [],
+      );
 
       await this.notificationService.notifier({
         destinataire: participation.user,
@@ -689,10 +784,22 @@ export class CotisationService {
         message:
           `Votre règlement de ${montantLisible(credit)} (${reglement.libelle}) ` +
           'a bien été reçu. ' +
-          (reste === 0
-            ? 'Votre cotisation est entièrement soldée. Merci !'
-            : `Il vous reste ${montantLisible(reste)} à verser.`),
-        lien: '/mon-espace/cotisations',
+          this.bilanApresReglement(reglement.ordreTranche, avancement) +
+          ' Votre facture est disponible sur la page de la cotisation.',
+        // La page de la cotisation : c'est là que la facture de chaque
+        // règlement se consulte et se télécharge.
+        lien: `/mon-espace/cotisations/${participation.id}`,
+        libelleLien: 'Voir ma cotisation et ma facture',
+      });
+
+      // Ce qui a été reçu : le débité en ligne (frais compris, que le
+      // prestataire a retenus), ou le montant certifié d'un justificatif.
+      await this.alerteTresorerie.encaissement({
+        origine: 'cotisation',
+        payeur: participation.user,
+        objet: `« ${titre} » (${reglement.libelle})`,
+        montant: transaction.montant,
+        fraisPrestataire: transaction.fraisPrestataire,
       });
       return;
     }
@@ -714,7 +821,8 @@ export class CotisationService {
               ' Vous pouvez en déposer un autre, ou régler en ligne.'
             : `Le paiement de « ${reglement.libelle} » n’a pas abouti. ` +
               'Rien ne vous a été crédité : vous pouvez réessayer.',
-        lien: '/mon-espace/cotisations',
+        lien: `/mon-espace/cotisations/${participation.id}`,
+        libelleLien: 'Voir ma cotisation',
       });
     }
   }
@@ -779,16 +887,83 @@ export class CotisationService {
     );
   }
 
+  /**
+   * Où en est la personne, dit à la lettre : la tranche réglée, puis le reste.
+   *
+   * Un versement partiel doit se lire pour ce qu'il est — « 5 000 sur 30 000,
+   * 17 % » — et non comme une tranche réglée ou non.
+   */
+  private bilanApresReglement(
+    ordreTranche: number | null,
+    avancement: Avancement,
+  ): string {
+    if (avancement.montantRestant === 0) {
+      return 'Votre cotisation est entièrement soldée. Merci !';
+    }
+
+    const tranche =
+      ordreTranche === null
+        ? undefined
+        : avancement.tranches.find((t) => t.ordre === ordreTranche);
+    let detail = '';
+    if (tranche?.soldee) {
+      detail = `${tranche.libelle} est soldée. `;
+    } else if (tranche) {
+      detail =
+        `${tranche.libelle} : ${montantLisible(tranche.regle)} sur ` +
+        `${montantLisible(tranche.montant)} (${tranche.pourcentage} %). `;
+    }
+
+    return (
+      `${detail}Cotisation réglée à ${avancement.pourcentage} % : il vous ` +
+      `reste ${montantLisible(avancement.montantRestant)} à verser.`
+    );
+  }
+
+  /**
+   * Exécute `tache` à la suite des autres demandes de la même clé.
+   *
+   * Voir `verrous` : c'est ce qui garantit que le contrôle du reste et
+   * l'écriture du règlement ne s'entrelacent pas entre deux demandes.
+   */
+  private async exclusif<T>(cle: string, tache: () => Promise<T>): Promise<T> {
+    const precedent = this.verrous.get(cle) ?? Promise.resolve();
+    let liberer: () => void = () => undefined;
+    const courant = new Promise<void>((resoudre) => {
+      liberer = resoudre;
+    });
+    const suite = precedent.then(() => courant);
+    this.verrous.set(cle, suite);
+
+    await precedent;
+    try {
+      return await tache();
+    } finally {
+      liberer();
+      // Rien d'autre n'attend : la clé n'a plus lieu de rester en mémoire.
+      if (this.verrous.get(cle) === suite) {
+        this.verrous.delete(cle);
+      }
+    }
+  }
+
   /** Avancement et échéances réglables d'une participation. */
   private situation(
     participation: ParticipationCotisation,
-    reglements: Pick<ReglementCotisation, 'statut'>[],
+    reglements: Pick<ReglementCotisation, 'statut' | 'montant'>[],
   ): { avancement: Avancement; echeances: EcheancePayable[] } {
     const { cotisation } = participation;
+    // Ce qui a été lancé mais pas encore reconnu : un justificatif en cours
+    // d'examen, un paiement en ligne non validé. Compté comme engagé.
+    const enAttente = reglements
+      .filter((r) => r.statut === StatutPaiement.EN_ATTENTE)
+      .reduce((somme, r) => somme + r.montant, 0);
     const avancement = calculerAvancement(
       participation.montantDu,
       participation.montantRegle,
       cotisation.tranches ?? [],
+      new Date(),
+      enAttente,
     );
 
     return {
@@ -801,9 +976,6 @@ export class CotisationService {
             participation.statut !== StatutParticipation.EXEMPTEE,
           fractionnable: cotisation.fractionnable,
           dateCloture: cotisation.dateLimite,
-          reglementEnAttente: reglements.some(
-            (r) => r.statut === StatutPaiement.EN_ATTENTE,
-          ),
         },
         this.tauxFrais,
       ),
@@ -832,11 +1004,18 @@ export class CotisationService {
     return participation;
   }
 
-  /** L'échéance choisie, si elle est réglable maintenant. */
+  /**
+   * L'échéance choisie et le montant à y verser, si elle est réglable.
+   *
+   * Le montant est contrôlé ici, côté serveur : l'écran borne la saisie, mais
+   * rien de ce qu'il affiche ne fait foi. Il est calculé sur ce qui reste
+   * *hors* règlements déjà engagés, relus à l'instant.
+   */
   private async echeanceChoisie(
     participation: ParticipationCotisation,
     ordreTranche: number | null,
-  ): Promise<EcheancePayable> {
+    montantDemande?: number,
+  ): Promise<{ echeance: EcheancePayable; montant: number }> {
     const enAttente = await this.reglements.find({
       where: {
         participation: { id: participation.id },
@@ -850,14 +1029,20 @@ export class CotisationService {
 
     if (!echeance) {
       throw new BadRequestException(
-        'Cette échéance n’est pas à régler : elle est soldée ou n’existe pas.',
+        'Cette échéance n’est pas à régler : elle est soldée, déjà couverte ' +
+          'par des règlements en attente, ou n’existe pas.',
       );
     }
     if (!echeance.payable) {
       throw new ConflictException(echeance.motif);
     }
 
-    return echeance;
+    const autorise = montantAutorise(echeance, montantDemande);
+    if ('erreur' in autorise) {
+      throw new BadRequestException(autorise.erreur);
+    }
+
+    return { echeance, montant: autorise.montant };
   }
 
   /**

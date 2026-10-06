@@ -320,6 +320,49 @@ export class BureauService {
     );
   }
 
+  /**
+   * Ceux qui doivent apprendre qu'un paiement vient d'être reçu.
+   *
+   * Les mêmes que ceux qui ont le droit de lire les comptes : les membres du
+   * bureau en cours dont le poste a la charge de la trésorerie, et
+   * l'exploitation (`SUPER_ADMIN`), que les privilèges de poste n'arrêtent
+   * jamais. Prévenir le reste du bureau divulguerait, notification après
+   * notification, ce que le cloisonnement des finances protège — qui a payé
+   * quoi, et combien.
+   *
+   * Comptes désactivés écartés : une alerte sur une adresse que personne ne lit
+   * n'avertit personne.
+   */
+  async destinatairesTresorerie(): Promise<User[]> {
+    const generation = await this.generations.findOne({
+      where: { isActive: true },
+    });
+
+    const exploitation = await this.users.find({
+      where: { role: Role.SUPER_ADMIN, isActive: true },
+    });
+
+    const parId = new Map(exploitation.map((u) => [u.id, u]));
+
+    if (generation) {
+      const membres = await this.membres.find({
+        where: {
+          generation: { id: generation.id },
+          poste: { accedeTresorerie: true },
+        },
+        relations: { user: true },
+      });
+
+      for (const { user } of membres) {
+        if (user?.isActive) {
+          parId.set(user.id, user);
+        }
+      }
+    }
+
+    return [...parId.values()];
+  }
+
   /** Composition d'un mandat, telle que l'administration la consulte. */
   async composition(generationId: string): Promise<MembreExpose[]> {
     const membres = await this.listerMembres(generationId);

@@ -12,6 +12,7 @@ import { IsNull, LessThan, Not, Repository } from 'typeorm';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { Commande } from '../commande/entities/commande.entity';
+import { ReglementCotisation } from '../cotisation/entities/reglement-cotisation.entity';
 import type { Stockage } from '../file/ports/stockage';
 import { STOCKAGE } from '../file/ports/stockage';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
@@ -47,9 +48,17 @@ const SEQUENCES: Record<TypeDocument, { sequence: string; prefixe: string }> = {
     sequence: 'documents_facture_seq',
     prefixe: 'FAC',
   },
+  // Un seul compteur pour toutes les factures — commande, billet, cotisation :
+  // elles portent le même préfixe, et deux séries distinctes produiraient deux
+  // « FAC-2027-0001 », que l'unicité du numéro refuserait. Les anciens reçus
+  // gardent leur numéro « REC » ; les nouvelles pièces sont des factures.
   [TypeDocument.RECU_BILLETTERIE]: {
-    sequence: 'documents_recu_seq',
-    prefixe: 'REC',
+    sequence: 'documents_facture_seq',
+    prefixe: 'FAC',
+  },
+  [TypeDocument.FACTURE_COTISATION]: {
+    sequence: 'documents_facture_seq',
+    prefixe: 'FAC',
   },
   [TypeDocument.RAPPORT_TRESORERIE]: {
     sequence: 'documents_rapport_seq',
@@ -74,6 +83,8 @@ export class DocumentService {
     private readonly commandes: Repository<Commande>,
     @InjectRepository(Inscription)
     private readonly inscriptions: Repository<Inscription>,
+    @InjectRepository(ReglementCotisation)
+    private readonly reglements: Repository<ReglementCotisation>,
     @InjectRepository(User)
     private readonly users: Repository<User>,
     @Inject(STOCKAGE) private readonly stockage: Stockage,
@@ -149,7 +160,68 @@ export class DocumentService {
     );
   }
 
-  /** Reçu d'une inscription réglée. */
+  /**
+   * Facture du règlement d'une échéance de cotisation.
+   *
+   * Refusée tant que le règlement n'a pas abouti — comme celle d'une commande :
+   * elle atteste d'un paiement reçu. Un justificatif refusé, un paiement en
+   * ligne abandonné n'en donnent pas.
+   */
+  async factureReglementCotisation(
+    reglementId: string,
+    demandeur: Demandeur,
+  ): Promise<Document> {
+    const reglement = await this.reglements.findOne({
+      where: { id: reglementId },
+      relations: { participation: { user: true, cotisation: true } },
+    });
+
+    if (!reglement) {
+      throw new NotFoundException('Règlement introuvable.');
+    }
+
+    const { participation } = reglement;
+    this.verifierAcces(participation.user?.id ?? null, demandeur);
+
+    if (reglement.statut !== StatutPaiement.COMPLETE) {
+      throw new ConflictException(
+        'Ce règlement n’est pas abouti : aucune facture ne peut être émise.',
+      );
+    }
+
+    // Sans frais pour un justificatif : l'argent n'a pas transité par le
+    // prestataire, et le montant crédité est celui que la trésorerie a reçu.
+    const montantTtc = reglement.montantDebite ?? reglement.montant;
+
+    return this.emettre(
+      TypeDocument.FACTURE_COTISATION,
+      reglement.id,
+      participation.user,
+      (charte, emisLe) => ({
+        contenu: {
+          genre: 'FACTURE_COTISATION',
+          charte,
+          emisLe,
+          titulaire: this.titulaire(participation.user),
+          cotisation: participation.cotisation.titre,
+          echeance: reglement.libelle,
+          montant: reglement.montant,
+          fraisPaiement:
+            reglement.montantDebite === null
+              ? null
+              : Math.max(0, reglement.montantDebite - reglement.montant),
+          montantTtc,
+          mode: reglement.mode,
+          reference: reglement.reference,
+          recuLe: reglement.updatedAt.toISOString(),
+        },
+        titre: `Cotisation — ${participation.cotisation.titre} (${reglement.libelle})`,
+        montant: montantTtc,
+      }),
+    );
+  }
+
+  /** Facture d'une inscription réglée. */
   async recuBilletterie(
     inscriptionId: string,
     demandeur: Demandeur,
@@ -167,7 +239,7 @@ export class DocumentService {
 
     if (inscription.statutPaiement !== StatutPaiement.COMPLETE) {
       throw new ConflictException(
-        'Cette inscription n’est pas réglée : aucun reçu ne peut être émis.',
+        'Cette inscription n’est pas réglée : aucune facture ne peut être émise.',
       );
     }
 

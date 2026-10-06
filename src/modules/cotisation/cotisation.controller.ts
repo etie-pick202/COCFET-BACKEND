@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -37,9 +38,11 @@ import { CotisationService } from './cotisation.service';
 import {
   CreerCotisationDto,
   DeclarerVersementDto,
+  ApercuFraisDto,
   MettreAJourCotisationDto,
   PayerEcheanceDto,
 } from './dto/cotisation.dto';
+import { FraisParMethode } from './echeances';
 import { Cotisation } from './entities/cotisation.entity';
 import { ReglementCotisation } from './entities/reglement-cotisation.entity';
 import { VersementFinance } from './entities/versement-finance.entity';
@@ -78,14 +81,51 @@ export class CotisationController {
     return this.cotisationService.mesCotisations(requete.user.id);
   }
 
+  @Get('participations/:participationId')
+  @ApiOperation({
+    summary: 'Le détail d’une de mes cotisations',
+    description:
+      'Avancement, échéances réglables et règlements — dont chacun, une fois ' +
+      'abouti, donne droit à sa facture. C’est la page où mènent les emails.',
+  })
+  @ApiOkResponse({ description: 'La participation, avec son avancement.' })
+  @ApiNotFoundResponse({
+    description: 'Participation inconnue, ou d’un autre compte.',
+    type: ReponseErreurDto,
+  })
+  maCotisation(
+    @Req() requete: Requete,
+    @Param('participationId', ParseUUIDPipe) participationId: string,
+  ) {
+    return this.cotisationService.maCotisation(
+      requete.user.id,
+      participationId,
+    );
+  }
+
+  @Get('frais')
+  @ApiOperation({
+    summary: 'Frais d’un paiement en ligne de ce montant',
+    description:
+      'Le montant d’un règlement est libre : les frais se recalculent donc à ' +
+      'chaque saisie, avec la formule qui fixera le débit. Déclarée avant ' +
+      '« :id », que « frais » serait sinon pris pour un identifiant.',
+  })
+  @ApiOkResponse({ type: FraisParMethode })
+  frais(@Query() requete: ApercuFraisDto): FraisParMethode {
+    return this.cotisationService.fraisPour(requete.montant);
+  }
+
   @Post('participations/:participationId/payer')
   @ApiOperation({
     summary: 'Régler une échéance en ligne',
     description:
-      'L’échéance est la prochaine tranche non soldée (« ordreTranche ») ou, ' +
-      'sans « ordreTranche », la totalité du reste dû. Le payeur est débité ' +
-      'des frais du prestataire en plus du montant de l’échéance, comme pour ' +
-      'un billet ; seul le montant de l’échéance est crédité.',
+      'L’échéance est la prochaine tranche non couverte (« ordreTranche ») ou, ' +
+      'sans « ordreTranche », tout le reste dû. Sur une tranche, « montant » ' +
+      'est libre : on la règle à son rythme, en autant de versements que ' +
+      'l’on veut, chacun crédité pour ce qu’il vaut. Le payeur est débité ' +
+      'des frais du prestataire en plus du montant réglé, comme pour un ' +
+      'billet ; seul le montant réglé est crédité.',
   })
   @ApiCreatedResponse({ type: ReglementCotisation })
   @ApiResponse({

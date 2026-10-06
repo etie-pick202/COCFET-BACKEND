@@ -9,6 +9,7 @@ import {
 } from '../evenement/entities/evenement.entity';
 import { EvenementService } from '../evenement/evenement.service';
 import { MailService } from '../mail/mail.service';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NotificationService } from '../notification/notification.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { TransactionService } from '../paiement/transaction.service';
@@ -141,6 +142,7 @@ describe('Lecteur QR — portiers', () => {
       {} as TransactionService,
       { journaliser } as unknown as ActiviteService,
       utilisateurs as unknown as UserService,
+      {} as AlerteTresorerieService,
       {
         get: jest.fn(),
         getOrThrow: jest.fn().mockReturnValue('secret-de-test'),

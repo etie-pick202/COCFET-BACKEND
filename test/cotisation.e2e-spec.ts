@@ -299,6 +299,97 @@ describe('Cotisations (e2e)', () => {
       expect(ligne.avancement.enRetard).toBe(true);
     });
 
+    it('propose de régler une tranche à son rythme, avec le pourcentage atteint', async () => {
+      const id = idDe(await creer().expect(201));
+      await ouvrir(id).expect(201);
+      const participation = await participations.findOneOrFail({
+        where: { user: { id: finissant.user.id } },
+      });
+      await participations.update(participation.id, { montantRegle: 5000 });
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/moi`)
+        .set(finissant.entetes)
+        .expect(200);
+
+      const [ligne] = reponse.body as {
+        avancement: { tranches: { regle: number; pourcentage: number }[] };
+        echeances: {
+          ordreTranche: number | null;
+          montant: number;
+          montantMin: number;
+          libre: boolean;
+          pourcentage: number;
+        }[];
+      }[];
+
+      // 5 000 versés sur une première tranche de 10 000 : la moitié.
+      expect(ligne.avancement.tranches[0]).toMatchObject({
+        regle: 5000,
+        pourcentage: 50,
+      });
+      // On peut continuer à son rythme, sur ce qu'il en reste.
+      expect(ligne.echeances[0]).toMatchObject({
+        ordreTranche: 1,
+        montant: 5000,
+        libre: true,
+        pourcentage: 50,
+      });
+      expect(ligne.echeances[0].montantMin).toBeGreaterThan(0);
+      // « Tout le reste » vaut le reste dû, pas le montant d'origine.
+      const reste = ligne.echeances.find((e) => e.ordreTranche === null);
+      expect(reste).toMatchObject({ montant: 25000, libre: false });
+    });
+
+    it('rend le détail d’une cotisation à son titulaire seulement', async () => {
+      const id = idDe(await creer().expect(201));
+      await ouvrir(id).expect(201);
+      const participation = await participations.findOneOrFail({
+        where: { user: { id: finissant.user.id } },
+      });
+
+      const detail = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/participations/${participation.id}`)
+        .set(finissant.entetes)
+        .expect(200);
+      expect(detail.body).toMatchObject({
+        participationId: participation.id,
+      });
+
+      // Connaître l'identifiant d'une participation ne donne pas accès à
+      // celle d'autrui.
+      await request(app.getHttpServer())
+        .get(`${COTISATIONS}/participations/${participation.id}`)
+        .set(autreFinissant.entetes)
+        .expect(404);
+    });
+
+    it('chiffre les frais d’un montant libre, par opérateur', async () => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/frais`)
+        .query({ montant: 5000 })
+        .set(finissant.entetes)
+        .expect(200);
+
+      const frais = reponse.body as Record<
+        string,
+        { prixBase: number; montantTtc: number }
+      >;
+      expect(frais.ORANGE_MONEY.prixBase).toBe(5000);
+      expect(frais.ORANGE_MONEY.montantTtc).toBeGreaterThan(5000);
+      expect(frais.MTN_MOMO.montantTtc).toBeGreaterThanOrEqual(
+        frais.ORANGE_MONEY.montantTtc,
+      );
+    });
+
+    it('refuse un montant nul pour l’aperçu des frais', async () => {
+      await request(app.getHttpServer())
+        .get(`${COTISATIONS}/frais`)
+        .query({ montant: 0 })
+        .set(finissant.entetes)
+        .expect(400);
+    });
+
     it('ne montre à chacun que sa propre situation', async () => {
       const id = idDe(await creer().expect(201));
       await ouvrir(id).expect(201);

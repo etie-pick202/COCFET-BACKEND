@@ -155,3 +155,65 @@ describe('calculerAvancement', () => {
     expect(avancement.montantRestant).toBe(30_000);
   });
 });
+
+describe('calculerAvancement — versements en attente', () => {
+  const tranche = (ordre: number, montant: number): TrancheCotisation =>
+    ({
+      ordre,
+      montant,
+      dateLimite: new Date('2099-01-01T00:00:00Z'),
+      libelle: `Tranche ${ordre}`,
+    }) as TrancheCotisation;
+
+  const MAINTENANT = new Date('2026-06-01T00:00:00Z');
+  const TRANCHES = [tranche(1, 30_000), tranche(2, 15_000), tranche(3, 5_000)];
+
+  it('donne à chaque tranche le pourcentage réellement réglé', () => {
+    const avancement = calculerAvancement(50_000, 5_000, TRANCHES, MAINTENANT);
+
+    expect(avancement.tranches.map((t) => t.pourcentage)).toEqual([17, 0, 0]);
+  });
+
+  it('range à part ce qui attend sa validation', () => {
+    const avancement = calculerAvancement(
+      50_000,
+      5_000,
+      TRANCHES,
+      MAINTENANT,
+      10_000,
+    );
+
+    expect(avancement.montantEnAttente).toBe(10_000);
+    // Le réglé ne bouge pas : l'en-attente n'est pas de l'argent reconnu.
+    expect(avancement.montantRegle).toBe(5_000);
+    expect(avancement.montantRestant).toBe(45_000);
+    expect(avancement.tranches[0]).toMatchObject({
+      regle: 5_000,
+      enAttente: 10_000,
+      pourcentage: 17,
+    });
+  });
+
+  it('déborde l’en-attente sur la tranche suivante, comme le réglé', () => {
+    const avancement = calculerAvancement(
+      50_000,
+      25_000,
+      TRANCHES,
+      MAINTENANT,
+      10_000,
+    );
+
+    expect(avancement.tranches.map((t) => [t.regle, t.enAttente])).toEqual([
+      [25_000, 5_000],
+      [0, 5_000],
+      [0, 0],
+    ]);
+  });
+
+  it('ne change rien sans versement en attente', () => {
+    const avancement = calculerAvancement(50_000, 5_000, TRANCHES, MAINTENANT);
+
+    expect(avancement.montantEnAttente).toBe(0);
+    expect(avancement.tranches.every((t) => t.enAttente === 0)).toBe(true);
+  });
+});

@@ -176,3 +176,79 @@ describe('BureauService — désignation', () => {
     expect(ordre).toEqual(['enregistrement', 'accueil']);
   });
 });
+
+describe('BureauService — destinataires de la trésorerie', () => {
+  let service: BureauService;
+  let generations: { findOne: jest.Mock };
+  let membres: { find: jest.Mock };
+  let users: { find: jest.Mock };
+
+  const compte = (id: string, actif = true): User =>
+    ({ id, isActive: actif }) as User;
+
+  beforeEach(() => {
+    generations = {
+      findOne: jest.fn(() => Promise.resolve({ id: 'mandat-2027' })),
+    };
+    membres = { find: jest.fn(() => Promise.resolve([])) };
+    users = { find: jest.fn(() => Promise.resolve([])) };
+
+    service = new BureauService(
+      {} as unknown as Repository<PosteBureau>,
+      membres as unknown as Repository<MembreBureau>,
+      generations as unknown as Repository<Generation>,
+      users as unknown as Repository<User>,
+      {} as unknown as MailService,
+      {} as unknown as PreferenceEmailService,
+    );
+  });
+
+  it('réunit les postes de trésorerie du mandat en cours et l’exploitation', async () => {
+    users.find.mockResolvedValue([compte('exploitant')]);
+    membres.find.mockResolvedValue([{ user: compte('tresoriere') }]);
+
+    const ids = (await service.destinatairesTresorerie()).map((u) => u.id);
+
+    // L'ordre n'a pas d'importance : on compare des ensembles.
+    expect(new Set(ids)).toEqual(new Set(['exploitant', 'tresoriere']));
+  });
+
+  it('ne cherche les membres que sur le mandat en cours et sur un poste de trésorerie', async () => {
+    await service.destinatairesTresorerie();
+
+    expect(membres.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          generation: { id: 'mandat-2027' },
+          poste: { accedeTresorerie: true },
+        },
+      }),
+    );
+  });
+
+  it('écarte les comptes désactivés', async () => {
+    membres.find.mockResolvedValue([{ user: compte('parti', false) }]);
+
+    expect(await service.destinatairesTresorerie()).toEqual([]);
+  });
+
+  it('ne compte une personne qu’une fois, même titulaire de deux postes', async () => {
+    users.find.mockResolvedValue([compte('exploitant')]);
+    membres.find.mockResolvedValue([
+      { user: compte('exploitant') },
+      { user: compte('exploitant') },
+    ]);
+
+    expect(await service.destinatairesTresorerie()).toHaveLength(1);
+  });
+
+  it('prévient quand même l’exploitation sans mandat en cours', async () => {
+    generations.findOne.mockResolvedValue(null);
+    users.find.mockResolvedValue([compte('exploitant')]);
+
+    const ids = (await service.destinatairesTresorerie()).map((u) => u.id);
+
+    expect(ids).toEqual(['exploitant']);
+    expect(membres.find).not.toHaveBeenCalled();
+  });
+});

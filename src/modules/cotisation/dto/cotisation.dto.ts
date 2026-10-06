@@ -12,6 +12,7 @@ import {
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
   Min,
   MinLength,
@@ -174,7 +175,34 @@ export class ChoixEcheanceDto {
   ordreTranche?: number;
 }
 
+/** Montant dont on veut connaître le coût en ligne. */
+export class ApercuFraisDto {
+  @ApiProperty({
+    example: 5000,
+    description: 'Montant à créditer, en FCFA, frais exclus.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(10_000_000)
+  montant: number;
+}
+
 export class PayerEcheanceDto extends ChoixEcheanceDto {
+  @ApiPropertyOptional({
+    example: 5000,
+    description:
+      'Montant à régler, en FCFA, frais exclus. Sur une tranche, il est libre ' +
+      'entre le plancher et ce qu’il reste sur l’échéance : on la règle à son ' +
+      'rythme, en autant de versements que l’on veut. Absent : tout ce qu’il ' +
+      'reste sur l’échéance. Sur « tout le reste », le montant est fixe.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  montant?: number;
+
   @ApiPropertyOptional({
     enum: MethodePaiement,
     description:

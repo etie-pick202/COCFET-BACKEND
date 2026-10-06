@@ -2,6 +2,7 @@ import { PNG } from 'pngjs';
 import {
   CharteFigee,
   ContenuFacture,
+  ContenuFactureCotisation,
   ContenuRapport,
   ContenuRecu,
 } from '../entities/contenu-document';
@@ -36,6 +37,21 @@ const facture: ContenuFacture = {
   montantTtc: 34890,
   statutPaiement: 'COMPLETE',
   methodePaiement: 'MOBILE_MONEY',
+};
+
+const factureCotisation: ContenuFactureCotisation = {
+  genre: 'FACTURE_COTISATION',
+  charte,
+  emisLe: '2027-03-14T10:00:00.000Z',
+  titulaire: { nom: 'Awa Ndiaye', email: 'awa@exemple.test' },
+  cotisation: 'Cotisation des finissants 2027',
+  echeance: 'Première tranche',
+  montant: 5000,
+  fraisPaiement: 211,
+  montantTtc: 5211,
+  mode: 'EN_LIGNE',
+  reference: 'COT-4821',
+  recuLe: '2027-03-14T10:00:00.000Z',
 };
 
 const recu: ContenuRecu = {
@@ -80,7 +96,8 @@ const estUnPdf = (octets: Buffer): boolean =>
 describe('Composition des PDF', () => {
   it.each([
     ['une facture', facture],
-    ['un reçu', recu],
+    ['une facture de billet', recu],
+    ['une facture de cotisation', factureCotisation],
     ['un rapport', rapport],
   ])('produit %s lisible', async (_libelle, contenu) => {
     const octets = await composer(contenu, 'FAC-2027-0001', null);
@@ -105,6 +122,24 @@ describe('Composition des PDF', () => {
       expect(estUnPdf(octets)).toBe(true);
     },
   );
+
+  it.each([
+    ['payé en ligne', factureCotisation],
+    [
+      'validé sur preuve, sans frais',
+      {
+        ...factureCotisation,
+        mode: 'JUSTIFICATIF',
+        fraisPaiement: null,
+        montantTtc: 5000,
+      },
+    ],
+  ])('compose une facture de cotisation %s', async (_libelle, contenu) => {
+    const octets = await composer(contenu, 'FAC-2027-0006', null);
+
+    expect(estUnPdf(octets)).toBe(true);
+    expect(octets.length).toBeGreaterThan(1500);
+  });
 
   it('compose sans logo comme avec', async () => {
     // Le mandat peut n'en avoir désigné aucun, et le stockage peut être

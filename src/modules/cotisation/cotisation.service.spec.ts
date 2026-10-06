@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Repository } from 'typeorm';
 import { GenerationService } from '../generation/generation.service';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NotificationService } from '../notification/notification.service';
 import {
   OrigineTransaction,
@@ -53,6 +54,7 @@ describe('CotisationService', () => {
   let trouverActive: jest.Mock;
   let reglements: Record<string, jest.Mock>;
   let notifications: Record<string, jest.Mock>;
+  let alertes: Record<string, jest.Mock>;
   let transactions: Record<string, jest.Mock>;
   let passerelle: Record<string, jest.Mock>;
 
@@ -115,6 +117,10 @@ describe('CotisationService', () => {
       notifier: jest.fn().mockResolvedValue(null),
       notifierPlusieurs: jest.fn().mockResolvedValue(0),
     };
+    alertes = {
+      encaissement: jest.fn().mockResolvedValue(undefined),
+      preuveADecider: jest.fn().mockResolvedValue(undefined),
+    };
     transactions = {
       ouvrir: jest.fn().mockResolvedValue({}),
       enregistrerReferenceExterne: jest.fn().mockResolvedValue(undefined),
@@ -148,6 +154,7 @@ describe('CotisationService', () => {
       } as unknown as Repository<User>,
       { trouverActive } as unknown as GenerationService,
       notifications as unknown as NotificationService,
+      alertes as unknown as AlerteTresorerieService,
       transactions as unknown as TransactionService,
       passerelle as unknown as PasserellePaiement,
       { get: () => undefined } as unknown as ConfigService,
@@ -414,21 +421,44 @@ describe('CotisationService', () => {
         expect(mienne.echeances[2].libelle).toBe(LIBELLE_TOTALITE);
       });
 
-      it('bloque tout tant qu’un règlement attend son issue', async () => {
+      it('compte un règlement en attente comme déjà engagé', async () => {
         participations.find.mockResolvedValue([participation()]);
         reglements.find.mockResolvedValue([
           {
             id: 'r0',
             statut: StatutPaiement.EN_ATTENTE,
+            montant: 4_000,
             participation: { id: 'p1' },
           },
         ]);
 
         const [mienne] = await service.mesCotisations('u1');
 
-        expect(mienne.echeances.every((e) => !e.payable)).toBe(true);
+        // Il reste 6 000 à engager sur la première tranche : la personne peut
+        // continuer, sans attendre la validation du premier versement.
+        expect(mienne.echeances[0]).toMatchObject({
+          ordreTranche: 1,
+          montant: 6_000,
+          enAttente: 4_000,
+          payable: true,
+        });
+        expect(mienne.avancement.montantEnAttente).toBe(4_000);
         expect(mienne.reglements).toHaveLength(1);
         expect(mienne.reglements[0]).not.toHaveProperty('participation');
+      });
+
+      it('rend le pourcentage réellement réglé de chaque tranche', async () => {
+        participations.find.mockResolvedValue([
+          participation({ montantRegle: 4_000 }),
+        ]);
+
+        const [mienne] = await service.mesCotisations('u1');
+
+        expect(mienne.avancement.tranches[0]).toMatchObject({
+          regle: 4_000,
+          pourcentage: 40,
+        });
+        expect(mienne.echeances[0]).toMatchObject({ montant: 6_000 });
       });
 
       it('ne propose que la totalité sans échéancier fractionné', async () => {
@@ -446,6 +476,14 @@ describe('CotisationService', () => {
       const payer = (ordreTranche?: number) =>
         service.payerEcheance({ id: 'u1' }, 'p1', {
           ordreTranche,
+          methodePaiement: MethodePaiement.ORANGE_MONEY,
+          telephone: '+237699000000',
+        });
+
+      const payerMontant = (montant: number) =>
+        service.payerEcheance({ id: 'u1' }, 'p1', {
+          ordreTranche: 1,
+          montant,
           methodePaiement: MethodePaiement.ORANGE_MONEY,
           telephone: '+237699000000',
         });
@@ -484,12 +522,104 @@ describe('CotisationService', () => {
         expect(transactions.ouvrir).not.toHaveBeenCalled();
       });
 
-      it('refuse un second règlement pendant qu’un premier attend', async () => {
+      it('crédite exactement le montant versé, pas la tranche entière', async () => {
+        await payerMontant(5_000);
+
+        expect(reglements.save).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: 5_000, ordreTranche: 1 }),
+        );
+        const ouverte = (
+          transactions.ouvrir.mock.calls as unknown[][]
+        )[0][0] as { montant: number };
+        // Les frais se calculent sur ce qui est versé, pas sur la tranche.
+        expect(ouverte.montant).toBeGreaterThan(5_000);
+        expect(ouverte.montant).toBeLessThan(6_000);
+      });
+
+      it('refuse plus que ce qu’il reste sur la tranche', async () => {
+        await expect(payerMontant(10_001)).rejects.toThrow(BadRequestException);
+        expect(transactions.ouvrir).not.toHaveBeenCalled();
+      });
+
+      it('refuse un montant sous le plancher', async () => {
+        await expect(payerMontant(499)).rejects.toThrow(BadRequestException);
+      });
+
+      it('laisse lancer un second règlement sur ce qu’il reste', async () => {
+        // 4 000 attendent déjà : il en reste 6 000 à engager sur la tranche.
         reglements.find.mockResolvedValue([
-          { statut: StatutPaiement.EN_ATTENTE },
+          { statut: StatutPaiement.EN_ATTENTE, montant: 4_000 },
         ]);
 
-        await expect(payer()).rejects.toThrow(ConflictException);
+        await payerMontant(6_000);
+
+        expect(reglements.save).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: 6_000 }),
+        );
+      });
+
+      it('refuse ce qui dépasserait ce qui est déjà engagé', async () => {
+        reglements.find.mockResolvedValue([
+          { statut: StatutPaiement.EN_ATTENTE, montant: 4_000 },
+        ]);
+
+        await expect(payerMontant(6_001)).rejects.toThrow(BadRequestException);
+      });
+
+      it('refuse tout quand la tranche est déjà couverte par des attentes', async () => {
+        reglements.find.mockResolvedValue([
+          { statut: StatutPaiement.EN_ATTENTE, montant: 10_000 },
+        ]);
+
+        await expect(payerMontant(1_000)).rejects.toThrow(BadRequestException);
+      });
+
+      it('exige le reste exact pour « tout le reste »', async () => {
+        await expect(
+          service.payerEcheance({ id: 'u1' }, 'p1', {
+            montant: 10_000,
+            methodePaiement: MethodePaiement.ORANGE_MONEY,
+          }),
+        ).rejects.toThrow(BadRequestException);
+
+        await service.payerEcheance({ id: 'u1' }, 'p1', {
+          montant: 30_000,
+          methodePaiement: MethodePaiement.ORANGE_MONEY,
+        });
+
+        expect(reglements.save).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: 30_000, ordreTranche: null }),
+        );
+      });
+
+      it('ne laisse pas deux demandes simultanées se partager le même reste', async () => {
+        // Chaque demande lit « il reste 10 000 » : sans file, les deux
+        // seraient acceptées et la personne verserait le double.
+        const enBase: Record<string, unknown>[] = [];
+        reglements.save.mockImplementation((r: Record<string, unknown>) => {
+          const ligne = { ...r, id: `r${enBase.length + 1}` };
+          enBase.push(ligne);
+          return Promise.resolve(ligne);
+        });
+        reglements.find.mockImplementation(() =>
+          Promise.resolve(
+            enBase.filter((r) => r.statut === StatutPaiement.EN_ATTENTE),
+          ),
+        );
+
+        const [a, b] = await Promise.allSettled([
+          payerMontant(10_000),
+          payerMontant(10_000),
+        ]);
+
+        // Exactement une demande aboutit : le reste ne se partage pas.
+        expect(
+          [a.status, b.status].filter((s) => s === 'fulfilled'),
+        ).toHaveLength(1);
+        expect(
+          [a.status, b.status].filter((s) => s === 'rejected'),
+        ).toHaveLength(1);
+        expect(enBase).toHaveLength(1);
       });
 
       it('referme tout quand l’opérateur refuse la demande', async () => {
@@ -577,9 +707,39 @@ describe('CotisationService', () => {
           'montantRegle',
           10_000,
         );
+        // La notification mène à la page de la cotisation : c'est là que se
+        // trouve la facture du règlement.
         expect(notifications.notifier).toHaveBeenCalledWith(
-          expect.objectContaining({ lien: '/mon-espace/cotisations' }),
+          expect.objectContaining({
+            lien: '/mon-espace/cotisations/p1',
+            libelleLien: 'Voir ma cotisation et ma facture',
+          }),
         );
+      });
+
+      it('prévient la trésorerie de ce qui entre, frais du prestataire compris', async () => {
+        reglements.findOne.mockResolvedValue(reglement());
+
+        await service.traiterIssue(
+          transaction({ montant: 10_417, fraisPrestataire: 313 }),
+          StatutPaiement.COMPLETE,
+        );
+
+        expect(alertes.encaissement).toHaveBeenCalledWith(
+          expect.objectContaining({
+            origine: 'cotisation',
+            montant: 10_417,
+            fraisPrestataire: 313,
+          }),
+        );
+      });
+
+      it('n’alerte pas la trésorerie d’un paiement qui échoue', async () => {
+        reglements.findOne.mockResolvedValue(reglement());
+
+        await service.traiterIssue(transaction(), StatutPaiement.ECHOUE);
+
+        expect(alertes.encaissement).not.toHaveBeenCalled();
       });
 
       it('crédite le montant certifié d’un justificatif', async () => {
@@ -633,6 +793,72 @@ describe('CotisationService', () => {
           { id: 'p1' },
           'montantRegle',
           5_000,
+        );
+      });
+    });
+
+    describe('versements libres', () => {
+      it('dit la tranche et le pourcentage atteint dans la notification', async () => {
+        reglements.findOne.mockResolvedValue({
+          id: 'r1',
+          reference: 'COT-1',
+          libelle: 'Tranche 1',
+          ordreTranche: 1,
+          montant: 5_000,
+          mode: ModeReglement.EN_LIGNE,
+          statut: StatutPaiement.EN_ATTENTE,
+          participation: participation(),
+        });
+        participations.findOne.mockResolvedValue({ id: 'p1' });
+        participations.findOneOrFail.mockResolvedValue({
+          montantDu: 30_000,
+          montantRegle: 5_000,
+          statut: StatutParticipation.EN_COURS,
+        });
+
+        await service.traiterIssue(
+          transaction({ montant: 5_200 }),
+          StatutPaiement.COMPLETE,
+        );
+
+        const notifie = (
+          notifications.notifier.mock.calls as unknown[][]
+        )[0][0] as { message: string };
+        // 5 000 versés sur une tranche de 10 000 : la moitié, dite à la lettre.
+        expect(notifie.message).toContain('50 %');
+        expect(notifie.message).toContain('Tranche 1');
+        expect(notifie.message).toContain('25');
+      });
+
+      it('rattache un justificatif au montant déclaré, pas à la tranche entière', async () => {
+        participations.findOne.mockResolvedValue(participation());
+
+        await service.preparerJustificatif({ id: 'u1' }, 'p1', 1, 3_000);
+
+        expect(reglements.save).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: 3_000, ordreTranche: 1 }),
+        );
+        expect(transactions.ouvrir).toHaveBeenCalledWith(
+          expect.objectContaining({ montant: 3_000, fraisPrestataire: 0 }),
+        );
+      });
+
+      it('refuse un justificatif déclaré au-delà de ce qui reste', async () => {
+        participations.findOne.mockResolvedValue(participation());
+
+        await expect(
+          service.preparerJustificatif({ id: 'u1' }, 'p1', 1, 10_001),
+        ).rejects.toThrow(BadRequestException);
+        expect(transactions.ouvrir).not.toHaveBeenCalled();
+      });
+
+      it('chiffre les frais d’un montant libre, par opérateur', () => {
+        const frais = service.fraisPour(5_000);
+
+        expect(frais.ORANGE_MONEY.prixBase).toBe(5_000);
+        expect(frais.ORANGE_MONEY.montantTtc).toBeGreaterThan(5_000);
+        expect(frais.MTN_MOMO.montantTtc).toBeGreaterThanOrEqual(
+          frais.ORANGE_MONEY.montantTtc,
         );
       });
     });
