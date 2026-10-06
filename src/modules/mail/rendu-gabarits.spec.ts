@@ -105,6 +105,7 @@ describe('Rendu des gabarits d’email', () => {
       titre: 'Nouvel article',
       message: 'Le bilan du mandat est en ligne.',
       lien: 'https://cocfet.test/articles/1',
+      libelleLien: 'Voir sur la plateforme',
       categorie: 'Actualité',
     },
     'bienvenue-bureau': {
@@ -183,6 +184,30 @@ describe('Rendu des gabarits d’email', () => {
     expect(html).toContain('src="cid:qr@cocfet"');
     expect(html).toContain('BIL-4821');
     expect(html).not.toContain('Afficher mon QR code');
+  });
+
+  it('mène tout billet à sa page, où se trouve aussi la facture', async () => {
+    for (const regime of [
+      { fixe: true, tournant: false, sansControle: false },
+      { fixe: false, tournant: true, sansControle: false },
+      { fixe: false, tournant: false, sansControle: true },
+    ]) {
+      const html = await rendre('billet', { ...contextes.billet, ...regime });
+
+      expect(html).toContain('Voir mon billet et ma facture');
+      expect(html).toContain('href="https://cocfet.test/billets/7/qr"');
+    }
+  });
+
+  it('dit sur le bouton d’une notification où il mène', async () => {
+    const html = await rendre('notification', {
+      ...contextes.notification,
+      lien: 'https://cocfet.test/commandes/9',
+      libelleLien: 'Voir ma commande et ma facture',
+    });
+
+    expect(html).toContain('Voir ma commande et ma facture');
+    expect(html).toContain('href="https://cocfet.test/commandes/9"');
   });
 
   it('mène le billet tournant à la plateforme, sans image', async () => {

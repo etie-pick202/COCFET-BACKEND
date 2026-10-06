@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { BureauModule } from '../bureau/bureau.module';
 import { Commande } from '../commande/entities/commande.entity';
+import { ReglementCotisation } from '../cotisation/entities/reglement-cotisation.entity';
 import { FileModule } from '../file/file.module';
 import { GenerationModule } from '../generation/generation.module';
 import { TableauDeBordModule } from '../tableau-de-bord/tableau-de-bord.module';
@@ -25,7 +26,13 @@ import { Document } from './entities/document.entity';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Document, Commande, Inscription, User]),
+    TypeOrmModule.forFeature([
+      Document,
+      Commande,
+      Inscription,
+      ReglementCotisation,
+      User,
+    ]),
     FileModule,
     GenerationModule,
     TableauDeBordModule,

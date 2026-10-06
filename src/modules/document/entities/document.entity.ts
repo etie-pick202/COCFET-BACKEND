@@ -7,8 +7,10 @@ import type { ContenuDocument } from './contenu-document';
 export enum TypeDocument {
   /** Facture d'une commande de la boutique. */
   FACTURE_COMMANDE = 'FACTURE_COMMANDE',
-  /** Reçu d'une inscription payante à un événement. */
+  /** Facture d'une inscription payante à un événement (nommée « reçu » à l'origine). */
   RECU_BILLETTERIE = 'RECU_BILLETTERIE',
+  /** Facture du règlement d'une échéance de cotisation. */
+  FACTURE_COTISATION = 'FACTURE_COTISATION',
   /** Rapport financier d'une période, à l'usage du bureau. */
   RAPPORT_TRESORERIE = 'RAPPORT_TRESORERIE',
 }

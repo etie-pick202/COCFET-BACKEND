@@ -161,6 +161,7 @@ export class MailService {
     message: string,
     lien: string | null,
     type?: string,
+    libelleLien?: string | null,
   ): Promise<void> {
     await this.send(
       to,
@@ -171,6 +172,11 @@ export class MailService {
         titre,
         message,
         lien: this.lienAbsolu(lien),
+        // Le bouton dit où il mène : « Voir mon billet et ma facture » parle
+        // mieux qu'un « Voir sur la plateforme » qui ne dit rien de la page.
+        // Passé même absent : le mode strict de Handlebars refuse une variable
+        // citée par le gabarit mais manquante du contexte.
+        libelleLien: libelleLien || 'Voir sur la plateforme',
         categorie: (type && CATEGORIES_NOTIFICATION[type]) || null,
       },
       // Ces messages sont les seuls que l'on peut couper : le pied dit où.

@@ -15,6 +15,7 @@ import { TypeActivite } from '../activite/entities/journal-activite.entity';
 import { BoutiqueService } from '../boutique/boutique.service';
 import { Produit, StatutProduit } from '../boutique/entities/produit.entity';
 import { TypeNotification } from '../notification/entities/notification.entity';
+import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NotificationService } from '../notification/notification.service';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -82,6 +83,7 @@ export class CommandeService {
     @Inject(PASSERELLE_PAIEMENT)
     private readonly paiement: PasserellePaiement,
     private readonly dataSource: DataSource,
+    private readonly alerteTresorerie: AlerteTresorerieService,
     config: ConfigService,
   ) {
     this.tauxFrais = tauxFraisDepuisConfig(config);
@@ -292,6 +294,7 @@ export class CommandeService {
         ? `Elle vous attend. ${instructions}`
         : 'Elle vous attend au bureau du COCFET.',
       id,
+      'Voir ma commande',
     );
 
     return this.trouver(id);
@@ -374,9 +377,18 @@ export class CommandeService {
     await this.notifier(
       commande.user,
       'Paiement confirmé',
-      `Votre commande de ${commande.total} FCFA est payée. Vous serez prévenu dès qu’elle sera prête.`,
+      `Votre commande de ${commande.total} FCFA est payée. Vous serez prévenu dès qu’elle sera prête. Votre facture est disponible sur la page de la commande.`,
       commande.id,
+      'Voir ma commande et ma facture',
     );
+
+    await this.alerteTresorerie.encaissement({
+      origine: 'boutique',
+      payeur: commande.user,
+      objet: `la commande n° ${commande.id.slice(0, 8)}`,
+      montant: commande.frais?.montantTtc ?? commande.total,
+      fraisPrestataire: commande.frais?.fraisFapshi ?? null,
+    });
 
     await this.activiteService.journaliser({
       type: TypeActivite.COMMANDE,
@@ -634,6 +646,7 @@ export class CommandeService {
     titre: string,
     message: string,
     commandeId: string,
+    libelleLien?: string,
   ): Promise<void> {
     await this.notificationService.notifier({
       destinataire,
@@ -641,6 +654,7 @@ export class CommandeService {
       titre,
       message,
       lien: `/commandes/${commandeId}`,
+      libelleLien,
     });
   }
 
