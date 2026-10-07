@@ -5,6 +5,7 @@ import { StatutPaiement } from './enums/paiement.enum';
 import { RepercussionPaiementService } from './repercussion-paiement.service';
 import { TransactionService } from './transaction.service';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { FondsService } from '../fonds/fonds.service';
 
 /**
  * Aiguillage de l'issue d'un paiement vers le bon domaine.
@@ -20,6 +21,7 @@ describe('RepercussionPaiementService', () => {
   let commande: { confirmerPaiement: jest.Mock; echouerPaiement: jest.Mock };
   let billet: { confirmerPaiement: jest.Mock; echouerPaiement: jest.Mock };
   let traiterIssue: jest.Mock;
+  let fondsTraiterIssue: jest.Mock;
 
   const transaction = (origine: OrigineTransaction) =>
     ({ reference: 'REF-1', origine }) as Transaction;
@@ -37,12 +39,14 @@ describe('RepercussionPaiementService', () => {
       echouerPaiement: jest.fn().mockResolvedValue(undefined),
     };
     traiterIssue = jest.fn().mockResolvedValue(undefined);
+    fondsTraiterIssue = jest.fn().mockResolvedValue(undefined);
 
     service = new RepercussionPaiementService(
       { traiterIssue } as unknown as CotisationService,
       { trouver } as unknown as TransactionService,
       billet as unknown as BilletterieService,
       commande as unknown as CommandeService,
+      { traiterIssue: fondsTraiterIssue } as unknown as FondsService,
     );
   });
 
@@ -135,5 +139,23 @@ describe('RepercussionPaiementService', () => {
 
     expect(commande.confirmerPaiement).not.toHaveBeenCalled();
     expect(commande.echouerPaiement).not.toHaveBeenCalled();
+  });
+
+  it('applique le dépôt d’un membre sans toucher ni billet ni commande', async () => {
+    const depot = {
+      reference: 'REM-1',
+      origine: OrigineTransaction.REMISE,
+      montant: 20_000,
+    };
+    trouver.mockResolvedValue(depot);
+
+    await service.repercuter('REM-1', StatutPaiement.COMPLETE);
+
+    expect(fondsTraiterIssue).toHaveBeenCalledWith(
+      depot,
+      StatutPaiement.COMPLETE,
+    );
+    expect(commande.confirmerPaiement).not.toHaveBeenCalled();
+    expect(billet.confirmerPaiement).not.toHaveBeenCalled();
   });
 });
