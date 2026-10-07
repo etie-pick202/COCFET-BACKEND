@@ -182,6 +182,21 @@ describe('Suivi des fonds (e2e)', () => {
     });
   });
 
+  describe('membres', () => {
+    it('liste ceux qui peuvent détenir de l’argent', async () => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${FONDS}/membres`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      const ids = (reponse.body as { id: string }[]).map((m) => m.id);
+      expect(ids).toEqual(
+        expect.arrayContaining([tresoriere.user.id, vice.user.id]),
+      );
+      expect(ids).not.toContain(finissant.user.id);
+    });
+  });
+
   describe('poches', () => {
     it('crédite la poche de qui déclare avoir reçu de l’argent', async () => {
       const reponse = await declarer(tresoriere, {

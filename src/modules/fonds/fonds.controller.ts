@@ -30,10 +30,12 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
+import { BureauService } from '../bureau/bureau.service';
 import { Retrait } from '../paiement/entities/retrait.entity';
 import {
   AttribuerRetraitDto,
   DeclarerMouvementDto,
+  PersonneFonds,
   ResultatMouvement,
   SuiviFonds,
 } from './dto/fonds.dto';
@@ -60,7 +62,25 @@ type RequeteAuthentifiee = Request & { user: { id: string } };
 })
 @Controller('fonds')
 export class FondsController {
-  constructor(private readonly fonds: FondsService) {}
+  constructor(
+    private readonly fonds: FondsService,
+    private readonly bureauService: BureauService,
+  ) {}
+
+  @Get('membres')
+  @ApiOperation({
+    summary: 'Qui peut détenir de l’argent',
+    description:
+      'Les membres qui accèdent à la trésorerie : ceux entre les mains de qui ' +
+      'l’argent du bureau peut se trouver. Alimente les listes de choix.',
+  })
+  @ApiOkResponse({ type: [PersonneFonds] })
+  async membres(): Promise<PersonneFonds[]> {
+    const membres = await this.bureauService.destinatairesTresorerie();
+    return membres
+      .map((u) => ({ id: u.id, nom: `${u.firstName} ${u.lastName}`.trim() }))
+      .sort((a, b) => a.nom.localeCompare(b.nom));
+  }
 
   @Get('suivi')
   @ApiOperation({
