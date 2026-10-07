@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Generation } from '../generation/entities/generation.entity';
 import { MailService } from '../mail/mail.service';
@@ -250,5 +254,145 @@ describe('BureauService — destinataires de la trésorerie', () => {
 
     expect(ids).toEqual(['exploitant']);
     expect(membres.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('BureauService — ma présentation', () => {
+  let service: BureauService;
+  let generations: { findOne: jest.Mock };
+  let membres: { find: jest.Mock; findOne: jest.Mock; update: jest.Mock };
+
+  const mandat = { id: 'mandat-2027', annee: 2027, nom: 'ATLAS' };
+
+  const place = (surcharge: Partial<MembreBureau> = {}): MembreBureau =>
+    ({
+      id: 'place-1',
+      presentation: null,
+      generation: mandat,
+      poste: { nom: 'Trésorière', ordre: 4 },
+      user: {
+        id: 'awa',
+        firstName: 'Awa',
+        lastName: 'Ngassa',
+        avatar: 'cle.png',
+      },
+      ...surcharge,
+    }) as unknown as MembreBureau;
+
+  beforeEach(() => {
+    generations = { findOne: jest.fn(() => Promise.resolve(mandat)) };
+    membres = {
+      find: jest.fn(() => Promise.resolve([place()])),
+      findOne: jest.fn(() => Promise.resolve(place())),
+      update: jest.fn(() => Promise.resolve({ affected: 1 })),
+    };
+
+    service = new BureauService(
+      {} as unknown as Repository<PosteBureau>,
+      membres as unknown as Repository<MembreBureau>,
+      generations as unknown as Repository<Generation>,
+      {} as unknown as Repository<User>,
+      {} as unknown as MailService,
+      {} as unknown as PreferenceEmailService,
+    );
+  });
+
+  describe('mesPlaces', () => {
+    it('rend de quoi dessiner la carte, mandat compris', async () => {
+      const [ma] = await service.mesPlaces('awa');
+
+      expect(ma).toMatchObject({
+        id: 'place-1',
+        poste: 'Trésorière',
+        annee: 2027,
+        mandat: 'ATLAS',
+        prenom: 'Awa',
+        nom: 'Ngassa',
+        avatar: 'cle.png',
+        presentation: null,
+      });
+      expect(ma.presentationMax).toBeGreaterThan(0);
+    });
+
+    it('ne cherche que sur le mandat en cours et pour cette personne', async () => {
+      await service.mesPlaces('awa');
+
+      expect(membres.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { generation: { id: 'mandat-2027' }, user: { id: 'awa' } },
+        }),
+      );
+    });
+
+    it('classe les cartes d’une personne cumulant deux postes dans l’ordre protocolaire', async () => {
+      membres.find.mockResolvedValue([
+        place({ id: 'b', poste: { nom: 'Trésorière', ordre: 4 } as never }),
+        place({ id: 'a', poste: { nom: 'Présidente', ordre: 1 } as never }),
+      ]);
+
+      const places = await service.mesPlaces('awa');
+
+      expect(places.map((p) => p.id)).toEqual(['a', 'b']);
+    });
+
+    it('ne rend rien sans mandat en cours', async () => {
+      generations.findOne.mockResolvedValue(null);
+
+      expect(await service.mesPlaces('awa')).toEqual([]);
+      expect(membres.find).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('modifierMaPresentation', () => {
+    it('cherche la place avec son titulaire dans la condition, sur le mandat actif', async () => {
+      await service.modifierMaPresentation('awa', 'place-1', 'Bonjour.');
+
+      expect(membres.findOne).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            id: 'place-1',
+            user: { id: 'awa' },
+            generation: { isActive: true },
+          },
+        }),
+      );
+    });
+
+    it('répond 404 pour la place d’un autre, sans rien écrire', async () => {
+      membres.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.modifierMaPresentation('intrus', 'place-1', 'Bonjour.'),
+      ).rejects.toThrow(NotFoundException);
+      expect(membres.update).not.toHaveBeenCalled();
+    });
+
+    it('enregistre la phrase et rend la carte mise à jour', async () => {
+      const ma = await service.modifierMaPresentation(
+        'awa',
+        'place-1',
+        'Servir la promotion.',
+      );
+
+      expect(membres.update).toHaveBeenCalledWith('place-1', {
+        presentation: 'Servir la promotion.',
+      });
+      expect(ma.presentation).toBe('Servir la promotion.');
+    });
+
+    it.each([
+      ['  trop   d’espaces  ', 'trop d’espaces'],
+      ['sur\ndeux\n\nlignes', 'sur deux lignes'],
+      ['\t\n  ', null],
+      ['', null],
+      [null, null],
+    ])('remet %j au propre : %j', async (saisie, attendu) => {
+      const ma = await service.modifierMaPresentation('awa', 'place-1', saisie);
+
+      expect(membres.update).toHaveBeenCalledWith('place-1', {
+        presentation: attendu,
+      });
+      expect(ma.presentation).toBe(attendu);
+    });
   });
 });
