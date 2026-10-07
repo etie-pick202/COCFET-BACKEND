@@ -452,6 +452,183 @@ describe('Bureau COCFET (e2e)', () => {
     });
   });
 
+  describe('ma présentation sur le carrousel', () => {
+    /** Un mandat actif où `entrant` est Président et `sortant` Trésorier. */
+    const monterBureauActif = async () => {
+      const president = idDe(
+        await creerPoste('Président', {
+          estCle: true,
+          accordeAdministration: true,
+        }).expect(201),
+      );
+      const tresorier = idDe(await creerPoste('Trésorier').expect(201));
+      const generation = idDe(await creerGeneration(2027, 'ATLAS').expect(201));
+      const placePresident = idDe(
+        await affecter(generation, president, entrant.user.id).expect(201),
+      );
+      const placeTresorier = idDe(
+        await affecter(generation, tresorier, entrant.user.id).expect(201),
+      );
+      await activer(generation).expect(201);
+      return { generation, placePresident, placeTresorier };
+    };
+
+    it('liste mes places au bureau en cours, avec de quoi dessiner ma carte', async () => {
+      await monterBureauActif();
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${BUREAU}/moi`)
+        .set(entrant.entetes)
+        .expect(200);
+
+      const places = reponse.body as {
+        poste: string;
+        annee: number;
+        mandat: string;
+        presentation: string | null;
+        presentationMax: number;
+      }[];
+      // Deux postes cumulés : deux cartes, chacune avec sa phrase.
+      expect(
+        places.map((p) => p.poste).sort((a, b) => a.localeCompare(b)),
+      ).toEqual(['Président', 'Trésorier']);
+      expect(places[0]).toMatchObject({ annee: 2027, mandat: 'ATLAS' });
+      expect(places[0].presentationMax).toBeGreaterThan(0);
+    });
+
+    it('ne rend rien à qui ne siège pas au bureau', async () => {
+      await monterBureauActif();
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${BUREAU}/moi`)
+        .set(sortant.entetes)
+        .expect(200);
+
+      expect(reponse.body).toEqual([]);
+    });
+
+    it('ne rend rien tant qu’aucun mandat n’est actif', async () => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${BUREAU}/moi`)
+        .set(entrant.entetes)
+        .expect(200);
+
+      expect(reponse.body).toEqual([]);
+    });
+
+    it('exige d’être connecté', async () => {
+      await request(app.getHttpServer()).get(`${BUREAU}/moi`).expect(401);
+    });
+
+    it('laisse le membre écrire sa phrase, qui paraît aussitôt sur la page publique', async () => {
+      const { placePresident } = await monterBureauActif();
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: 'Servir la promotion jusqu’au bout.' })
+        .expect(200);
+
+      expect(reponse.body).toMatchObject({
+        presentation: 'Servir la promotion jusqu’au bout.',
+      });
+
+      const publique = await request(app.getHttpServer())
+        .get(BUREAU)
+        .expect(200);
+      const membres = (
+        publique.body as { membres: { poste: string; presentation: string }[] }
+      ).membres;
+      expect(membres.find((m) => m.poste === 'Président')?.presentation).toBe(
+        'Servir la promotion jusqu’au bout.',
+      );
+    });
+
+    it('remet la phrase au propre : espaces réduits, vide devenue absente', async () => {
+      const { placePresident } = await monterBureauActif();
+
+      const propre = await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: '  Une   phrase\n\nsur  trois lignes.  ' })
+        .expect(200);
+      expect((propre.body as { presentation: string }).presentation).toBe(
+        'Une phrase sur trois lignes.',
+      );
+
+      const vide = await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: '   ' })
+        .expect(200);
+      expect((vide.body as { presentation: unknown }).presentation).toBeNull();
+    });
+
+    it('accepte null pour retirer sa phrase', async () => {
+      const { placePresident } = await monterBureauActif();
+      await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: 'Bonjour.' })
+        .expect(200);
+
+      const reponse = await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: null })
+        .expect(200);
+
+      expect(
+        (reponse.body as { presentation: unknown }).presentation,
+      ).toBeNull();
+    });
+
+    it('refuse une phrase que la carte ne pourrait pas montrer', async () => {
+      const { placePresident } = await monterBureauActif();
+
+      await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: 'x'.repeat(221) })
+        .expect(400);
+    });
+
+    it('ne laisse personne parler à la place d’un autre membre', async () => {
+      const { placePresident } = await monterBureauActif();
+
+      // `sortant` connaît l'identifiant, mais ce n'est pas sa place : même 404
+      // qu'une place inconnue.
+      await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(sortant.entetes)
+        .send({ presentation: 'Je ne suis pas le Président.' })
+        .expect(404);
+
+      const intacte = await membres.findOneByOrFail({ id: placePresident });
+      expect(intacte.presentation).toBeNull();
+    });
+
+    it('ne touche pas à la place d’un mandat passé', async () => {
+      const { generation, placePresident } = await monterBureauActif();
+      // Un nouveau mandat prend la main : l'ancien n'est plus modifiable.
+      await generations.update(generation, { isActive: false });
+
+      await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/${placePresident}`)
+        .set(entrant.entetes)
+        .send({ presentation: 'Trop tard.' })
+        .expect(404);
+    });
+
+    it('signale un identifiant qui n’en est pas un', async () => {
+      await request(app.getHttpServer())
+        .patch(`${BUREAU}/moi/pas-un-uuid`)
+        .set(entrant.entetes)
+        .send({ presentation: 'Bonjour.' })
+        .expect(400);
+    });
+  });
+
   describe('privileges de tresorerie', () => {
     // Ils existaient sur le poste et les gardes les appliquaient, mais aucun
     // DTO ne les exposait : ils n'etaient reglables que par ecriture directe

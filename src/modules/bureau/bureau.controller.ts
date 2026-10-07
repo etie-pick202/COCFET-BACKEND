@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -20,6 +21,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import {
   ApiErreursAuthentification,
@@ -33,11 +35,15 @@ import {
   AffecterMembreDto,
   BureauPublic,
   CreerPosteDto,
+  MaPlaceAuBureau,
+  MaPresentationDto,
   MembreExpose,
   MettreAJourMembreDto,
   MettreAJourPosteDto,
 } from './dto/bureau.dto';
 import { PosteBureau } from './entities/poste-bureau.entity';
+
+type RequeteAuthentifiee = Request & { user: { id: string; role: Role } };
 
 @ApiTags('Bureau COCFET')
 @ApiErreursAuthentification()
@@ -61,6 +67,52 @@ export class BureauController {
   })
   bureauPublic(): Promise<BureauPublic | null> {
     return this.bureauService.bureauPublic();
+  }
+
+  // ─────────────────────────  Ma place au bureau  ───────────────────────
+  // Ouvertes à tout compte connecté, sans rôle : c'est la **place** qui
+  // ouvre le droit, vérifiée dans la recherche elle-même. Déclarées avant
+  // « :generationId » : sinon « moi » serait interprété comme un identifiant.
+
+  @ApiBearerAuth()
+  @Get('moi')
+  @ApiOperation({
+    summary: 'Mes places au bureau en cours',
+    description:
+      'Une par poste occupé — plusieurs quand on en cumule. Vide pour qui ne ' +
+      'siège pas au bureau en cours. Chaque entrée porte de quoi dessiner la ' +
+      'carte exactement comme le fait la page publique « Le bureau ».',
+  })
+  @ApiOkResponse({ type: [MaPlaceAuBureau] })
+  mesPlaces(@Req() requete: RequeteAuthentifiee): Promise<MaPlaceAuBureau[]> {
+    return this.bureauService.mesPlaces(requete.user.id);
+  }
+
+  @ApiBearerAuth()
+  @Patch('moi/:placeId')
+  @ApiOperation({
+    summary: 'Modifier la phrase de ma carte',
+    description:
+      'Le membre écrit lui-même ce qui s’affichera sous son nom sur le ' +
+      'carrousel du bureau. Réservé au titulaire de la place, sur le mandat ' +
+      'en cours : toute autre place répond 404, comme une place inconnue. ' +
+      'Une phrase vide retire la phrase.',
+  })
+  @ApiOkResponse({ type: MaPlaceAuBureau })
+  @ApiNotFoundResponse({
+    description: 'Place inconnue, d’un autre membre, ou d’un mandat passé.',
+    type: ReponseErreurDto,
+  })
+  modifierMaPresentation(
+    @Req() requete: RequeteAuthentifiee,
+    @Param('placeId', ParseUUIDPipe) placeId: string,
+    @Body() dto: MaPresentationDto,
+  ): Promise<MaPlaceAuBureau> {
+    return this.bureauService.modifierMaPresentation(
+      requete.user.id,
+      placeId,
+      dto.presentation,
+    );
   }
 
   // ───────────────────────────────  Postes  ─────────────────────────────

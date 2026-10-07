@@ -16,10 +16,12 @@ import {
   BureauPublic,
   CreerPosteDto,
   exposerMembre,
+  MaPlaceAuBureau,
   MembreExpose,
   MembrePublic,
   MettreAJourMembreDto,
   MettreAJourPosteDto,
+  PRESENTATION_MAX,
 } from './dto/bureau.dto';
 import { MembreBureau } from './entities/membre-bureau.entity';
 import { PosteBureau } from './entities/poste-bureau.entity';
@@ -439,6 +441,74 @@ export class BureauService {
     }
   }
 
+  /**
+   * Les places qu'une personne occupe dans le bureau **en cours**.
+   *
+   * Plusieurs quand elle cumule deux postes : chacun a sa carte sur le
+   * carrousel, et chacune porte sa propre phrase. Aucune place sur un mandat
+   * passé : sa page publique n'existe plus, la modifier ne servirait à rien.
+   */
+  async mesPlaces(userId: string): Promise<MaPlaceAuBureau[]> {
+    const generation = await this.generations.findOne({
+      where: { isActive: true },
+    });
+
+    if (!generation) {
+      return [];
+    }
+
+    const places = await this.membres.find({
+      where: { generation: { id: generation.id }, user: { id: userId } },
+      relations: { poste: true, user: true },
+    });
+
+    // Ordre protocolaire : la carte du poste le plus élevé d'abord.
+    const classees = [...places].sort((a, b) => a.poste.ordre - b.poste.ordre);
+
+    return classees.map((place) => this.versMaPlace(place, generation));
+  }
+
+  /**
+   * Un membre modifie lui-même la phrase de sa carte.
+   *
+   * **La personne est dans la condition de recherche**, et non vérifiée après :
+   * connaître l'identifiant d'une place ne doit pas permettre de parler à la
+   * place d'un autre membre — la réponse est la même 404 qu'une place
+   * inconnue. Et seul le mandat en cours est modifiable : un ancien membre ne
+   * réécrit pas l'histoire d'un bureau passé.
+   *
+   * La phrase est remise au propre : espaces superflus et retours à la ligne
+   * se réduisent à un seul espace — la carte l'affiche en un paragraphe, et un
+   * texte étalé sur plusieurs lignes n'y serait de toute façon pas respecté —
+   * et une phrase vide devient « pas de phrase », comme à la désignation.
+   */
+  async modifierMaPresentation(
+    userId: string,
+    placeId: string,
+    presentation: string | null,
+  ): Promise<MaPlaceAuBureau> {
+    const place = await this.membres.findOne({
+      where: {
+        id: placeId,
+        user: { id: userId },
+        generation: { isActive: true },
+      },
+      relations: { poste: true, user: true, generation: true },
+    });
+
+    if (!place) {
+      throw new NotFoundException("Cette place au bureau n'existe pas.");
+    }
+
+    const propre = presentation?.replace(/\s+/g, ' ').trim() || null;
+    await this.membres.update(place.id, { presentation: propre });
+
+    return this.versMaPlace(
+      { ...place, presentation: propre },
+      place.generation,
+    );
+  }
+
   /** Identifiants des titulaires de postes ouvrant l'administration. */
   async administrateursDe(generationId: string): Promise<string[]> {
     const membres = await this.membres.find({
@@ -453,6 +523,24 @@ export class BureauService {
   }
 
   // ──────────────────────────────  Interne  ─────────────────────────────
+
+  private versMaPlace(
+    place: MembreBureau,
+    generation: Pick<Generation, 'annee' | 'nom'>,
+  ): MaPlaceAuBureau {
+    return {
+      id: place.id,
+      poste: place.poste.nom,
+      ordre: place.poste.ordre,
+      annee: generation.annee,
+      mandat: generation.nom,
+      prenom: place.user.firstName,
+      nom: place.user.lastName,
+      avatar: place.user.avatar,
+      presentation: place.presentation,
+      presentationMax: PRESENTATION_MAX,
+    };
+  }
 
   private versMembrePublic(membre: MembreBureau): MembrePublic {
     return {
