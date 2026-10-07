@@ -5,6 +5,7 @@ import { OrigineTransaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import { TransactionService } from './transaction.service';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { FondsService } from '../fonds/fonds.service';
 
 /**
  * Applique au domaine l'issue d'un paiement, d'où qu'elle vienne.
@@ -33,6 +34,8 @@ export class RepercussionPaiementService {
     private readonly billetterieService: BilletterieService,
     @Inject(forwardRef(() => CommandeService))
     private readonly commandeService: CommandeService,
+    @Inject(forwardRef(() => FondsService))
+    private readonly fondsService: FondsService,
   ) {}
 
   /**
@@ -56,6 +59,13 @@ export class RepercussionPaiementService {
     // un reglement dont l'issue est consignee — et annoncee a la personne.
     if (transaction.origine === OrigineTransaction.COTISATION) {
       await this.cotisationService.traiterIssue(transaction, statut, motif);
+      return;
+    }
+
+    // Un dépôt de membre sur la plateforme n'a ni billet ni commande : il
+    // déplace de l'argent d'une poche vers le compte, et rien d'autre.
+    if (transaction.origine === OrigineTransaction.REMISE) {
+      await this.fondsService.traiterIssue(transaction, statut);
       return;
     }
 

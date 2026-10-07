@@ -10,7 +10,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -132,28 +131,6 @@ export class CreerCotisationDto {
  * doit réellement.
  */
 export class MettreAJourCotisationDto extends PartialType(CreerCotisationDto) {}
-
-export class DeclarerVersementDto {
-  @ApiProperty({ example: 50000, description: 'Montant remis, en FCFA.' })
-  @Type(() => Number)
-  @IsInt()
-  @Min(MONTANT_MINIMAL)
-  montant: number;
-
-  @ApiPropertyOptional({
-    format: 'uuid',
-    description: 'Membre du bureau qui constate la remise.',
-  })
-  @IsUUID()
-  @IsOptional()
-  recuParId?: string;
-
-  @ApiPropertyOptional({ example: 'Dépôt bancaire du 12 mars' })
-  @IsString()
-  @MaxLength(300)
-  @IsOptional()
-  note?: string;
-}
 
 /**
  * Échéance choisie par la personne.

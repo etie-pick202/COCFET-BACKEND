@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { CotisationModule } from '../cotisation/cotisation.module';
 import { BilletterieModule } from '../billetterie/billetterie.module';
 import { CommandeModule } from '../commande/commande.module';
+import { FondsModule } from '../fonds/fonds.module';
 import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
 import { PasserellePaiementFactice } from './adaptateurs/passerelle-paiement-factice';
 import { Transaction } from './entities/transaction.entity';
@@ -39,6 +40,7 @@ const VARIABLES_FAPSHI = [
     TypeOrmModule.forFeature([Transaction]),
     forwardRef(() => BilletterieModule),
     forwardRef(() => CommandeModule),
+    forwardRef(() => FondsModule),
   ],
   controllers: [PaiementController, SuiviPaiementController],
   providers: [

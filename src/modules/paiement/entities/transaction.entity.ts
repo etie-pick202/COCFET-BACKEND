@@ -7,6 +7,12 @@ export enum OrigineTransaction {
   EVENEMENT = 'EVENEMENT',
   BOUTIQUE = 'BOUTIQUE',
   COTISATION = 'COTISATION',
+  /**
+   * Argent d'un membre déposé sur le compte de la plateforme : un **mouvement
+   * interne**, pas une recette. Il compte dans le solde Fapshi, jamais dans
+   * les recettes du bureau.
+   */
+  REMISE = 'REMISE',
 }
 
 /**

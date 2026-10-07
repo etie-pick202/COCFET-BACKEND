@@ -11,7 +11,6 @@ import { Cotisation } from './entities/cotisation.entity';
 import { ParticipationCotisation } from './entities/participation-cotisation.entity';
 import { ReglementCotisation } from './entities/reglement-cotisation.entity';
 import { TrancheCotisation } from './entities/tranche-cotisation.entity';
-import { VersementFinance } from './entities/versement-finance.entity';
 
 @Module({
   imports: [
@@ -20,7 +19,6 @@ import { VersementFinance } from './entities/versement-finance.entity';
       TrancheCotisation,
       ParticipationCotisation,
       ReglementCotisation,
-      VersementFinance,
       User,
     ]),
     BureauModule,
