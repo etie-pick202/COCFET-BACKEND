@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Role } from '../../common/enums/role.enum';
 import { Repository } from 'typeorm';
 import { GenerationService } from '../generation/generation.service';
 import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
@@ -55,6 +56,7 @@ describe('CotisationService', () => {
   let reglements: Record<string, jest.Mock>;
   let notifications: Record<string, jest.Mock>;
   let alertes: Record<string, jest.Mock>;
+  let utilisateurs: Record<string, jest.Mock>;
   let transactions: Record<string, jest.Mock>;
   let passerelle: Record<string, jest.Mock>;
 
@@ -101,6 +103,10 @@ describe('CotisationService', () => {
       find: jest.fn().mockResolvedValue([]),
     };
     trouverActive = jest.fn().mockResolvedValue({ annee: 2027 });
+    utilisateurs = {
+      createQueryBuilder: jest.fn().mockReturnValue(constructeur),
+      findOne: jest.fn().mockResolvedValue({ id: 'u1' }),
+    };
     reglements = {
       find: jest.fn().mockResolvedValue([]),
       findOne: jest.fn().mockResolvedValue(null),
@@ -148,10 +154,7 @@ describe('CotisationService', () => {
       participations as unknown as Repository<ParticipationCotisation>,
       versements as unknown as Repository<VersementFinance>,
       reglements as unknown as Repository<ReglementCotisation>,
-      {
-        createQueryBuilder: jest.fn().mockReturnValue(constructeur),
-        findOne: jest.fn().mockResolvedValue({ id: 'u1' }),
-      } as unknown as Repository<User>,
+      utilisateurs as unknown as Repository<User>,
       { trouverActive } as unknown as GenerationService,
       notifications as unknown as NotificationService,
       alertes as unknown as AlerteTresorerieService,
@@ -907,6 +910,215 @@ describe('CotisationService', () => {
         [{ id: 'u1' }, { id: 'u2' }],
         expect.objectContaining({ lien: '/mon-espace/cotisations' }),
       );
+    });
+  });
+
+  /**
+   * Être appelé à une cotisation ne dépend pas du jour où l'on s'est inscrit.
+   * Les participations ne se créaient qu'à l'ouverture : un finissant arrivé
+   * ensuite ne voyait jamais la cotisation des finissants.
+   */
+  describe('personnes arrivées après l’ouverture', () => {
+    const ouverte = (surcharge: Partial<Cotisation> = {}) =>
+      cotisation({
+        id: 'c-ouverte',
+        titre: 'Cotisation des finissants',
+        statut: StatutCotisation.OUVERTE,
+        cibles: [CibleCotisation.FINISSANT],
+        montantTotal: 30_000,
+        ...surcharge,
+      });
+
+    const finissant = (surcharge: Partial<User> = {}) =>
+      ({
+        id: 'u-nouveau',
+        role: Role.STUDENT,
+        isFinissant: true,
+        isActive: true,
+        promotion: 2027,
+        ...surcharge,
+      }) as User;
+
+    /** La participation qu'aurait la personne une fois rattrapée. */
+    const sienne = (c: Cotisation) =>
+      ({
+        id: 'p-nouvelle',
+        cotisation: c,
+        montantDu: c.montantTotal,
+        montantRegle: 0,
+        statut: StatutParticipation.EN_COURS,
+        user: finissant(),
+      }) as unknown as ParticipationCotisation;
+
+    beforeEach(() => {
+      cotisations.find.mockResolvedValue([ouverte()]);
+      utilisateurs.findOne.mockResolvedValue(finissant());
+    });
+
+    it('appelle un finissant inscrit après l’ouverture, et le prévient', async () => {
+      // Aucune participation à la première lecture ; une fois créée, la
+      // seconde la rend — comme le ferait la base.
+      participations.find
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([sienne(ouverte())]);
+
+      const mes = await service.mesCotisations('u-nouveau');
+
+      expect(participations.save).toHaveBeenCalledWith([
+        expect.objectContaining({
+          montantDu: 30_000,
+          montantRegle: 0,
+          user: expect.objectContaining({ id: 'u-nouveau' }) as unknown,
+        }),
+      ]);
+      expect(mes).toHaveLength(1);
+      expect(mes[0].cotisation.titre).toBe('Cotisation des finissants');
+      expect(notifications.notifierPlusieurs).toHaveBeenCalledWith(
+        [expect.objectContaining({ id: 'u-nouveau' })],
+        expect.objectContaining({
+          titre: 'Cotisation ouverte : Cotisation des finissants',
+        }),
+      );
+    });
+
+    it('n’appelle pas qui n’est pas visé', async () => {
+      utilisateurs.findOne.mockResolvedValue(finissant({ isFinissant: false }));
+
+      await service.mesCotisations('u-nouveau');
+
+      expect(participations.save).not.toHaveBeenCalled();
+      expect(notifications.notifierPlusieurs).not.toHaveBeenCalled();
+    });
+
+    it('ne recrée rien, ni ne reprévient, qui est déjà appelé', async () => {
+      participations.find.mockResolvedValue([sienne(ouverte())]);
+
+      await service.mesCotisations('u-nouveau');
+
+      expect(participations.save).not.toHaveBeenCalled();
+      expect(notifications.notifierPlusieurs).not.toHaveBeenCalled();
+    });
+
+    it('ne regarde que les cotisations ouvertes', async () => {
+      await service.mesCotisations('u-nouveau');
+
+      expect(cotisations.find).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { statut: StatutCotisation.OUVERTE },
+        }),
+      );
+    });
+
+    it('ne cherche rien quand aucune cotisation n’est ouverte', async () => {
+      cotisations.find.mockResolvedValue([]);
+
+      await service.mesCotisations('u-nouveau');
+
+      expect(utilisateurs.findOne).not.toHaveBeenCalled();
+      expect(participations.save).not.toHaveBeenCalled();
+    });
+
+    it('tolère qu’un rattrapage concurrent ait déjà créé la participation', async () => {
+      // Le rattrapage horaire et la consultation se croisent : la base
+      // refuse le doublon, et la personne n'est pas prévenue deux fois.
+      participations.save.mockRejectedValueOnce({ code: '23505' });
+      participations.save.mockRejectedValueOnce({ code: '23505' });
+
+      await expect(service.mesCotisations('u-nouveau')).resolves.toBeDefined();
+      expect(notifications.notifierPlusieurs).not.toHaveBeenCalled();
+    });
+
+    it('propage une erreur qui n’est pas un doublon', async () => {
+      participations.save.mockRejectedValue(new Error('base injoignable'));
+
+      await expect(service.mesCotisations('u-nouveau')).rejects.toThrow(
+        'base injoignable',
+      );
+    });
+
+    it('applique le critère alumni avec l’année du mandat', async () => {
+      cotisations.find.mockResolvedValue([
+        ouverte({ cibles: [CibleCotisation.ALUMNI] }),
+      ]);
+      utilisateurs.findOne.mockResolvedValue(
+        finissant({ isFinissant: false, promotion: 2025 }),
+      );
+
+      await service.mesCotisations('u-nouveau');
+
+      expect(participations.save).toHaveBeenCalled();
+    });
+
+    describe('rattrapage horaire', () => {
+      it('appelle ceux qui sont arrivés depuis l’ouverture, et eux seuls', async () => {
+        const deja = { user: { id: 'u-ancien' } };
+        constructeur.getMany.mockResolvedValue([
+          { id: 'u-ancien' },
+          { id: 'u-nouveau' },
+        ]);
+        participations.find.mockResolvedValue([deja]);
+
+        await service.rattraperLesRetardataires();
+
+        expect(participations.save).toHaveBeenCalledWith([
+          expect.objectContaining({
+            user: expect.objectContaining({ id: 'u-nouveau' }) as unknown,
+          }),
+        ]);
+        expect(notifications.notifierPlusieurs).toHaveBeenCalledWith(
+          [expect.objectContaining({ id: 'u-nouveau' })],
+          expect.anything(),
+        );
+      });
+
+      it('ne fait rien quand tout le monde est déjà appelé', async () => {
+        constructeur.getMany.mockResolvedValue([{ id: 'u-ancien' }]);
+        participations.find.mockResolvedValue([{ user: { id: 'u-ancien' } }]);
+
+        await service.rattraperLesRetardataires();
+
+        expect(participations.save).not.toHaveBeenCalled();
+        expect(notifications.notifierPlusieurs).not.toHaveBeenCalled();
+      });
+
+      it('n’abandonne pas les autres cotisations quand l’une échoue', async () => {
+        cotisations.find.mockResolvedValue([
+          ouverte({ id: 'c1' }),
+          ouverte({ id: 'c2' }),
+        ]);
+        constructeur.getMany
+          .mockRejectedValueOnce(new Error('base injoignable'))
+          .mockResolvedValueOnce([{ id: 'u-nouveau' }]);
+        participations.find.mockResolvedValue([]);
+
+        await expect(
+          service.rattraperLesRetardataires(),
+        ).resolves.toBeUndefined();
+
+        expect(participations.save).toHaveBeenCalledTimes(1);
+      });
+    });
+
+    describe('liste de la trésorerie', () => {
+      it('inclut ceux arrivés depuis l’ouverture d’une cotisation ouverte', async () => {
+        cotisations.findOne.mockResolvedValue(ouverte());
+        constructeur.getMany.mockResolvedValue([{ id: 'u-nouveau' }]);
+        participations.find.mockResolvedValue([]);
+
+        await service.participationsDe('c-ouverte');
+
+        expect(participations.save).toHaveBeenCalled();
+      });
+
+      it('ne rattrape rien sur une cotisation close', async () => {
+        cotisations.findOne.mockResolvedValue(
+          ouverte({ statut: StatutCotisation.CLOSE }),
+        );
+
+        await service.participationsDe('c-ouverte');
+
+        expect(participations.save).not.toHaveBeenCalled();
+      });
     });
   });
 });
