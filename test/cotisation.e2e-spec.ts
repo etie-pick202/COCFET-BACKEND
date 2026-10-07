@@ -246,6 +246,98 @@ describe('Cotisations (e2e)', () => {
       expect(inscrits.every((p) => p.montantDu === 30000)).toBe(true);
     });
 
+    it('appelle aussi ceux qui s’inscrivent APRÈS l’ouverture', async () => {
+      // Le cas signalé : un finissant arrivé une fois la cotisation lancée ne
+      // la voyait jamais. Être appelé ne dépend pas du jour de l'inscription.
+      const id = idDe(await creer().expect(201));
+      await ouvrir(id).expect(201);
+
+      const retardataire = await creerCompteAuthentifie(app, {
+        promotion: ANNEE,
+        isFinissant: true,
+      });
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/moi`)
+        .set(retardataire.entetes)
+        .expect(200);
+
+      const lignes = reponse.body as {
+        cotisation: { id: string };
+        avancement: { montantDu: number; montantRegle: number };
+      }[];
+      expect(lignes).toHaveLength(1);
+      expect(lignes[0].cotisation.id).toBe(id);
+      expect(lignes[0].avancement).toMatchObject({
+        montantDu: 30000,
+        montantRegle: 0,
+      });
+
+      // Consulter deux fois ne crée pas deux participations.
+      await request(app.getHttpServer())
+        .get(`${COTISATIONS}/moi`)
+        .set(retardataire.entetes)
+        .expect(200);
+      expect(
+        await participations.count({
+          where: { user: { id: retardataire.user.id } },
+        }),
+      ).toBe(1);
+    });
+
+    it('n’appelle pas à une cotisation qui ne les vise pas ceux qui arrivent après', async () => {
+      const id = idDe(await creer({ cibles: ['ALUMNI'] }).expect(201));
+      await ouvrir(id).expect(201);
+
+      const retardataire = await creerCompteAuthentifie(app, {
+        promotion: ANNEE,
+        isFinissant: true,
+      });
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/moi`)
+        .set(retardataire.entetes)
+        .expect(200);
+
+      expect(reponse.body as unknown[]).toHaveLength(0);
+    });
+
+    it('ne rattrape personne sur une cotisation en brouillon', async () => {
+      await creer().expect(201);
+
+      const nouveau = await creerCompteAuthentifie(app, {
+        promotion: ANNEE,
+        isFinissant: true,
+      });
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/moi`)
+        .set(nouveau.entetes)
+        .expect(200);
+
+      expect(reponse.body as unknown[]).toHaveLength(0);
+    });
+
+    it('montre à la trésorerie ceux arrivés depuis l’ouverture', async () => {
+      const id = idDe(await creer().expect(201));
+      await ouvrir(id).expect(201);
+
+      const retardataire = await creerCompteAuthentifie(app, {
+        promotion: ANNEE,
+        isFinissant: true,
+      });
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${COTISATIONS}/${id}/participations`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      const ids = (
+        reponse.body as { participation: { user: { id: string } } }[]
+      ).map((l) => l.participation.user.id);
+      expect(ids).toContain(retardataire.user.id);
+    });
+
     it('ne duplique rien quand on rouvre', async () => {
       const id = idDe(await creer().expect(201));
 

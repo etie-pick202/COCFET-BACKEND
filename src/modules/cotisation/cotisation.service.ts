@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
@@ -33,6 +34,7 @@ import {
 import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
 import { Avancement, calculerAvancement } from './avancement';
+import { estVise } from './cible';
 import {
   CreerCotisationDto,
   DeclarerVersementDto,
@@ -216,19 +218,104 @@ export class CotisationService {
       );
     }
 
-    const concernes = await this.populationVisee(cotisation.cibles);
+    const { concernes, nouvelles } = await this.inscrireLesVises(cotisation);
 
-    if (concernes.length > 0) {
+    // Seules les personnes nouvellement appelées sont prévenues : rouvrir une
+    // cotisation ne renvoie pas l'appel à ceux qui l'ont déjà reçu.
+    if (nouvelles.length > 0) {
+      await this.annoncerOuverture(
+        cotisation,
+        nouvelles.map((p) => p.user),
+      );
+    }
+
+    await this.cotisations.update(id, { statut: StatutCotisation.OUVERTE });
+
+    this.logger.log(
+      `Cotisation « ${cotisation.titre} » ouverte : ${concernes} personne(s) concernée(s).`,
+    );
+
+    return this.trouver(id);
+  }
+
+  /**
+   * Appelle à une cotisation ouverte ceux qui sont arrivés depuis son
+   * ouverture.
+   *
+   * **Être appelé ne dépend pas du jour où l'on s'est inscrit.** Les
+   * participations se créaient à l'ouverture seulement : un finissant inscrit
+   * une semaine après ne voyait jamais la cotisation des finissants, alors que
+   * ses camarades la voyaient. Ce rattrapage tourne chaque heure, pour que la
+   * trésorerie voie la liste complète et que les nouveaux soient prévenus ; et
+   * la personne elle-même est rattrapée à l'instant où elle consulte ses
+   * cotisations (voir `mesCotisations`).
+   */
+  @Cron(CronExpression.EVERY_HOUR)
+  async rattraperLesRetardataires(): Promise<void> {
+    const ouvertes = await this.cotisations.find({
+      where: { statut: StatutCotisation.OUVERTE },
+      relations: { tranches: true },
+    });
+
+    for (const cotisation of ouvertes) {
+      try {
+        await this.rattraper(cotisation);
+      } catch (erreur) {
+        // Une cotisation en échec ne doit pas priver les autres de leur
+        // rattrapage.
+        this.logger.error(
+          `Rattrapage de « ${cotisation.titre} » impossible : ${(erreur as Error).message}`,
+        );
+      }
+    }
+  }
+
+  /** Inscrit les nouveaux visés d'une cotisation ouverte, et les prévient. */
+  private async rattraper(cotisation: Cotisation): Promise<void> {
+    const { nouvelles } = await this.inscrireLesVises(cotisation);
+
+    if (nouvelles.length > 0) {
+      await this.annoncerOuverture(
+        cotisation,
+        nouvelles.map((p) => p.user),
+      );
+      this.logger.log(
+        `Cotisation « ${cotisation.titre} » : ${nouvelles.length} personne(s) arrivée(s) depuis l'ouverture, appelée(s) à cotiser.`,
+      );
+    }
+  }
+
+  /**
+   * Crée la participation de chaque personne visée qui n'en a pas encore.
+   *
+   * Idempotent : rouvrir ou rattraper ne duplique rien et n'écrase aucun
+   * solde. Les nouvelles personnes sont prévenues par `annoncerOuverture`, à
+   * part — rouvrir une cotisation ne doit pas renvoyer l'appel à ceux qui l'ont
+   * déjà reçu, et parfois déjà réglé.
+   */
+  private inscrireLesVises(cotisation: Cotisation): Promise<{
+    concernes: number;
+    nouvelles: ParticipationCotisation[];
+  }> {
+    // Une file par cotisation : le rattrapage horaire, l'ouverture et la vue
+    // de la trésorerie ne s'entrelacent pas sur les mêmes personnes.
+    return this.exclusif(`cotisation:${cotisation.id}`, async () => {
+      const concernes = await this.populationVisee(cotisation.cibles);
+
+      if (concernes.length === 0) {
+        return { concernes: 0, nouvelles: [] };
+      }
+
       const dejaInscrits = await this.participations.find({
         where: {
-          cotisation: { id },
+          cotisation: { id: cotisation.id },
           user: { id: In(concernes.map((personne) => personne.id)) },
         },
         relations: { user: true },
       });
       const connus = new Set(dejaInscrits.map((p) => p.user.id));
 
-      const nouvelles = concernes
+      const aCreer = concernes
         .filter((personne) => !connus.has(personne.id))
         .map((personne) =>
           this.participations.create({
@@ -239,32 +326,122 @@ export class CotisationService {
           }),
         );
 
-      if (nouvelles.length > 0) {
-        await this.participations.save(nouvelles);
+      return {
+        concernes: concernes.length,
+        nouvelles: await this.enregistrerSansDoublon(aCreer),
+      };
+    });
+  }
 
-        // Seules les personnes nouvellement appelées sont prévenues : rouvrir
-        // une cotisation ne doit pas renvoyer l'appel à ceux qui l'ont déjà
-        // reçu, et parfois déjà réglé.
-        await this.notificationService.notifierPlusieurs(
-          nouvelles.map((p) => p.user),
-          {
-            type: TypeNotification.PAIEMENT,
-            titre: `Cotisation ouverte : ${cotisation.titre}`,
-            message: this.messageOuverture(cotisation),
-            lien: '/mon-espace/cotisations',
-            libelleLien: 'Régler ma cotisation',
-          },
-        );
+  /**
+   * Enregistre des participations en tolérant celles qu'un autre processus
+   * vient de créer.
+   *
+   * L'unicité (cotisation, personne) est garantie par la base : si deux
+   * rattrapages se croisent, le second se heurte à la première. On retombe
+   * alors sur un enregistrement un par un, en ignorant les doublons, plutôt que
+   * de perdre tout le lot pour une seule ligne déjà là.
+   */
+  private async enregistrerSansDoublon(
+    participations: ParticipationCotisation[],
+  ): Promise<ParticipationCotisation[]> {
+    if (participations.length === 0) {
+      return [];
+    }
+
+    try {
+      await this.participations.save(participations);
+      return participations;
+    } catch (erreur) {
+      if (!estViolationUnicite(erreur)) {
+        throw erreur;
       }
     }
 
-    await this.cotisations.update(id, { statut: StatutCotisation.OUVERTE });
+    const enregistrees: ParticipationCotisation[] = [];
+    for (const participation of participations) {
+      try {
+        await this.participations.save(participation);
+        enregistrees.push(participation);
+      } catch (erreur) {
+        if (!estViolationUnicite(erreur)) {
+          throw erreur;
+        }
+      }
+    }
+    return enregistrees;
+  }
 
-    this.logger.log(
-      `Cotisation « ${cotisation.titre} » ouverte : ${concernes.length} personne(s) concernée(s).`,
-    );
+  /** Prévient des personnes qu'une cotisation les appelle à verser. */
+  private annoncerOuverture(
+    cotisation: Cotisation,
+    personnes: User[],
+  ): Promise<number> {
+    return this.notificationService.notifierPlusieurs(personnes, {
+      type: TypeNotification.PAIEMENT,
+      titre: `Cotisation ouverte : ${cotisation.titre}`,
+      message: this.messageOuverture(cotisation),
+      lien: '/mon-espace/cotisations',
+      libelleLien: 'Régler ma cotisation',
+    });
+  }
 
-    return this.trouver(id);
+  /**
+   * Appelle une personne aux cotisations ouvertes qui la visent et qu'elle n'a
+   * pas encore.
+   *
+   * C'est ce qui rend la cotisation visible à qui s'est inscrit après son
+   * ouverture, dès sa première consultation : pas d'attente du rattrapage
+   * horaire, et pas de dépendance à l'ordre dans lequel les choses se sont
+   * passées. Le critère est celui de l'ouverture (voir `estVise`).
+   */
+  private async rattraperLaPersonne(userId: string): Promise<void> {
+    await this.exclusif(`personne:${userId}`, async () => {
+      const ouvertes = await this.cotisations.find({
+        where: { statut: StatutCotisation.OUVERTE },
+        relations: { tranches: true },
+      });
+      if (ouvertes.length === 0) {
+        return;
+      }
+
+      const personne = await this.users.findOne({ where: { id: userId } });
+      if (!personne) {
+        return;
+      }
+
+      const existantes = await this.participations.find({
+        where: {
+          user: { id: userId },
+          cotisation: { id: In(ouvertes.map((c) => c.id)) },
+        },
+        relations: { cotisation: true },
+      });
+      const connues = new Set(existantes.map((p) => p.cotisation.id));
+
+      const generation = await this.generationService.trouverActive();
+      const manquantes = ouvertes.filter(
+        (c) =>
+          !connues.has(c.id) &&
+          estVise(personne, c.cibles, generation?.annee ?? null),
+      );
+
+      for (const cotisation of manquantes) {
+        const [creee] = await this.enregistrerSansDoublon([
+          this.participations.create({
+            cotisation,
+            user: personne,
+            montantDu: cotisation.montantTotal,
+            montantRegle: 0,
+          }),
+        ]);
+
+        // Prévenue une seule fois : seule la création déclenche l'appel.
+        if (creee) {
+          await this.annoncerOuverture(cotisation, [personne]);
+        }
+      }
+    });
   }
 
   async clore(id: string): Promise<Cotisation> {
@@ -301,6 +478,10 @@ export class CotisationService {
    * échéances qu'elle peut régler, et ses règlements.
    */
   async mesCotisations(userId: string): Promise<MaCotisation[]> {
+    // D'abord rattraper : une cotisation ouverte avant l'arrivée de la
+    // personne doit apparaître comme pour les autres.
+    await this.rattraperLaPersonne(userId);
+
     const participations = await this.participations.find({
       where: { user: { id: userId } },
       relations: { cotisation: { tranches: true } },
@@ -387,6 +568,12 @@ export class CotisationService {
     }[]
   > {
     const cotisation = await this.trouver(cotisationId);
+
+    // La liste des finances doit être complète : une cotisation ouverte
+    // depuis un moment n'a pas à ignorer ceux qui sont arrivés depuis.
+    if (cotisation.statut === StatutCotisation.OUVERTE) {
+      await this.rattraper(cotisation);
+    }
 
     const participations = await this.participations.find({
       where: { cotisation: { id: cotisationId } },
@@ -1161,4 +1348,15 @@ export class CotisationService {
 /** « 25 000 FCFA », avec l'espace insécable du français. */
 function montantLisible(montant: number): string {
   return `${montant.toLocaleString('fr-FR').replace(/\s/g, '\u00a0')}\u00a0FCFA`;
+}
+
+/** Violation d'unicité PostgreSQL : la ligne existe déjà. */
+function estViolationUnicite(erreur: unknown): boolean {
+  return (
+    typeof erreur === 'object' &&
+    erreur !== null &&
+    ((erreur as { code?: string }).code === '23505' ||
+      (erreur as { driverError?: { code?: string } }).driverError?.code ===
+        '23505')
+  );
 }
