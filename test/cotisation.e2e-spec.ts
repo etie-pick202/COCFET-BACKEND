@@ -520,21 +520,6 @@ describe('Cotisations (e2e)', () => {
       );
     });
 
-    it('liste les remises au bureau', async () => {
-      await request(app.getHttpServer())
-        .post(`${COTISATIONS}/versements`)
-        .set(tresoriere.entetes)
-        .send({ montant: 25000 })
-        .expect(201);
-
-      const reponse = await request(app.getHttpServer())
-        .get(`${COTISATIONS}/versements`)
-        .set(tresoriere.entetes)
-        .expect(200);
-
-      expect(reponse.body as unknown[]).toHaveLength(1);
-    });
-
     it('clot une cotisation', async () => {
       const id = idDe(await creer().expect(201));
       await ouvrir(id).expect(201);
@@ -583,26 +568,6 @@ describe('Cotisations (e2e)', () => {
         .get(`${COTISATIONS}/moi`)
         .set(finissant.entetes)
         .expect(200);
-    });
-  });
-
-  describe('encaisse', () => {
-    it('enregistre une remise au bureau', async () => {
-      const reponse = await request(app.getHttpServer())
-        .post(`${COTISATIONS}/versements`)
-        .set(tresoriere.entetes)
-        .send({ montant: 50000, note: 'Dépôt bancaire' })
-        .expect(201);
-
-      expect(reponse.body).toMatchObject({ montant: 50000 });
-    });
-
-    it('réserve les remises aux finances', async () => {
-      await request(app.getHttpServer())
-        .post(`${COTISATIONS}/versements`)
-        .set(finissant.entetes)
-        .send({ montant: 50000 })
-        .expect(403);
     });
   });
 

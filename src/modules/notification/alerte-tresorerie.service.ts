@@ -61,6 +61,21 @@ export class AlerteTresorerieService {
     );
   }
 
+  /** Un membre vient de déposer de l'argent de sa poche sur la plateforme. */
+  remiseSurPlateforme(
+    membre: Encaissement['payeur'],
+    montant: number,
+  ): Promise<void> {
+    return this.signaler(
+      membre.id,
+      'Remise déposée sur la plateforme',
+      `${nomComplet(membre)} a déposé ${montantLisible(montant)} de sa poche ` +
+        'sur le compte de la plateforme. Ce n’est pas une recette : l’argent ' +
+        'change seulement de place.',
+      'Voir le suivi des fonds',
+    );
+  }
+
   /** Une preuve de paiement attend d'être validée ou refusée. */
   preuveADecider(
     payeur: Encaissement['payeur'],

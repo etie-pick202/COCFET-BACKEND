@@ -3,7 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { Inscription } from '../billetterie/entities/inscription.entity';
 import { LigneCommande } from '../commande/entities/ligne-commande.entity';
-import { Transaction } from '../paiement/entities/transaction.entity';
+import {
+  OrigineTransaction,
+  Transaction,
+} from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
 import {
   ClassementEntree,
@@ -189,7 +192,8 @@ export class TresorerieService {
       .createQueryBuilder('t')
       .select('COALESCE(SUM(t.montant), 0)', 'somme')
       .addSelect('COALESCE(SUM(t.frais_prestataire), 0)', 'frais')
-      .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE });
+      .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
+      .andWhere('t.origine <> :remise', { remise: OrigineTransaction.REMISE });
     this.borner(requete, 't', periode);
 
     const brut = await requete.getRawOne<{ somme: string; frais: string }>();
@@ -227,6 +231,7 @@ export class TresorerieService {
       .createQueryBuilder('t')
       .select('COALESCE(SUM(t.montant), 0)', 'somme')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
+      .andWhere('t.origine <> :remise', { remise: OrigineTransaction.REMISE })
       .andWhere('t.createdAt >= :debut', { debut })
       .getRawOne<{ somme: string }>();
 
@@ -255,6 +260,7 @@ export class TresorerieService {
       )
       .addSelect('COUNT(*)', 'nombre')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
+      .andWhere('t.origine <> :remise', { remise: OrigineTransaction.REMISE })
       .groupBy(colonne)
       .orderBy('montant', 'DESC');
 
@@ -300,6 +306,7 @@ export class TresorerieService {
       )
       .addSelect('COUNT(*)', 'nombre')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
+      .andWhere('t.origine <> :remise', { remise: OrigineTransaction.REMISE })
       .andWhere('t.createdAt >= :debut', { debut })
       .groupBy("date_trunc('month', t.created_at)")
       .orderBy("date_trunc('month', t.created_at)", 'ASC')
@@ -385,6 +392,7 @@ export class TresorerieService {
       .addSelect('COALESCE(SUM(t.montant), 0)', 'montant')
       .addSelect('COUNT(*)', 'quantite')
       .where('t.statut = :statut', { statut: StatutPaiement.COMPLETE })
+      .andWhere('t.origine <> :remise', { remise: OrigineTransaction.REMISE })
       .groupBy('u.id')
       .addGroupBy('u.first_name')
       .addGroupBy('u.last_name')

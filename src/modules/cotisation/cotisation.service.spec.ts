@@ -36,7 +36,6 @@ import {
   ReglementCotisation,
 } from './entities/reglement-cotisation.entity';
 import { TrancheCotisation } from './entities/tranche-cotisation.entity';
-import { VersementFinance } from './entities/versement-finance.entity';
 
 /**
  * Ce que le banc de bout en bout ne couvre pas.
@@ -50,7 +49,6 @@ describe('CotisationService', () => {
   let service: CotisationService;
   let cotisations: Record<string, jest.Mock>;
   let participations: Record<string, jest.Mock>;
-  let versements: Record<string, jest.Mock>;
   let constructeur: Record<string, jest.Mock>;
   let trouverActive: jest.Mock;
   let reglements: Record<string, jest.Mock>;
@@ -96,11 +94,6 @@ describe('CotisationService', () => {
       create: jest.fn().mockImplementation((p: unknown) => p),
       update: jest.fn().mockResolvedValue({ affected: 1 }),
       increment: jest.fn().mockResolvedValue({ affected: 1 }),
-    };
-    versements = {
-      save: jest.fn().mockImplementation((v: unknown) => v),
-      create: jest.fn().mockImplementation((v: unknown) => v),
-      find: jest.fn().mockResolvedValue([]),
     };
     trouverActive = jest.fn().mockResolvedValue({ annee: 2027 });
     utilisateurs = {
@@ -152,7 +145,6 @@ describe('CotisationService', () => {
         create: jest.fn(),
       } as unknown as Repository<TrancheCotisation>,
       participations as unknown as Repository<ParticipationCotisation>,
-      versements as unknown as Repository<VersementFinance>,
       reglements as unknown as Repository<ReglementCotisation>,
       utilisateurs as unknown as Repository<User>,
       { trouverActive } as unknown as GenerationService,
@@ -352,19 +344,6 @@ describe('CotisationService', () => {
     });
   });
 
-  describe('encaisse', () => {
-    it('refuse une remise nulle ou négative', async () => {
-      await expect(
-        service.declarerVersement({ id: 'u1' } as User, { montant: 0 }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('enregistre une remise sans destinataire désigné', async () => {
-      await expect(
-        service.declarerVersement({ id: 'u1' } as User, { montant: 50_000 }),
-      ).resolves.toMatchObject({ montant: 50_000, recuPar: null });
-    });
-  });
   describe('règlement des échéances', () => {
     const tranche = (ordre: number, montant: number, date: string) =>
       ({

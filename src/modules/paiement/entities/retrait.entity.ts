@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Column, Entity, Index } from 'typeorm';
+import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
+import { User } from '../../user/entities/user.entity';
 import { SourceRetrait, StatutRetrait } from '../enums/paiement.enum';
 
 /**
@@ -78,6 +79,18 @@ export class Retrait extends BaseEntity {
   @Column({ name: 'confirme_le', type: 'timestamptz', nullable: true })
   @ApiPropertyOptional({ format: 'date-time', nullable: true })
   confirmeLe: Date | null;
+
+  /**
+   * Membre entre les mains de qui l'argent retiré a atterri.
+   *
+   * Un retrait fait sortir l'argent du compte Fapshi **et** le fait entrer
+   * dans la poche de quelqu'un : tant qu'on ne dit pas laquelle, il reste
+   * « non attribué » dans le suivi des fonds. `SET NULL` : le départ d'un
+   * membre ne doit pas effacer le retrait.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'detenteur_id' })
+  detenteur: User | null;
 
   /** Explication saisie par le bureau. Jamais écrasée par la synchronisation. */
   @Column({ type: 'text', nullable: true })
