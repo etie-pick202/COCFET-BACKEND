@@ -160,6 +160,7 @@ export class SoldeService {
   async lister(pagination: PaginationDto): Promise<ResultatPagine<Retrait>> {
     return paginer(
       await this.retraits.findAndCount({
+        relations: { detenteur: true },
         order: { initieLe: 'DESC' },
         skip: pagination.sauter,
         take: pagination.limite,

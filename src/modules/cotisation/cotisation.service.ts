@@ -37,7 +37,6 @@ import { Avancement, calculerAvancement } from './avancement';
 import { estVise } from './cible';
 import {
   CreerCotisationDto,
-  DeclarerVersementDto,
   MettreAJourCotisationDto,
   PayerEcheanceDto,
 } from './dto/cotisation.dto';
@@ -62,7 +61,6 @@ import {
   StatutParticipation,
 } from './entities/participation-cotisation.entity';
 import { TrancheCotisation } from './entities/tranche-cotisation.entity';
-import { VersementFinance } from './entities/versement-finance.entity';
 
 /** Ce qu'une personne voit d'une cotisation à laquelle elle est appelée. */
 export interface MaCotisation {
@@ -104,8 +102,6 @@ export class CotisationService {
     private readonly tranches: Repository<TrancheCotisation>,
     @InjectRepository(ParticipationCotisation)
     private readonly participations: Repository<ParticipationCotisation>,
-    @InjectRepository(VersementFinance)
-    private readonly versements: Repository<VersementFinance>,
     @InjectRepository(ReglementCotisation)
     private readonly reglements: Repository<ReglementCotisation>,
     @InjectRepository(User)
@@ -1012,43 +1008,6 @@ export class CotisationService {
         libelleLien: 'Voir ma cotisation',
       });
     }
-  }
-
-  // ───────────────────────────────  Encaisse  ───────────────────────────
-
-  /**
-   * Enregistre la remise au bureau de ce qu'un membre détenait.
-   *
-   * Déclaratif : la plateforme tient un registre, elle ne remplace ni la
-   * confiance ni les comptes du bureau.
-   */
-  async declarerVersement(
-    membre: User,
-    dto: DeclarerVersementDto,
-  ): Promise<VersementFinance> {
-    if (dto.montant <= 0) {
-      throw new BadRequestException('Le montant remis doit être positif.');
-    }
-
-    const recuPar = dto.recuParId
-      ? await this.users.findOne({ where: { id: dto.recuParId } })
-      : null;
-
-    return this.versements.save(
-      this.versements.create({
-        membre,
-        montant: dto.montant,
-        recuPar,
-        note: dto.note ?? null,
-      }),
-    );
-  }
-
-  listerVersements(): Promise<VersementFinance[]> {
-    return this.versements.find({
-      relations: { membre: true, recuPar: true },
-      order: { createdAt: 'DESC' },
-    });
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────

@@ -197,6 +197,8 @@ export class TransactionService {
         return `/commandes/${transaction.reference}`;
       case OrigineTransaction.COTISATION:
         return '/mon-espace/cotisations';
+      case OrigineTransaction.REMISE:
+        return '/admin/finances';
       case OrigineTransaction.EVENEMENT: {
         const [inscription] = await this.transactions.manager.query<
           { id: string }[]

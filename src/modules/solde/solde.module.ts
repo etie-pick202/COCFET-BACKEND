@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BureauModule } from '../bureau/bureau.module';
 import { ReleveSolde } from '../paiement/entities/releve-solde.entity';
@@ -18,7 +18,9 @@ import { SoldeService } from './solde.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Retrait, ReleveSolde, Transaction]),
-    PaiementModule,
+    // Cycle assumé : les paiements aiguillent l'issue d'un dépôt vers les fonds,
+    // qui lisent le solde.
+    forwardRef(() => PaiementModule),
     BureauModule,
   ],
   controllers: [SoldeController],

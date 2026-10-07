@@ -33,11 +33,9 @@ import {
 import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
-import { User } from '../user/entities/user.entity';
 import { CotisationService } from './cotisation.service';
 import {
   CreerCotisationDto,
-  DeclarerVersementDto,
   ApercuFraisDto,
   MettreAJourCotisationDto,
   PayerEcheanceDto,
@@ -45,7 +43,6 @@ import {
 import { FraisParMethode } from './echeances';
 import { Cotisation } from './entities/cotisation.entity';
 import { ReglementCotisation } from './entities/reglement-cotisation.entity';
-import { VersementFinance } from './entities/versement-finance.entity';
 
 type Requete = Request & { user: { id: string; role: Role } };
 
@@ -172,38 +169,6 @@ export class CotisationController {
   @ApiOkResponse({ type: [Cotisation] })
   lister(): Promise<Cotisation[]> {
     return this.cotisationService.lister();
-  }
-
-  @ExigePrivilege(Privilege.TRESORERIE)
-  @Get('versements')
-  @ApiOperation({
-    summary: 'Historique des remises au bureau',
-    description:
-      'L’encaisse d’un membre est la différence entre ce qu’il a reçu — les ' +
-      'justificatifs validés dont il est destinataire — et ce qu’il a remis.',
-  })
-  @ApiOkResponse({ type: [VersementFinance] })
-  listerVersements(): Promise<VersementFinance[]> {
-    return this.cotisationService.listerVersements();
-  }
-
-  @ExigePrivilege(Privilege.TRESORERIE)
-  @Post('versements')
-  @ApiOperation({
-    summary: 'Déclarer avoir remis au bureau',
-    description:
-      'Sans cette trace, le montant encaissé par un membre ne ferait que ' +
-      'croître et ne dirait plus combien il détient aujourd’hui.',
-  })
-  @ApiCreatedResponse({ type: VersementFinance })
-  declarerVersement(
-    @Req() requete: Requete,
-    @Body() dto: DeclarerVersementDto,
-  ): Promise<VersementFinance> {
-    return this.cotisationService.declarerVersement(
-      { id: requete.user.id } as User,
-      dto,
-    );
   }
 
   @ExigePrivilege(Privilege.TRESORERIE)
