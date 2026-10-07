@@ -7,6 +7,7 @@ import {
   IsString,
   IsUUID,
   MaxLength,
+  ValidateIf,
   Min,
   MinLength,
 } from 'class-validator';
@@ -114,6 +115,32 @@ export class MettreAJourMembreDto {
   presentation?: string;
 }
 
+/**
+ * Longueur maximale de la phrase qu'un membre écrit lui-même.
+ *
+ * Posée par ce que la carte du carrousel peut montrer : cinq lignes, dans une
+ * carte de moins de trois cents pixels. Au-delà, le texte serait coupé sur la
+ * page publique sans que son auteur le sache. L'administration, elle, garde sa
+ * limite plus large (voir `MettreAJourMembreDto`).
+ */
+export const PRESENTATION_MAX = 220;
+
+/** Ce qu'un membre envoie pour modifier sa propre phrase. */
+export class MaPresentationDto {
+  @ApiProperty({
+    nullable: true,
+    maxLength: PRESENTATION_MAX,
+    example: 'Je veille à ce que chaque euro de la promotion serve le gala.',
+    description:
+      'Sa phrase, telle qu’elle s’affichera sur la carte du carrousel. ' +
+      'Vide ou nulle : la carte se présente sans phrase.',
+  })
+  @IsString()
+  @MaxLength(PRESENTATION_MAX)
+  @ValidateIf((_, valeur) => valeur !== null)
+  presentation: string | null;
+}
+
 export class DesignerLogoDto {
   @ApiProperty({
     description: 'Clé de stockage, parmi les logos déjà déposés.',
@@ -209,6 +236,45 @@ export class MembreExpose {
 
   @ApiProperty({ nullable: true })
   presentation: string | null;
+}
+
+/**
+ * La place d'une personne dans le bureau en cours, avec de quoi dessiner sa
+ * carte exactement comme la page publique la dessine.
+ */
+export class MaPlaceAuBureau {
+  @ApiProperty({ format: 'uuid', description: 'Identifiant de la place.' })
+  id: string;
+
+  @ApiProperty({ example: 'Trésorière' })
+  poste: string;
+
+  @ApiProperty({ example: 4, description: 'Ordre protocolaire d’affichage.' })
+  ordre: number;
+
+  @ApiProperty({ example: 2027 })
+  annee: number;
+
+  @ApiProperty({ example: 'ATLAS', description: 'Nom du bureau.' })
+  mandat: string;
+
+  @ApiProperty({ example: 'Awa' })
+  prenom: string;
+
+  @ApiProperty({ example: 'Ngassa' })
+  nom: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de stockage — à échanger contre une URL signée.',
+  })
+  avatar: string | null;
+
+  @ApiProperty({ nullable: true })
+  presentation: string | null;
+
+  @ApiProperty({ example: PRESENTATION_MAX })
+  presentationMax: number;
 }
 
 export function exposerMembre(membre: MembreBureau): MembreExpose {
