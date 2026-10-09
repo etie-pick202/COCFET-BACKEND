@@ -51,7 +51,9 @@ export class BaremeFrais {
  * d'environnement changée.
  */
 @ApiTags('Paiements')
-@Controller('paiements/bareme-frais')
+// Hors de « paiements/ » : « GET /paiements/:reference » (suivi d'un paiement,
+// authentifié) capterait « bareme-frais » comme une référence.
+@Controller('frais-paiement')
 export class BaremeFraisController {
   private readonly taux: TauxFrais;
 
