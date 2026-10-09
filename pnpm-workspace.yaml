@@ -96,6 +96,11 @@ overrides:
   # « >=3.3.17 » resout vers la 6.x — verifie — qui est ESM pur et que
   # postcss, en CommonJS, ne sait pas charger.
   nanoid@^3.3.16: '3.3.18'
+  # handlebars : injection de code par contournement du controle des proprietes
+  # propres et par le type de noeud de l'AST (GHSA-8r5x-fm3f-whwj,
+  # GHSA-p8wg-vrv2-v86f, critiques). Remonte par @nestjs-modules/mailer, donc au
+  # rendu des emails, et par ts-jest (tests). Borne haute : la branche 4.
+  handlebars: '>=4.7.10 <5.0.0'
 
 # GHSA-mh99-v99m-4gvg (CVE-2026-14257, brace-expansion) : l'avis déclare
 # « vulnérable <=5.0.7 », ce qui marque à tort les rétroportages 1.1.17 et

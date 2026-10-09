@@ -17,7 +17,6 @@ import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
 import { JournalActivite } from '../activite/entities/journal-activite.entity';
-import { Transaction } from '../paiement/entities/transaction.entity';
 import {
   FiltreActiviteDto,
   FiltreTransactionDto,
@@ -26,7 +25,7 @@ import {
   TableauTresorerie,
 } from './dto/tableau-de-bord.dto';
 import { TableauDeBordService } from './tableau-de-bord.service';
-import { TresorerieService } from './tresorerie.service';
+import { TransactionDuJournal, TresorerieService } from './tresorerie.service';
 
 @ApiTags('Tableau de bord')
 @ApiBearerAuth()
@@ -102,7 +101,7 @@ export class TableauDeBordController {
     type: ReponseErreurDto,
   })
   journal(@Query() filtre: FiltreTransactionDto): Promise<{
-    donnees: Transaction[];
+    donnees: TransactionDuJournal[];
     meta: { page: number; limite: number; total: number; totalPages: number };
   }> {
     return this.tresorerieService.journal(filtre);
