@@ -8,6 +8,7 @@ import { FondsModule } from '../fonds/fonds.module';
 import { PasserelleFapshi } from './adaptateurs/passerelle-fapshi';
 import { PasserellePaiementFactice } from './adaptateurs/passerelle-paiement-factice';
 import { Transaction } from './entities/transaction.entity';
+import { BaremeFraisController } from './bareme-frais.controller';
 import { PaiementController } from './paiement.controller';
 import { SuiviPaiementController } from './suivi-paiement.controller';
 import { ReconciliationService } from './reconciliation.service';
@@ -42,7 +43,11 @@ const VARIABLES_FAPSHI = [
     forwardRef(() => CommandeModule),
     forwardRef(() => FondsModule),
   ],
-  controllers: [PaiementController, SuiviPaiementController],
+  controllers: [
+    PaiementController,
+    SuiviPaiementController,
+    BaremeFraisController,
+  ],
   providers: [
     TransactionService,
     ReconciliationService,
