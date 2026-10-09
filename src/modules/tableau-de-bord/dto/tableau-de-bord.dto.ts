@@ -4,6 +4,7 @@ import { IsDateString, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
 import { TypeActivite } from '../../activite/entities/journal-activite.entity';
 import { OrigineTransaction } from '../../paiement/entities/transaction.entity';
 import {
+  CanalPaiement,
   MethodePaiement,
   StatutPaiement,
 } from '../../paiement/enums/paiement.enum';
@@ -36,6 +37,16 @@ export class FiltreTransactionDto extends PeriodeDto {
   @IsEnum(MethodePaiement)
   @IsOptional()
   methodePaiement?: MethodePaiement;
+
+  @ApiPropertyOptional({
+    enum: CanalPaiement,
+    description:
+      '`EN_LIGNE` : payé sur la plateforme (Fapshi). `HORS_LIGNE` : preuve ' +
+      'de paiement validée par la trésorerie.',
+  })
+  @IsEnum(CanalPaiement)
+  @IsOptional()
+  canal?: CanalPaiement;
 
   @ApiPropertyOptional({ default: 1, minimum: 1 })
   @Type(() => Number)

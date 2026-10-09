@@ -348,6 +348,100 @@ describe('Tableau de bord (e2e)', () => {
     });
   });
 
+  describe('canal de paiement', () => {
+    type Ligne = { reference: string; canal: string };
+
+    /** Une preuve de paiement déposée : ce qui fait d'un paiement un hors-ligne. */
+    const deposerPreuve = (reference: string) =>
+      transactions.manager.query(
+        `INSERT INTO justificatifs_paiement
+           (reference, origine, montant_declare, statut, user_id)
+         VALUES ($1, 'EVENEMENT', 1000, 'VALIDE', $2)`,
+        [reference, tresoriere.user.id],
+      );
+
+    const lire = async (query: Record<string, string> = {}) => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/transactions`)
+        .query(query)
+        .set(tresoriere.entetes)
+        .expect(200);
+      return (reponse.body as { donnees: Ligne[] }).donnees;
+    };
+
+    beforeEach(async () => {
+      await encaisser(1_000, {
+        reference: 'CANAL-LIGNE',
+        methodePaiement: null,
+        referenceExterne: 'fapshi-1',
+      });
+      await encaisser(1_000, {
+        reference: 'CANAL-PREUVE',
+        methodePaiement: null,
+      });
+      await deposerPreuve('CANAL-PREUVE');
+      await encaisser(0, { reference: 'CANAL-GRATUIT', methodePaiement: null });
+    });
+
+    afterEach(async () => {
+      await transactions.manager.query(
+        "DELETE FROM justificatifs_paiement WHERE reference LIKE 'CANAL-%'",
+      );
+    });
+
+    it('distingue la preuve de paiement du paiement par la plateforme', async () => {
+      const lignes = await lire();
+      const canalDe = (reference: string) =>
+        lignes.find((l) => l.reference === reference)?.canal;
+
+      expect(canalDe('CANAL-LIGNE')).toBe('EN_LIGNE');
+      expect(canalDe('CANAL-PREUVE')).toBe('HORS_LIGNE');
+      expect(canalDe('CANAL-GRATUIT')).toBe('GRATUIT');
+    });
+
+    it('filtre par canal', async () => {
+      expect(
+        (await lire({ canal: 'HORS_LIGNE' })).map((l) => l.reference),
+      ).toEqual(['CANAL-PREUVE']);
+      expect(
+        (await lire({ canal: 'EN_LIGNE' })).map((l) => l.reference),
+      ).toEqual(['CANAL-LIGNE']);
+    });
+
+    it('refuse un canal inconnu', async () => {
+      await request(app.getHttpServer())
+        .get(`${TABLEAU}/transactions`)
+        .query({ canal: 'TELEPATHIE' })
+        .set(tresoriere.entetes)
+        .expect(400);
+    });
+
+    it('sépare les canaux dans la ventilation par moyen', async () => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/tresorerie`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      const libelles = (
+        reponse.body as { parMethode: { libelle: string }[] }
+      ).parMethode.map((m) => m.libelle);
+      expect(libelles).toEqual(
+        expect.arrayContaining(['EN_LIGNE', 'HORS_LIGNE', 'GRATUIT']),
+      );
+      expect(libelles).not.toContain('NON_RENSEIGNE');
+    });
+
+    it('porte le canal dans l’export', async () => {
+      const reponse = await request(app.getHttpServer())
+        .get(`${TABLEAU}/transactions/export`)
+        .set(tresoriere.entetes)
+        .expect(200);
+
+      expect(reponse.text).toContain('Canal');
+      expect(reponse.text).toMatch(/CANAL-PREUVE.*HORS_LIGNE/);
+    });
+  });
+
   describe('flux d’activité', () => {
     const consigner = (type: TypeActivite, message: string) =>
       journal.save(journal.create({ type, message, user: null }));

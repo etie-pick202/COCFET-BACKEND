@@ -7,7 +7,7 @@ import {
   OrigineTransaction,
   Transaction,
 } from '../paiement/entities/transaction.entity';
-import { StatutPaiement } from '../paiement/enums/paiement.enum';
+import { CanalPaiement, StatutPaiement } from '../paiement/enums/paiement.enum';
 import {
   ClassementEntree,
   FiltreTransactionDto,
@@ -17,6 +17,22 @@ import {
   TableauTresorerie,
 } from './dto/tableau-de-bord.dto';
 import { versCsv } from './export-csv';
+
+/**
+ * Le canal d'une transaction, en SQL.
+ *
+ * Une preuve de paiement déposée = hors ligne ; un montant nul = gratuit ;
+ * tout le reste est passé par la plateforme. Dérivé plutôt que stocké : il
+ * vaut aussi pour les transactions déjà enregistrées, sans migration.
+ */
+const CANAL_SQL = `CASE
+  WHEN EXISTS (SELECT 1 FROM justificatifs_paiement j WHERE j.reference = t.reference) THEN '${CanalPaiement.HORS_LIGNE}'
+  WHEN t.montant = 0 THEN '${CanalPaiement.GRATUIT}'
+  ELSE '${CanalPaiement.EN_LIGNE}'
+END`;
+
+/** Une transaction du journal, avec son canal. */
+export type TransactionDuJournal = Transaction & { canal: CanalPaiement };
 
 /** Longueur des classements. Au-delà, un tableau de bord devient un rapport. */
 const TAILLE_CLASSEMENT = 5;
@@ -83,7 +99,7 @@ export class TresorerieService {
 
   /** Journal brut, filtrable. C'est la pièce comptable, pas un indicateur. */
   async journal(filtre: FiltreTransactionDto): Promise<{
-    donnees: Transaction[];
+    donnees: TransactionDuJournal[];
     meta: { page: number; limite: number; total: number; totalPages: number };
   }> {
     const page = filtre.page ?? 1;
@@ -98,7 +114,7 @@ export class TresorerieService {
       .getManyAndCount();
 
     return {
-      donnees,
+      donnees: await this.avecCanal(donnees),
       meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
     };
   }
@@ -116,6 +132,7 @@ export class TresorerieService {
     const transactions = await this.requeteFiltree(filtre)
       .orderBy('t.createdAt', 'DESC')
       .getMany();
+    const avecCanal = await this.avecCanal(transactions);
 
     return versCsv(
       [
@@ -124,18 +141,20 @@ export class TresorerieService {
         'Reference prestataire',
         'Origine',
         'Statut',
+        'Canal',
         'Methode',
         'Montant FCFA',
         'Frais prestataire FCFA',
         'Net encaisse FCFA',
         'Compte',
       ],
-      transactions.map((t) => [
+      avecCanal.map((t) => [
         t.createdAt.toISOString(),
         t.reference,
         t.referenceExterne,
         t.origine,
         t.statut,
+        t.canal,
         t.methodePaiement,
         t.montant,
         t.fraisPrestataire,
@@ -175,8 +194,38 @@ export class TresorerieService {
         methode: filtre.methodePaiement,
       });
     }
+    if (filtre.canal) {
+      requete.andWhere(`(${CANAL_SQL}) = :canal`, { canal: filtre.canal });
+    }
 
     return requete;
+  }
+
+  /** Ajoute à chaque transaction son canal, en une seule requête pour la page. */
+  private async avecCanal(
+    transactions: Transaction[],
+  ): Promise<TransactionDuJournal[]> {
+    if (transactions.length === 0) {
+      return [];
+    }
+
+    const lignes = await this.transactions.manager.query<
+      { reference: string }[]
+    >(
+      'SELECT DISTINCT reference FROM justificatifs_paiement WHERE reference = ANY($1)',
+      [transactions.map((t) => t.reference)],
+    );
+    const avecPreuve = new Set(lignes.map((l) => l.reference));
+
+    return transactions.map((t) => {
+      let canal = CanalPaiement.EN_LIGNE;
+      if (avecPreuve.has(t.reference)) {
+        canal = CanalPaiement.HORS_LIGNE;
+      } else if (t.montant === 0) {
+        canal = CanalPaiement.GRATUIT;
+      }
+      return Object.assign(t, { canal });
+    });
   }
 
   private async totaux(periode: PeriodeDto) {
@@ -243,7 +292,12 @@ export class TresorerieService {
   }
 
   private ventilerParMethode(periode: PeriodeDto): Promise<MontantVentile[]> {
-    return this.ventiler('t.methode_paiement', periode);
+    // L'opérateur quand on le connaît ; sinon le canal, pour que « hors
+    // ligne » ne désigne plus à tort les paiements passés par la plateforme.
+    return this.ventiler(
+      `COALESCE(t.methode_paiement::text, ${CANAL_SQL})`,
+      periode,
+    );
   }
 
   private async ventiler(
