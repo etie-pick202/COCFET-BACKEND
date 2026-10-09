@@ -28,3 +28,18 @@ export enum StatutPaiement {
   COMPLETE = 'COMPLETE',
   ECHOUE = 'ECHOUE',
 }
+
+/**
+ * Par où l'argent est arrivé.
+ *
+ * Distinct de l'opérateur (`MethodePaiement`), que la page de paiement Fapshi
+ * ne nous rend pas toujours : le canal, lui, est toujours connu.
+ */
+export enum CanalPaiement {
+  /** Payé sur la plateforme, par Fapshi. */
+  EN_LIGNE = 'EN_LIGNE',
+  /** Remis hors plateforme, sur preuve validée par la trésorerie. */
+  HORS_LIGNE = 'HORS_LIGNE',
+  /** Rien à payer : un événement gratuit, par exemple. */
+  GRATUIT = 'GRATUIT',
+}
