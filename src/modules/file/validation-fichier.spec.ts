@@ -187,13 +187,17 @@ describe('validerFichier', () => {
     });
 
     it('range chaque usage dans son propre dossier', () => {
+      // Chaque usage reçoit un fichier du format qu'il attend.
+      const entete = (usage: string): number[] => {
+        if (usage === 'cv') return ENTETES.pdf;
+        if (usage === 'article-video') {
+          return [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70];
+        }
+        return ENTETES.png;
+      };
       const prefixes = Object.keys(USAGES).map(
         (usage) =>
-          validerFichier(
-            usage as Usage,
-            usage === 'cv' ? fichier(ENTETES.pdf) : fichier(ENTETES.png),
-            ADMIN,
-          ).prefixe,
+          validerFichier(usage as Usage, fichier(entete(usage)), ADMIN).prefixe,
       );
 
       expect(new Set(prefixes).size).toBe(prefixes.length);

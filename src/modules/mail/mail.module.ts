@@ -13,10 +13,12 @@ import { transportAvecRepli } from './transports/repli.transport';
  * Trois configurations, choisies selon les variables présentes.
  *
  * **Relais SMTP et clé API** (`MAIL_HOST`, `MAIL_USER`, `MAIL_PASSWORD` et
- * `BREVO_API_KEY`) : le relais SMTP de Brevo d'abord, l'API HTTP en recours.
- * C'est le mode attendu sur le VPS. Seul le SMTP sait incruster une image dans
- * le corps d'un message — le logo du mandat, le QR code d'un billet — et l'API
- * prend le relais si le serveur SMTP ne répond pas.
+ * `BREVO_API_KEY`) : le relais SMTP d'abord — Amazon SES —, l'API HTTP de
+ * Brevo en recours. C'est le mode attendu sur le VPS. Seul le SMTP sait
+ * incruster une image dans le corps d'un message — le logo du mandat, le QR
+ * code d'un billet — et l'API prend le relais si le serveur SMTP ne répond pas.
+ * Le code ne connaît pas le fournisseur du relais : tout serveur SMTP
+ * authentifié convient, seul le recours est propre à Brevo.
  *
  * **Clé API seule** : l'API HTTP, sans images incrustées. C'était le mode de
  * l'hébergeur précédent, qui filtrait les ports SMTP sortants.
@@ -59,7 +61,7 @@ import { transportAvecRepli } from './transports/repli.transport';
         if (cleApi && hote && user && pass) {
           transport = transportAvecRepli({
             // `secure: false` sur le port 587 n'est pas du texte en clair :
-            // nodemailer y négocie STARTTLS, et Brevo l'exige.
+            // nodemailer y négocie STARTTLS, et Amazon SES l'exige.
             // eslint-disable-next-line sonarjs/no-clear-text-protocols
             principal: createTransport(smtp()),
             repli: transportBrevoApi({ cleApi }),
