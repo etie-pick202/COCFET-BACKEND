@@ -1,16 +1,22 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
+  IsBoolean,
   IsDateString,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/pagination';
-import { StatutArticle } from '../entities/article.entity';
+import { AudienceArticle, StatutArticle } from '../entities/article.entity';
 
 export class CreerArticleDto {
   @ApiProperty({ example: 'Retour sur le gala des finissants' })
@@ -41,7 +47,28 @@ export class CreerArticleDto {
   @IsOptional()
   imageCouverture?: string;
 
-  @ApiPropertyOptional({ example: 'Vie du campus' })
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Clé d’une vidéo déposée par POST /fichiers/video. Couverture animée : ' +
+      'elle se lance au survol dans la liste, et en boucle dans l’article. ' +
+      'Null pour la retirer.',
+  })
+  @ValidateIf((_, valeur) => valeur !== null && valeur !== undefined)
+  @IsString()
+  @MaxLength(300)
+  @Matches(/^videos\/[A-Za-z0-9._-]+$/, {
+    message: 'La clé doit désigner une vidéo déposée dans « videos/ ».',
+  })
+  @IsOptional()
+  couvertureVideo?: string | null;
+
+  @ApiPropertyOptional({
+    example: 'Vie du campus',
+    description:
+      'Normalisée à l’écriture : « sport » et « Sport » ne font qu’une ' +
+      'catégorie, et l’orthographe déjà utilisée est reprise.',
+  })
   @IsString()
   @MaxLength(80)
   @IsOptional()
@@ -53,6 +80,46 @@ export class CreerArticleDto {
   @IsUUID()
   @IsOptional()
   evenementId?: string;
+
+  @ApiPropertyOptional({
+    enum: AudienceArticle,
+    default: AudienceArticle.TOUS,
+    description:
+      'À qui annoncer la parution. L’article reste lisible par tous : seule ' +
+      'la notification est ciblée.',
+  })
+  @IsEnum(AudienceArticle)
+  @IsOptional()
+  audience?: AudienceArticle;
+
+  @ApiPropertyOptional({
+    example: 2027,
+    description: 'Promotion visée, obligatoire pour l’audience PROMOTION.',
+  })
+  @IsInt()
+  @Min(1990)
+  @Max(2100)
+  @IsOptional()
+  audiencePromotion?: number;
+
+  @ApiPropertyOptional({
+    default: true,
+    description: 'Les lecteurs connectés peuvent commenter.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  commentairesActifs?: boolean;
+}
+
+export class PublierCommentaireDto {
+  @ApiProperty({ example: 'Merci pour ce beau récapitulatif !' })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1000)
+  contenu: string;
 }
 
 /**

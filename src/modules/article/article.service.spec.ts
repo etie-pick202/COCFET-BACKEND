@@ -4,8 +4,13 @@ import { Role } from '../../common/enums/role.enum';
 import { NotificationService } from '../notification/notification.service';
 import { ArticleService } from './article.service';
 import { FiltreArticleDto } from './dto/article.dto';
-import { Article, StatutArticle } from './entities/article.entity';
+import {
+  Article,
+  AudienceArticle,
+  StatutArticle,
+} from './entities/article.entity';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import type { Stockage } from '../file/ports/stockage';
 
 const HIER = new Date(Date.now() - 86_400_000);
 const DEMAIN = new Date(Date.now() + 86_400_000);
@@ -14,6 +19,7 @@ const DEMAIN = new Date(Date.now() + 86_400_000);
 interface ConstructeurFactice {
   leftJoinAndSelect: jest.Mock;
   select: jest.Mock;
+  groupBy: jest.Mock;
   andWhere: jest.Mock;
   orderBy: jest.Mock;
   skip: jest.Mock;
@@ -26,6 +32,7 @@ interface ConstructeurFactice {
 const CHAINABLES = [
   'leftJoinAndSelect',
   'select',
+  'groupBy',
   'orderBy',
   'skip',
   'take',
@@ -67,6 +74,7 @@ describe('ArticleService', () => {
     const faux: ConstructeurFactice = {
       leftJoinAndSelect: jest.fn(),
       select: jest.fn(),
+      groupBy: jest.fn(),
       andWhere: jest.fn(),
       orderBy: jest.fn(),
       skip: jest.fn(),
@@ -89,6 +97,8 @@ describe('ArticleService', () => {
 
     return faux;
   };
+
+  const stockage = { urlSignee: jest.fn().mockResolvedValue('https://cdn/x') };
 
   const nettoyage = {
     remplacer: jest.fn().mockResolvedValue(undefined),
@@ -126,6 +136,7 @@ describe('ArticleService', () => {
       articles as unknown as Repository<Article>,
       { diffuser } as unknown as NotificationService,
       nettoyage as unknown as NettoyageFichiers,
+      stockage as unknown as Stockage,
     );
   });
 
@@ -404,7 +415,250 @@ describe('ArticleService', () => {
 
       await service.supprimer('un-id');
 
-      expect(nettoyage.retirer).toHaveBeenCalledWith('articles/couverture.png');
+      expect(nettoyage.retirer).toHaveBeenCalledWith(
+        'articles/couverture.png',
+        undefined,
+      );
+    });
+
+    it('emporte aussi la vidéo de couverture et les médias du texte', async () => {
+      articles.findOne.mockResolvedValue(
+        article({
+          statut: StatutArticle.BROUILLON,
+          couvertureVideo: 'videos/recap.mp4',
+          contenu: 'Photos : ![a](articles/a.png) et ![b](videos/b.mp4)',
+        }),
+      );
+
+      await service.supprimer('un-id');
+
+      expect(nettoyage.retirer).toHaveBeenCalledWith(
+        undefined,
+        'videos/recap.mp4',
+        'articles/a.png',
+        'videos/b.mp4',
+      );
+    });
+  });
+
+  describe('médias du texte', () => {
+    it('retire du stockage un média que le texte ne cite plus', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ contenu: '![a](articles/a.png) ![b](articles/b.png)' }),
+      );
+
+      await service.mettreAJour('un-id', {
+        contenu: '![b](articles/b.png) fin',
+      });
+
+      expect(nettoyage.retirer).toHaveBeenCalledWith('articles/a.png');
+    });
+
+    it('ne touche à rien quand le texte n’est pas modifié', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ contenu: '![a](articles/a.png)' }),
+      );
+      nettoyage.retirer.mockClear();
+
+      await service.mettreAJour('un-id', { titre: 'Un autre titre' });
+
+      expect(nettoyage.retirer).not.toHaveBeenCalled();
+    });
+
+    it('garde un média qui sert aussi de couverture', async () => {
+      articles.findOne.mockResolvedValue(
+        article({
+          imageCouverture: 'articles/a.png',
+          contenu: '![a](articles/a.png)',
+        }),
+      );
+      nettoyage.retirer.mockClear();
+
+      await service.mettreAJour('un-id', { contenu: 'Plus de média ici.' });
+
+      expect(nettoyage.retirer).not.toHaveBeenCalled();
+    });
+
+    it('remplace la vidéo de couverture', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ couvertureVideo: 'videos/avant.mp4' }),
+      );
+
+      await service.mettreAJour('un-id', {
+        couvertureVideo: 'videos/apres.mp4',
+      });
+
+      expect(nettoyage.remplacer).toHaveBeenCalledWith(
+        'videos/avant.mp4',
+        'videos/apres.mp4',
+      );
+    });
+  });
+
+  describe('catégories', () => {
+    it('reprend l’orthographe d’une catégorie déjà utilisée', async () => {
+      const faux = constructeur();
+      faux.getRawMany.mockResolvedValue([{ categorie: 'Vie du campus' }]);
+      articles.createQueryBuilder.mockReturnValue(faux);
+
+      await service.creer(
+        {
+          titre: 'Un titre',
+          contenu: 'Un contenu assez long.',
+          categorie: 'vie du  CAMPUS ',
+        },
+        'auteur-1',
+      );
+
+      expect(articles.create).toHaveBeenCalledWith(
+        expect.objectContaining({ categorie: 'Vie du campus' }),
+      );
+    });
+
+    it('met une majuscule à une catégorie nouvelle', async () => {
+      await service.creer(
+        {
+          titre: 'Un titre',
+          contenu: 'Un contenu assez long.',
+          categorie: 'sport',
+        },
+        'auteur-1',
+      );
+
+      expect(articles.create).toHaveBeenCalledWith(
+        expect.objectContaining({ categorie: 'Sport' }),
+      );
+    });
+
+    it('ne compte qu’une fois une catégorie écrite de deux façons', async () => {
+      const faux = constructeur();
+      faux.getRawMany.mockResolvedValue([{ categorie: 'Sport' }]);
+      articles.createQueryBuilder.mockReturnValue(faux);
+
+      await expect(service.categories()).resolves.toEqual(['Sport']);
+      expect(faux.groupBy).toHaveBeenCalledWith('LOWER(a.categorie)');
+    });
+
+    it('filtre sans égard à la casse', async () => {
+      await service.lister({ categorie: 'sport' } as FiltreArticleDto);
+
+      expect(conditions).toContain('LOWER(a.categorie) = LOWER(:categorie)');
+    });
+  });
+
+  describe('audience de l’annonce', () => {
+    const publier = (surcharge: Partial<Article>) => {
+      articles.findOne.mockResolvedValue(
+        article({
+          statut: StatutArticle.BROUILLON,
+          publishedAt: null,
+          annonceLe: null,
+          ...surcharge,
+        }),
+      );
+      return service.publier('un-id');
+    };
+
+    it('annonce à tous par défaut', async () => {
+      await publier({ audience: AudienceArticle.TOUS });
+
+      expect(diffuser).toHaveBeenCalledWith(
+        expect.not.objectContaining({ finissantsSeulement: true }),
+      );
+    });
+
+    it('cible les finissants', async () => {
+      await publier({ audience: AudienceArticle.FINISSANTS });
+
+      expect(diffuser).toHaveBeenCalledWith(
+        expect.objectContaining({ finissantsSeulement: true }),
+      );
+    });
+
+    it('cible une promotion', async () => {
+      await publier({
+        audience: AudienceArticle.PROMOTION,
+        audiencePromotion: 2027,
+      });
+
+      expect(diffuser).toHaveBeenCalledWith(
+        expect.objectContaining({ promotion: 2027 }),
+      );
+    });
+
+    it('fait paraître sans rien annoncer', async () => {
+      await publier({ audience: AudienceArticle.AUCUNE });
+
+      expect(diffuser).not.toHaveBeenCalled();
+    });
+
+    it('exige la promotion visée pour une annonce ciblée', async () => {
+      await expect(
+        service.creer(
+          {
+            titre: 'Un titre',
+            contenu: 'Un contenu assez long.',
+            audience: AudienceArticle.PROMOTION,
+          },
+          'auteur-1',
+        ),
+      ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('consultations et aperçu', () => {
+    /** Constructeur de mise à jour, qui rend `affected` lignes touchées. */
+    const miseAJour = (affected: number) => {
+      const faux = {
+        update: jest.fn(),
+        set: jest.fn(),
+        where: jest.fn(),
+        andWhere: jest.fn(),
+        execute: jest.fn().mockResolvedValue({ affected }),
+      };
+      faux.update.mockReturnValue(faux);
+      faux.set.mockReturnValue(faux);
+      faux.where.mockReturnValue(faux);
+      faux.andWhere.mockReturnValue(faux);
+      return faux;
+    };
+
+    it('compte une consultation d’un article paru', async () => {
+      const faux = miseAJour(1);
+      articles.createQueryBuilder.mockReturnValue(
+        faux as unknown as ConstructeurFactice,
+      );
+
+      await expect(service.enregistrerVue('un-id')).resolves.toBeUndefined();
+      expect(faux.set).toHaveBeenCalledWith({
+        vues: expect.any(Function) as unknown,
+      });
+    });
+
+    it('ne compte pas un article non paru', async () => {
+      articles.createQueryBuilder.mockReturnValue(
+        miseAJour(0) as unknown as ConstructeurFactice,
+      );
+
+      await expect(service.enregistrerVue('un-id')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('donne une adresse stable à la couverture', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ imageCouverture: 'articles/c.png' }),
+      );
+
+      await expect(service.urlCouverture('un-slug')).resolves.toBe(
+        'https://cdn/x',
+      );
+    });
+
+    it('rend null pour un article sans image', async () => {
+      articles.findOne.mockResolvedValue(article({ imageCouverture: null }));
+
+      await expect(service.urlCouverture('un-slug')).resolves.toBeNull();
     });
   });
 });

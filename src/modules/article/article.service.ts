@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -16,9 +17,17 @@ import {
   FiltreArticleDto,
   MettreAJourArticleDto,
 } from './dto/article.dto';
-import { Article, StatutArticle } from './entities/article.entity';
+import {
+  Article,
+  AudienceArticle,
+  StatutArticle,
+} from './entities/article.entity';
 import { slugLibre } from './slug';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import type { Stockage } from '../file/ports/stockage';
+import { STOCKAGE } from '../file/ports/stockage';
+import { normaliserCategorie } from './categorie';
+import { clesDeMedias, mediasRetires } from './medias';
 
 const TRIS_AUTORISES = ['publishedAt', 'createdAt', 'titre'] as const;
 
@@ -37,6 +46,7 @@ export class ArticleService {
     private readonly articles: Repository<Article>,
     private readonly notificationService: NotificationService,
     private readonly nettoyage: NettoyageFichiers,
+    @Inject(STOCKAGE) private readonly stockage: Stockage,
   ) {}
 
   // ─────────────────────────────  Lecture  ──────────────────────────────
@@ -75,7 +85,8 @@ export class ArticleService {
     }
 
     if (filtre.categorie) {
-      requete.andWhere('a.categorie = :categorie', {
+      // Sans égard à la casse : « sport » et « Sport » ne sont qu'une catégorie.
+      requete.andWhere('LOWER(a.categorie) = LOWER(:categorie)', {
         categorie: filtre.categorie,
       });
     }
@@ -106,10 +117,13 @@ export class ArticleService {
 
   /** Les catégories réellement utilisées par des articles parus. */
   async categories(): Promise<string[]> {
+    // Une seule entrée par catégorie, quelle que soit la casse des articles
+    // plus anciens que la normalisation.
     const requete = this.articles
       .createQueryBuilder('a')
-      .select('DISTINCT a.categorie', 'categorie')
-      .andWhere('a.categorie IS NOT NULL');
+      .select('MIN(a.categorie)', 'categorie')
+      .andWhere('a.categorie IS NOT NULL')
+      .groupBy('LOWER(a.categorie)');
 
     this.restreindreAuxParus(requete);
 
@@ -138,10 +152,12 @@ export class ArticleService {
 
   async creer(dto: CreerArticleDto, auteurId: string): Promise<Article> {
     const { evenementId, ...reste } = dto;
+    this.verifierAudience(dto.audience, dto.audiencePromotion);
 
     const article = await this.articles.save(
       this.articles.create({
         ...reste,
+        categorie: await this.categorieNormalisee(dto.categorie),
         slug: await this.slugPour(dto.titre),
         extrait: dto.extrait ?? this.extraitDeduit(dto.contenu),
         auteur: { id: auteurId },
@@ -164,14 +180,35 @@ export class ArticleService {
   async mettreAJour(id: string, dto: MettreAJourArticleDto): Promise<Article> {
     const avant = await this.trouver(id, { role: Role.ADMIN });
 
-    const { evenementId, ...reste } = dto;
+    const { evenementId, categorie, ...reste } = dto;
+    this.verifierAudience(
+      dto.audience ?? avant.audience,
+      dto.audiencePromotion ?? avant.audiencePromotion ?? undefined,
+    );
 
     await this.articles.update(id, {
       ...reste,
+      ...(categorie !== undefined
+        ? { categorie: await this.categorieNormalisee(categorie) }
+        : {}),
       ...(evenementId !== undefined ? { evenement: { id: evenementId } } : {}),
     });
 
     await this.nettoyage.remplacer(avant.imageCouverture, dto.imageCouverture);
+    await this.nettoyage.remplacer(avant.couvertureVideo, dto.couvertureVideo);
+
+    // Un média retiré du texte ne sert plus à rien : il quitte le stockage.
+    if (dto.contenu !== undefined) {
+      const couvertures = new Set(
+        [avant.imageCouverture, avant.couvertureVideo].filter(Boolean),
+      );
+      const retires = mediasRetires(avant.contenu, dto.contenu).filter(
+        (cle) => !couvertures.has(cle),
+      );
+      if (retires.length > 0) {
+        await this.nettoyage.retirer(...retires);
+      }
+    }
 
     return this.trouver(id, { role: Role.ADMIN });
   }
@@ -273,7 +310,47 @@ export class ArticleService {
 
     await this.articles.delete(id);
 
-    await this.nettoyage.retirer(article.imageCouverture);
+    await this.nettoyage.retirer(
+      article.imageCouverture,
+      article.couvertureVideo,
+      ...clesDeMedias(article.contenu),
+    );
+  }
+
+  /**
+   * Compte une consultation.
+   *
+   * Seul un article paru se compte : un brouillon consulté par la rédaction
+   * n'est pas une lecture. L'incrément est fait par la base — deux lecteurs
+   * simultanés ne s'écrasent pas.
+   */
+  async enregistrerVue(id: string): Promise<void> {
+    const resultat = await this.articles
+      .createQueryBuilder()
+      .update(Article)
+      .set({ vues: () => 'vues + 1' })
+      .where('id = :id', { id })
+      .andWhere('statut = :publie', { publie: StatutArticle.PUBLIE })
+      .andWhere('published_at IS NOT NULL')
+      .andWhere('published_at <= :maintenant', { maintenant: new Date() })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      throw new NotFoundException("Cet article n'existe pas.");
+    }
+  }
+
+  /**
+   * Adresse de l'image de couverture d'un article paru, pour les aperçus de
+   * partage (WhatsApp, Facebook…) : leurs robots lisent une adresse stable,
+   * pas une URL signée qui expire. `null` sans image.
+   */
+  async urlCouverture(slug: string): Promise<string | null> {
+    const article = await this.trouverParSlug(slug);
+
+    return article.imageCouverture
+      ? this.stockage.urlSignee(article.imageCouverture, 3600)
+      : null;
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
@@ -317,6 +394,33 @@ export class ArticleService {
     return article;
   }
 
+  /** La catégorie à enregistrer, alignée sur celles qui existent déjà. */
+  private async categorieNormalisee(
+    saisie: string | undefined,
+  ): Promise<string | null> {
+    const lignes = await this.articles
+      .createQueryBuilder('a')
+      .select('DISTINCT a.categorie', 'categorie')
+      .andWhere('a.categorie IS NOT NULL')
+      .getRawMany<{ categorie: string }>();
+
+    return normaliserCategorie(
+      saisie,
+      lignes.map((ligne) => ligne.categorie),
+    );
+  }
+
+  private verifierAudience(
+    audience: AudienceArticle | undefined,
+    promotion: number | undefined,
+  ): void {
+    if (audience === AudienceArticle.PROMOTION && promotion === undefined) {
+      throw new BadRequestException(
+        'Indiquez la promotion visée pour une annonce ciblée.',
+      );
+    }
+  }
+
   private slugPour(titre: string): Promise<string> {
     return slugLibre(
       titre,
@@ -356,11 +460,24 @@ export class ArticleService {
       return;
     }
 
+    // L'article reste lisible par tous ; seule l'annonce est ciblée.
+    if (article.audience === AudienceArticle.AUCUNE) {
+      this.logger.log(`Article paru sans annonce : ${article.titre}`);
+      return;
+    }
+
     await this.notificationService.diffuser({
       type: TypeNotification.ARTICLE,
       titre: `Nouvel article : ${article.titre}`,
       message: article.extrait ?? article.titre,
       lien: `/actualites/${article.slug}`,
+      ...(article.audience === AudienceArticle.FINISSANTS
+        ? { finissantsSeulement: true }
+        : {}),
+      ...(article.audience === AudienceArticle.PROMOTION &&
+      article.audiencePromotion !== null
+        ? { promotion: article.audiencePromotion }
+        : {}),
     });
 
     this.logger.log(`Article annoncé : ${article.titre}`);
