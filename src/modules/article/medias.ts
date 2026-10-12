@@ -13,7 +13,14 @@
 /** Une clé de média d'article : images dans « articles/ », vidéos dans « videos/ ». */
 const CLE_MEDIA = /^(?:articles|videos)\/[A-Za-z0-9._-]+$/;
 
-const IMAGE_MARKDOWN = /!\[[^\]]*\]\(([^)\s]+)\)/g;
+/**
+ * Longueur maximale d'une légende ou d'une clé lue dans le texte.
+ *
+ * Borne le travail par média : le texte est saisi par un utilisateur, et une
+ * expression régulière sur 50 000 caractères de « ![![![… » s'exécuterait en
+ * temps quadratique. Une lecture à la main, bornée, reste linéaire.
+ */
+const LONGUEUR_MAX = 300;
 
 /** Les clés de média citées par un texte, sans doublon et dans l'ordre. */
 export function clesDeMedias(contenu: string | null | undefined): string[] {
@@ -22,10 +29,36 @@ export function clesDeMedias(contenu: string | null | undefined): string[] {
   }
 
   const cles = new Set<string>();
-  for (const [, cible] of contenu.matchAll(IMAGE_MARKDOWN)) {
+  let position = 0;
+
+  // Forme cherchée : ![légende](clé)
+  while ((position = contenu.indexOf('![', position)) !== -1) {
+    const debutLegende = position + 2;
+    const legende = contenu.slice(
+      debutLegende,
+      debutLegende + LONGUEUR_MAX + 1,
+    );
+    const fermeture = legende.indexOf('](');
+
+    if (fermeture === -1 || legende.slice(0, fermeture).includes(']')) {
+      position = debutLegende;
+      continue;
+    }
+
+    const debutCible = debutLegende + fermeture + 2;
+    const reste = contenu.slice(debutCible, debutCible + LONGUEUR_MAX + 1);
+    const fin = reste.indexOf(')');
+
+    if (fin === -1) {
+      position = debutCible;
+      continue;
+    }
+
+    const cible = reste.slice(0, fin);
     if (CLE_MEDIA.test(cible)) {
       cles.add(cible);
     }
+    position = debutCible + fin + 1;
   }
 
   return [...cles];

@@ -188,10 +188,10 @@ describe('validerFichier', () => {
 
     it('range chaque usage dans son propre dossier', () => {
       // Chaque usage reçoit un fichier du format qu'il attend.
-      const entete = (usage: string): Buffer => {
+      const entete = (usage: string): number[] => {
         if (usage === 'cv') return ENTETES.pdf;
         if (usage === 'article-video') {
-          return Buffer.from([0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70]);
+          return [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70];
         }
         return ENTETES.png;
       };

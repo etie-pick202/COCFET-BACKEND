@@ -96,7 +96,12 @@ const PREFIXES_PUBLICS = [
 ] as const;
 
 /** Vrai quand la clé désigne un média de page publique. */
-export function estCleDePagePublique(cle: string): boolean {
+export function estCleDePagePublique(cle: unknown): boolean {
+  // Un paramètre répété (« ?cle=a&cle=b ») arrive en tableau : ce n'est pas une clé.
+  if (typeof cle !== 'string') {
+    return false;
+  }
+
   const [prefixe, ...reste] = cle.split('/');
   return (
     reste.length > 0 &&
@@ -311,7 +316,7 @@ export class FileController {
     @Query('cle') cle: string,
     @Req() requete: Request & { user?: { id: string } },
   ): Promise<UrlSigneeDto> {
-    if (!cle) {
+    if (typeof cle !== 'string' || !cle) {
       throw new BadRequestException('Le paramètre « cle » est requis.');
     }
     if (!requete.user && !estCleDePagePublique(cle)) {

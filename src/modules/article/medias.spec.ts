@@ -20,6 +20,27 @@ describe('clesDeMedias', () => {
     expect(clesDeMedias('[page](articles/a.png)')).toEqual([]);
   });
 
+  it('reste rapide sur un texte pathologique', () => {
+    const debut = Date.now();
+
+    clesDeMedias('![![![]('.repeat(7000));
+    clesDeMedias('![x](' + 'a'.repeat(50_000));
+    clesDeMedias('![' + 'a'.repeat(50_000) + '](articles/a.png)');
+
+    expect(Date.now() - debut).toBeLessThan(1000);
+  });
+
+  it('lit un média placé juste après une légende mal fermée', () => {
+    expect(clesDeMedias('![a ![b](articles/b.png)')).toEqual([
+      'articles/b.png',
+    ]);
+  });
+
+  it('ignore une légende ou une clé démesurée', () => {
+    expect(clesDeMedias(`![${'a'.repeat(400)}](articles/a.png)`)).toEqual([]);
+    expect(clesDeMedias(`![a](articles/${'a'.repeat(400)}.png)`)).toEqual([]);
+  });
+
   it('supporte un texte absent', () => {
     expect(clesDeMedias(null)).toEqual([]);
     expect(clesDeMedias(undefined)).toEqual([]);

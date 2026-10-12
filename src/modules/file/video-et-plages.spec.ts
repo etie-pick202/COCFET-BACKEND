@@ -109,6 +109,11 @@ describe('estCleDePagePublique', () => {
   ])('garde %s derrière une connexion', (cle) => {
     expect(estCleDePagePublique(cle)).toBe(false);
   });
+
+  it('refuse un paramètre répété, qui arrive en tableau', () => {
+    expect(estCleDePagePublique(['articles/a.png', 'cv/cv.pdf'])).toBe(false);
+    expect(estCleDePagePublique(undefined)).toBe(false);
+  });
 });
 
 describe('lirePlage', () => {
