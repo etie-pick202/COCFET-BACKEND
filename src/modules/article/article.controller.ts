@@ -5,12 +5,14 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
   Post,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -22,7 +24,7 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { Role } from '../../common/enums/role.enum';
 import { ResultatPagine } from '../../common/pagination';
 import {
@@ -35,12 +37,16 @@ import { AuthOptionnelle } from '../auth/decorators/auth-optionnelle.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { ArticleService } from './article.service';
+import { ArticleExpose, exposerArticle } from './article-expose';
+import { CommentaireExpose, CommentaireService } from './commentaire.service';
 import {
   CreerArticleDto,
   FiltreArticleDto,
   MettreAJourArticleDto,
   PublierArticleDto,
+  PublierCommentaireDto,
 } from './dto/article.dto';
+import { PaginationDto } from '../../common/pagination';
 import { Article } from './entities/article.entity';
 
 /** La stratégie JWT pose l'utilisateur ; il est absent sur une route optionnelle. */
@@ -51,7 +57,10 @@ type Requete = Request & { user?: { id: string; role: Role } };
 @ApiErreurValidation()
 @Controller('articles')
 export class ArticleController {
-  constructor(private readonly articleService: ArticleService) {}
+  constructor(
+    private readonly articleService: ArticleService,
+    private readonly commentaireService: CommentaireService,
+  ) {}
 
   @AuthOptionnelle()
   @Get()
@@ -63,11 +72,12 @@ export class ArticleController {
       'n’est pas venue. Seul un administrateur peut demander les autres.',
   })
   @ApiReponsePaginee(Article, 'Page d’actualités.')
-  lister(
+  async lister(
     @Query() filtre: FiltreArticleDto,
     @Req() requete: Requete,
-  ): Promise<ResultatPagine<Article>> {
-    return this.articleService.lister(filtre, requete.user);
+  ): Promise<ResultatPagine<ArticleExpose>> {
+    const page = await this.articleService.lister(filtre, requete.user);
+    return { ...page, donnees: page.donnees.map(exposerArticle) };
   }
 
   @Public()
@@ -98,11 +108,129 @@ export class ArticleController {
     description: 'Article inexistant ou non paru.',
     type: ReponseErreurDto,
   })
-  consulterParSlug(
+  async consulterParSlug(
     @Param('slug') slug: string,
     @Req() requete: Requete,
-  ): Promise<Article> {
-    return this.articleService.trouverParSlug(slug, requete.user);
+  ): Promise<ArticleExpose> {
+    return exposerArticle(
+      await this.articleService.trouverParSlug(slug, requete.user),
+    );
+  }
+
+  @Public()
+  @Get('slug/:slug/couverture')
+  @ApiOperation({
+    summary: 'Image de couverture d’un article, à adresse stable',
+    description:
+      'Redirige vers l’image de couverture. Sert aux aperçus de partage : ' +
+      'les robots des réseaux sociaux lisent une adresse qui ne change pas, ' +
+      'alors que l’URL signée du stockage expire.',
+  })
+  @ApiNotFoundResponse({
+    description: 'Article inconnu, non paru, ou sans image.',
+    type: ReponseErreurDto,
+  })
+  async couverture(
+    @Param('slug') slug: string,
+    @Res() reponse: Response,
+  ): Promise<void> {
+    const url = await this.articleService.urlCouverture(slug);
+    if (!url) {
+      throw new NotFoundException('Cet article n’a pas d’image de couverture.');
+    }
+    reponse.redirect(HttpStatus.FOUND, url);
+  }
+
+  @Public()
+  @Post(':id/vue')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Compter une consultation',
+    description:
+      'Appelée une fois par visite par la page de l’article. Sans effet sur ' +
+      'un article non paru.',
+  })
+  @ApiNoContentResponse({ description: 'Consultation comptée.' })
+  @ApiNotFoundResponse({
+    description: 'Article inexistant ou non paru.',
+    type: ReponseErreurDto,
+  })
+  enregistrerVue(@Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    return this.articleService.enregistrerVue(id);
+  }
+
+  // ───────────────────────────  Commentaires  ───────────────────────────
+
+  @AuthOptionnelle()
+  @Get(':id/commentaires')
+  @ApiOperation({
+    summary: 'Commentaires d’une actualité',
+    description:
+      'Ouvert à tous. Les commentaires masqués par la modération ne sont ' +
+      'visibles que de l’administration.',
+  })
+  @ApiOkResponse({ description: 'Page de commentaires.' })
+  commentaires(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() pagination: PaginationDto,
+    @Req() requete: Requete,
+  ): Promise<ResultatPagine<CommentaireExpose>> {
+    return this.commentaireService.lister(id, pagination, requete.user);
+  }
+
+  @ApiBearerAuth()
+  @Post(':id/commentaires')
+  @ApiOperation({
+    summary: 'Commenter une actualité',
+    description:
+      'Réservé aux comptes connectés. Refusé si les commentaires sont ' +
+      'fermés sur l’article, ou si la personne commente trop vite.',
+  })
+  @ApiCreatedResponse({ description: 'Le commentaire publié.' })
+  @ApiResponse({
+    status: 429,
+    description: 'Trop de commentaires en peu de temps.',
+    type: ReponseErreurDto,
+  })
+  commenter(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PublierCommentaireDto,
+    @Req() requete: Requete,
+  ): Promise<CommentaireExpose> {
+    return this.commentaireService.publier(requete.user!.id, id, dto.contenu);
+  }
+
+  @ApiBearerAuth()
+  @Delete('commentaires/:commentaireId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Supprimer un commentaire',
+    description: 'Son auteur, ou l’administration.',
+  })
+  @ApiNoContentResponse({ description: 'Commentaire supprimé.' })
+  supprimerCommentaire(
+    @Param('commentaireId', ParseUUIDPipe) commentaireId: string,
+    @Req() requete: Requete,
+  ): Promise<void> {
+    return this.commentaireService.supprimer(commentaireId, requete.user!);
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post('commentaires/:commentaireId/masquer')
+  @ApiOperation({
+    summary: 'Masquer ou rétablir un commentaire',
+    description: 'Le commentaire disparaît de la page sans être effacé.',
+  })
+  @ApiOkResponse({ description: 'Le commentaire modéré.' })
+  masquerCommentaire(
+    @Param('commentaireId', ParseUUIDPipe) commentaireId: string,
+    @Body() corps: { masque?: boolean },
+  ): Promise<CommentaireExpose> {
+    return this.commentaireService.masquer(
+      commentaireId,
+      corps?.masque !== false,
+    );
   }
 
   @AuthOptionnelle()
@@ -113,11 +241,11 @@ export class ArticleController {
     description: 'Article inexistant ou non paru.',
     type: ReponseErreurDto,
   })
-  consulter(
+  async consulter(
     @Param('id', ParseUUIDPipe) id: string,
     @Req() requete: Requete,
-  ): Promise<Article> {
-    return this.articleService.trouver(id, requete.user);
+  ): Promise<ArticleExpose> {
+    return exposerArticle(await this.articleService.trouver(id, requete.user));
   }
 
   @ApiBearerAuth()
@@ -130,13 +258,15 @@ export class ArticleController {
       'L’extrait est déduit du contenu s’il est omis, et le slug du titre.',
   })
   @ApiCreatedResponse({ description: 'L’article créé.', type: Article })
-  creer(
+  async creer(
     @Body() dto: CreerArticleDto,
     @Req() requete: Requete,
-  ): Promise<Article> {
+  ): Promise<ArticleExpose> {
     // L'auteur est celui qui rédige, jamais un identifiant reçu du client :
     // sans cela, n'importe quel administrateur pourrait signer au nom d'un autre.
-    return this.articleService.creer(dto, requete.user!.id);
+    return exposerArticle(
+      await this.articleService.creer(dto, requete.user!.id),
+    );
   }
 
   @ApiBearerAuth()
@@ -153,11 +283,11 @@ export class ArticleController {
     description: 'Article inconnu.',
     type: ReponseErreurDto,
   })
-  mettreAJour(
+  async mettreAJour(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: MettreAJourArticleDto,
-  ): Promise<Article> {
-    return this.articleService.mettreAJour(id, dto);
+  ): Promise<ArticleExpose> {
+    return exposerArticle(await this.articleService.mettreAJour(id, dto));
   }
 
   @ApiBearerAuth()
@@ -184,11 +314,11 @@ export class ArticleController {
     description: 'Article inconnu.',
     type: ReponseErreurDto,
   })
-  publier(
+  async publier(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: PublierArticleDto,
-  ): Promise<Article> {
-    return this.articleService.publier(id, dto.le);
+  ): Promise<ArticleExpose> {
+    return exposerArticle(await this.articleService.publier(id, dto.le));
   }
 
   @ApiBearerAuth()
@@ -200,8 +330,10 @@ export class ArticleController {
     description: 'Article inconnu.',
     type: ReponseErreurDto,
   })
-  archiver(@Param('id', ParseUUIDPipe) id: string): Promise<Article> {
-    return this.articleService.archiver(id);
+  async archiver(
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<ArticleExpose> {
+    return exposerArticle(await this.articleService.archiver(id));
   }
 
   @ApiBearerAuth()

@@ -47,6 +47,24 @@ export const USAGES = {
     mimesAutorises: null,
   },
   /**
+   * Vidéo d'une actualité : couverture (le montage récapitulatif d'un
+   * événement) ou média du corps de l'article.
+   *
+   * Rangée sous « videos/ » : un dossier à part, comme « logos/ », pour qu'on
+   * puisse en régler la durée de conservation ou le cache sans toucher aux
+   * images. **MP4, QuickTime ou WebM seulement.** Le plafond est celui d'un
+   * envoi tenu en mémoire par le serveur : au-delà, il faut compresser la
+   * vidéo avant de la déposer (720p suffit largement pour un écran de
+   * téléphone).
+   */
+  'article-video': {
+    prefixe: 'videos',
+    tailleMax: 40 * 1024 * 1024,
+    types: ['video'],
+    roles: [Role.ADMIN],
+    mimesAutorises: null,
+  },
+  /**
    * Logo du mandat, celui qui habille la plateforme.
    *
    * **PNG ou JPEG seulement**, alors que les autres visuels acceptent aussi
@@ -105,7 +123,10 @@ export type Usage = keyof typeof USAGES;
  * `image/png` passerait toute vérification fondée sur ce seul champ. Les
  * premiers octets, eux, ne se renomment pas.
  */
-const SIGNATURES: Record<string, { octets: number[]; mime: string }[]> = {
+const SIGNATURES: Record<
+  string,
+  { octets: number[]; mime: string; decalage?: number }[]
+> = {
   image: [
     { octets: [0x89, 0x50, 0x4e, 0x47], mime: 'image/png' },
     { octets: [0xff, 0xd8, 0xff], mime: 'image/jpeg' },
@@ -115,7 +136,17 @@ const SIGNATURES: Record<string, { octets: number[]; mime: string }[]> = {
     { octets: [0x52, 0x49, 0x46, 0x46], mime: 'image/webp' },
   ],
   pdf: [{ octets: [0x25, 0x50, 0x44, 0x46], mime: 'application/pdf' }],
+  video: [
+    // MP4 et QuickTime : « ftyp » à l'octet 4, la marque (« qt  » pour
+    // QuickTime) à l'octet 8.
+    { octets: [0x66, 0x74, 0x79, 0x70], mime: 'video/mp4', decalage: 4 },
+    // WebM (Matroska) : l'en-tête EBML.
+    { octets: [0x1a, 0x45, 0xdf, 0xa3], mime: 'video/webm' },
+  ],
 };
+
+/** Taille maximale d'une vidéo d'actualité, en octets. */
+export const TAILLE_VIDEO_MAX = USAGES['article-video'].tailleMax;
 
 export interface FichierValide {
   prefixe: string;
@@ -192,9 +223,16 @@ function detecterType(
   familles: readonly string[],
 ): string | null {
   for (const famille of familles) {
-    for (const { octets, mime } of SIGNATURES[famille] ?? []) {
-      if (!octets.every((o, i) => contenu[i] === o)) {
+    for (const { octets, mime, decalage = 0 } of SIGNATURES[famille] ?? []) {
+      if (!octets.every((o, i) => contenu[i + decalage] === o)) {
         continue;
+      }
+      // Un fichier QuickTime partage la signature « ftyp » du MP4.
+      if (
+        mime === 'video/mp4' &&
+        contenu.subarray(8, 12).toString() === 'qt  '
+      ) {
+        return 'video/quicktime';
       }
       // RIFF seul ne suffit pas : il couvre aussi WAV et AVI.
       if (
