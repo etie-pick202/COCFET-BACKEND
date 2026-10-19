@@ -136,4 +136,36 @@ export class JustificatifPaiement extends BaseEntity {
   @JoinColumn({ name: 'recu_par_id' })
   @ApiProperty({ type: () => User, nullable: true })
   recuPar: User | null;
+
+  /**
+   * Qui a défait la dernière validation.
+   *
+   * Défaire une validation remet la preuve **en attente** : la décision
+   * précédente disparaît de la ligne, mais pas son souvenir. Ces champs, et le
+   * journal d'activité, disent qu'elle a eu lieu, par qui, quand et pourquoi.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'validation_annulee_par_id' })
+  @ApiProperty({ type: () => User, nullable: true })
+  validationAnnuleePar: User | null;
+
+  @Column({
+    name: 'validation_annulee_le',
+    type: 'timestamptz',
+    nullable: true,
+  })
+  @ApiProperty({ nullable: true, format: 'date-time' })
+  validationAnnuleeLe: Date | null;
+
+  @Column({ name: 'motif_annulation', type: 'varchar', nullable: true })
+  @ApiProperty({
+    nullable: true,
+    description: 'Pourquoi la dernière validation a été défaite.',
+  })
+  motifAnnulation: string | null;
+
+  /** Combien de fois une validation de cette preuve a été défaite. */
+  @Column({ type: 'int', default: 0 })
+  @ApiProperty()
+  annulations: number;
 }

@@ -93,6 +93,33 @@ export class TransactionService {
   }
 
   /**
+   * Remet en attente un paiement reconnu à la main par erreur.
+   *
+   * Inverse de `appliquer(COMPLETE)` et de `certifier` : le statut redevient
+   * « en attente » et le montant celui que la personne avait annoncé.
+   *
+   * **Ne se décide pas ici si Fapshi a lui-même confirmé le paiement** : c'est
+   * à l'appelant de le vérifier auprès du prestataire avant. Une commande
+   * lancée en ligne puis justifiée par une preuve porte une référence
+   * prestataire sans avoir été payée par Fapshi.
+   *
+   * Renvoie `false` quand rien n'a changé : déjà rouvert.
+   */
+  async rouvrir(reference: string, montant: number): Promise<boolean> {
+    const resultat = await this.transactions
+      .createQueryBuilder()
+      .update(Transaction)
+      .set({ statut: StatutPaiement.EN_ATTENTE, montant })
+      .where('reference = :reference AND statut = :complete', {
+        reference,
+        complete: StatutPaiement.COMPLETE,
+      })
+      .execute();
+
+    return resultat.affected === 1;
+  }
+
+  /**
    * Fixe ce qui a réellement été reçu pour un paiement reconnu à la main.
    *
    * Un justificatif validé n'est pas passé par le prestataire : rien n'a été

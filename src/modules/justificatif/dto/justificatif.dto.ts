@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsEnum,
   IsInt,
@@ -139,4 +139,29 @@ export class ValiderJustificatifDto {
   @IsUUID()
   @IsOptional()
   recuParId?: string;
+}
+
+/**
+ * Pourquoi la trésorerie défait une validation.
+ *
+ * Obligatoire et assez long pour dire quelque chose : une validation annulée
+ * touche un solde, parfois un billet ou une commande, et ceux qui la reliront
+ * dans le journal doivent comprendre ce qui s'est passé.
+ */
+export class AnnulerValidationDto {
+  @ApiProperty({
+    example:
+      'Mauvaise pièce validée : le virement appartenait à un autre membre.',
+    minLength: 10,
+    maxLength: 300,
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(10, {
+    message: 'Expliquez pourquoi en quelques mots (10 caractères au moins).',
+  })
+  @MaxLength(300)
+  motif: string;
 }
