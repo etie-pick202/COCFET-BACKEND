@@ -28,6 +28,7 @@ import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
 import {
+  AnnulerValidationDto,
   FiltreJustificatifDto,
   RefuserJustificatifDto,
   ValiderJustificatifDto,
@@ -127,6 +128,37 @@ export class JustificatifController {
     @Body() dto: ValiderJustificatifDto,
   ): Promise<JustificatifPaiement> {
     return this.service.valider(id, requete.user, dto);
+  }
+
+  @ExigePrivilege(Privilege.TRESORERIE)
+  @Post(':id/annuler-validation')
+  @ApiOperation({
+    summary: 'Défaire la validation d’une preuve',
+    description:
+      'Pour une preuve validée par erreur. La preuve redevient **en attente** ' +
+      'et ses effets sont défaits : le crédit d’une cotisation est retiré du ' +
+      'solde, le billet ou la commande repassent en attente, la facture est ' +
+      'retirée. Un motif est obligatoire ; la personne est prévenue, et la ' +
+      'trésorerie aussi. Refusé quand l’effet ne se reprend pas : billet déjà ' +
+      'scanné, commande déjà prête ou retirée.',
+  })
+  @ApiOkResponse({ type: JustificatifPaiement })
+  @ApiResponse({
+    status: 400,
+    description: 'La preuve n’est pas validée.',
+    type: ReponseErreurDto,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Un effet ne peut plus être défait (billet scanné…).',
+    type: ReponseErreurDto,
+  })
+  annulerValidation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AnnulerValidationDto,
+    @Req() requete: Requete,
+  ): Promise<JustificatifPaiement> {
+    return this.service.annulerValidation(id, requete.user, dto.motif);
   }
 
   @ExigePrivilege(Privilege.TRESORERIE)

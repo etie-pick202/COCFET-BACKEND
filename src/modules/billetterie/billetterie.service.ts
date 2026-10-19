@@ -441,6 +441,66 @@ export class BilletterieService {
   }
 
   /** Confirme une inscription dont le paiement a abouti. */
+  /**
+   * Défait la confirmation d'un billet dont le paiement a été reconnu à tort.
+   *
+   * Le billet repasse « en attente » : sa place reste réservée, mais il n'est
+   * plus valable à l'entrée. **Refusé s'il a déjà été scanné** — la personne est
+   * entrée, on ne reprend pas ce qui a été consommé — ou si l'inscription est
+   * annulée.
+   *
+   * @returns l'identifiant de l'inscription (la source de son reçu), ou `null`
+   *   si la référence n'est pas celle d'un billet.
+   */
+  async annulerConfirmationHorsLigne(
+    reference: string,
+  ): Promise<string | null> {
+    const inscription = await this.inscriptions.findOne({
+      where: { codeBillet: reference },
+    });
+    if (!inscription) {
+      return null;
+    }
+
+    const refuserSiConsomme = (statut: StatutInscription): void => {
+      if (statut === StatutInscription.UTILISEE) {
+        throw new ConflictException(
+          'Ce billet a déjà été scanné à l’entrée : la validation ne peut plus être annulée.',
+        );
+      }
+      if (statut === StatutInscription.ANNULEE) {
+        throw new ConflictException(
+          'Cette inscription est annulée : il n’y a plus de validation à défaire.',
+        );
+      }
+    };
+    refuserSiConsomme(inscription.statut);
+
+    // Le statut est dans la requête : un scan simultané ne passe pas entre la
+    // lecture et l'écriture.
+    const resultat = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({
+        statut: StatutInscription.EN_ATTENTE,
+        statutPaiement: StatutPaiement.EN_ATTENTE,
+      })
+      .where('id = :id AND statut = :confirmee', {
+        id: inscription.id,
+        confirmee: StatutInscription.CONFIRMEE,
+      })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      const relue = await this.inscriptions.findOneByOrFail({
+        id: inscription.id,
+      });
+      refuserSiConsomme(relue.statut);
+    }
+
+    return inscription.id;
+  }
+
   async confirmerPaiement(reference: string): Promise<void> {
     const inscription = await this.inscriptions.findOne({
       where: { codeBillet: reference },

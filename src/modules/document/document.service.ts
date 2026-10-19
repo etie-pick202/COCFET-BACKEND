@@ -417,6 +417,44 @@ export class DocumentService {
     return purges;
   }
 
+  /**
+   * Retire la facture d'un règlement dont la validation a été annulée.
+   *
+   * Une facture atteste d'un paiement reçu : celui-ci ne l'est plus, la pièce
+   * ne doit plus se télécharger. Elle est supprimée — avec son fichier — et une
+   * nouvelle, au numéro suivant, sera émise si le paiement est reconnu de
+   * nouveau. Le numéro retiré est rendu pour figurer dans le journal : la trace
+   * de l'annulation, elle, ne disparaît pas.
+   *
+   * @returns le numéro de la facture retirée, ou `null` s'il n'y en avait pas.
+   */
+  async retirerFacture(
+    type: TypeDocument,
+    source: string,
+  ): Promise<string | null> {
+    const document = await this.documents.findOne({ where: { type, source } });
+    if (!document) {
+      return null;
+    }
+
+    await this.documents.delete(document.id);
+
+    if (document.cle) {
+      try {
+        await this.stockage.supprimer(document.cle);
+      } catch (erreur) {
+        // La ligne est supprimée : un fichier orphelin ne mène plus nulle part.
+        this.logger.warn(
+          `Suppression du fichier de ${document.numero} sans effet : ${
+            erreur instanceof Error ? erreur.message : String(erreur)
+          }`,
+        );
+      }
+    }
+
+    return document.numero;
+  }
+
   // ────────────────────────────────  Interne  ───────────────────────────
 
   /**
