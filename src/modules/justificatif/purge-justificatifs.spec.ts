@@ -1,5 +1,10 @@
 import { Repository } from 'typeorm';
+import { ActiviteService } from '../activite/activite.service';
+import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { DocumentService } from '../document/document.service';
+import { NotificationService } from '../notification/notification.service';
+import { User } from '../user/entities/user.entity';
 import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { RepercussionPaiementService } from '../paiement/repercussion-paiement.service';
@@ -41,6 +46,11 @@ describe('JustificatifService — purge', () => {
       { retirer } as unknown as NettoyageFichiers,
       {} as CotisationService,
       {} as AlerteTresorerieService,
+      {} as NotificationService,
+      {} as DocumentService,
+      {} as ActiviteService,
+      {} as Repository<User>,
+      {} as PasserellePaiement,
     );
   });
 

@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
 import { BilletterieService } from '../billetterie/billetterie.service';
 import { CommandeService } from '../commande/commande.service';
+import { TypeDocument } from '../document/entities/document.entity';
 import { OrigineTransaction } from './entities/transaction.entity';
 import { StatutPaiement } from './enums/paiement.enum';
 import { TransactionService } from './transaction.service';
@@ -37,6 +38,52 @@ export class RepercussionPaiementService {
     @Inject(forwardRef(() => FondsService))
     private readonly fondsService: FondsService,
   ) {}
+
+  /**
+   * Défait les effets d'un paiement reconnu à la main : l'inverse exact de
+   * `repercuter(COMPLETE)`.
+   *
+   * Chaque domaine refuse ce qui ne se reprend pas — un billet déjà scanné, une
+   * commande déjà prête — et le fait **avant** de rien modifier : l'erreur
+   * remonte alors à la trésorerie, et rien n'a bougé.
+   *
+   * @returns la facture à retirer (type et source), ou `null` s'il n'y en a pas.
+   */
+  async annuler(
+    reference: string,
+    montantDeclare: number,
+  ): Promise<{ type: TypeDocument; source: string } | null> {
+    const transaction = await this.transactionService.trouver(reference);
+
+    if (!transaction) {
+      return null;
+    }
+
+    switch (transaction.origine) {
+      case OrigineTransaction.COTISATION: {
+        const source =
+          await this.cotisationService.annulerReglementJustificatif(
+            reference,
+            montantDeclare,
+          );
+        return source
+          ? { type: TypeDocument.FACTURE_COTISATION, source }
+          : null;
+      }
+      case OrigineTransaction.BOUTIQUE: {
+        const source =
+          await this.commandeService.annulerPaiementHorsLigne(reference);
+        return source ? { type: TypeDocument.FACTURE_COMMANDE, source } : null;
+      }
+      case OrigineTransaction.EVENEMENT: {
+        const source =
+          await this.billetterieService.annulerConfirmationHorsLigne(reference);
+        return source ? { type: TypeDocument.RECU_BILLETTERIE, source } : null;
+      }
+      default:
+        return null;
+    }
+  }
 
   /**
    * @param motif raison d'un échec, transmise à la personne quand elle a un

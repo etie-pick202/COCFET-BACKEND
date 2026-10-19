@@ -635,6 +635,105 @@ export class CotisationService {
   }
 
   /**
+   * Défait le crédit d'un règlement reconnu sur justificatif.
+   *
+   * Appelée quand la trésorerie annule une validation faite par erreur. Le
+   * règlement redevient « en attente » — comme avant la décision — et le
+   * montant qu'il avait crédité est retiré du solde de la personne ; une
+   * participation devenue soldée repasse « en cours » si ce retrait la rouvre.
+   *
+   * **Tout ou rien** : le règlement, le solde et le statut changent dans une
+   * seule transaction. Et rejouée, la méthode ne fait rien de plus — la
+   * condition sur le statut du règlement est dans la requête, si bien qu'un
+   * second appel ne retire pas le crédit deux fois.
+   *
+   * Un règlement payé **en ligne** ne se défait pas ici : Fapshi en atteste.
+   *
+   * @returns l'identifiant du règlement (la source de sa facture), ou `null`
+   *   si la référence n'est pas celle d'un règlement de cotisation.
+   */
+  async annulerReglementJustificatif(
+    reference: string,
+    montantDeclare: number,
+  ): Promise<string | null> {
+    const connu = await this.reglements.findOne({
+      where: { reference },
+      relations: { participation: true },
+    });
+    if (!connu) {
+      return null;
+    }
+
+    // La même file que les règlements de cette participation : une annulation
+    // et un nouveau versement ne calculent pas le reste dû en même temps.
+    return this.exclusif(connu.participation.id, () =>
+      this.reglements.manager.transaction(async (gestionnaire) => {
+        const reglement = await gestionnaire.findOneOrFail(
+          ReglementCotisation,
+          {
+            where: { id: connu.id },
+            relations: { participation: true },
+          },
+        );
+
+        if (reglement.mode !== ModeReglement.JUSTIFICATIF) {
+          throw new ConflictException(
+            'Ce règlement a été payé en ligne : Fapshi en atteste, il ne se défait pas ici.',
+          );
+        }
+
+        const bascule = await gestionnaire
+          .createQueryBuilder()
+          .update(ReglementCotisation)
+          .set({ statut: StatutPaiement.EN_ATTENTE, montant: montantDeclare })
+          .where('id = :id AND statut = :complete', {
+            id: reglement.id,
+            complete: StatutPaiement.COMPLETE,
+          })
+          .execute();
+
+        // Déjà défait : rien à retirer une seconde fois.
+        if (bascule.affected !== 1) {
+          return reglement.id;
+        }
+
+        await gestionnaire.decrement(
+          ParticipationCotisation,
+          { id: reglement.participation.id },
+          'montantRegle',
+          reglement.montant,
+        );
+
+        const apres = await gestionnaire.findOneOrFail(
+          ParticipationCotisation,
+          {
+            where: { id: reglement.participation.id },
+          },
+        );
+
+        if (apres.montantRegle < 0) {
+          // Le solde ne peut pas devenir négatif : c'est qu'autre chose l'a
+          // modifié. On annule tout plutôt que d'écrire un solde faux.
+          throw new ConflictException(
+            'Le solde de la personne est inférieur au crédit à retirer : annulation interrompue.',
+          );
+        }
+
+        if (
+          apres.statut === StatutParticipation.SOLDEE &&
+          apres.montantRegle < apres.montantDu
+        ) {
+          await gestionnaire.update(ParticipationCotisation, apres.id, {
+            statut: StatutParticipation.EN_COURS,
+          });
+        }
+
+        return reglement.id;
+      }),
+    );
+  }
+
+  /**
    * Règle une échéance en ligne, par Mobile Money.
    *
    * Le montant crédité est celui de l'échéance ; le payeur est débité de ce

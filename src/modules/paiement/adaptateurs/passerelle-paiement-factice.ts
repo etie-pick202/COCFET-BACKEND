@@ -146,7 +146,13 @@ export class PasserellePaiementFactice implements PasserellePaiement {
 
   // eslint-disable-next-line @typescript-eslint/require-await
   async verifier(reference: string): Promise<ResultatPaiement> {
-    const intention = this.intentions.get(reference);
+    // Comme chez Fapshi, on interroge par l'identifiant du prestataire ; la
+    // référence interne reste acceptée, pour les appelants qui la connaissent.
+    const intention =
+      this.intentions.get(reference) ??
+      [...this.intentions.values()].find(
+        (candidate) => candidate.referenceExterne === reference,
+      );
     if (!intention) {
       throw new BadRequestException('Référence de paiement inconnue.');
     }

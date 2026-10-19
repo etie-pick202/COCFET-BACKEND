@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BureauModule } from '../bureau/bureau.module';
 import { CotisationModule } from '../cotisation/cotisation.module';
+import { DocumentModule } from '../document/document.module';
+import { User } from '../user/entities/user.entity';
 import { NotificationModule } from '../notification/notification.module';
 import { FileModule } from '../file/file.module';
 import { PaiementModule } from '../paiement/paiement.module';
@@ -16,11 +18,12 @@ import { PurgeJustificatifsService } from './purge-justificatifs.service';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([JustificatifPaiement]),
+    TypeOrmModule.forFeature([JustificatifPaiement, User]),
     PaiementModule,
     FileModule,
     BureauModule,
     CotisationModule,
+    DocumentModule,
     NotificationModule,
   ],
   controllers: [JustificatifController],
