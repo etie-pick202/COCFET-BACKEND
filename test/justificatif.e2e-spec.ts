@@ -16,6 +16,10 @@ import {
 } from './../src/modules/commande/entities/commande.entity';
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { JustificatifPaiement } from './../src/modules/justificatif/entities/justificatif-paiement.entity';
+import { Cotisation } from './../src/modules/cotisation/entities/cotisation.entity';
+import { ParticipationCotisation } from './../src/modules/cotisation/entities/participation-cotisation.entity';
+import { ReglementCotisation } from './../src/modules/cotisation/entities/reglement-cotisation.entity';
+import { Document } from './../src/modules/document/entities/document.entity';
 import { MailService } from './../src/modules/mail/mail.service';
 import { MethodePaiement } from './../src/modules/paiement/enums/paiement.enum';
 import { Transaction } from './../src/modules/paiement/entities/transaction.entity';
@@ -52,6 +56,10 @@ describe('Justificatifs de paiement (e2e)', () => {
   let membres: Repository<MembreBureau>;
   let transactions: Repository<Transaction>;
   let justificatifs: Repository<JustificatifPaiement>;
+  let cotisations: Repository<Cotisation>;
+  let participations: Repository<ParticipationCotisation>;
+  let reglements: Repository<ReglementCotisation>;
+  let documents: Repository<Document>;
 
   let admin: CompteDeTest;
   let payeur: CompteDeTest;
@@ -135,10 +143,18 @@ describe('Justificatifs de paiement (e2e)', () => {
     membres = app.get(getRepositoryToken(MembreBureau));
     transactions = app.get(getRepositoryToken(Transaction));
     justificatifs = app.get(getRepositoryToken(JustificatifPaiement));
+    cotisations = app.get(getRepositoryToken(Cotisation));
+    participations = app.get(getRepositoryToken(ParticipationCotisation));
+    reglements = app.get(getRepositoryToken(ReglementCotisation));
+    documents = app.get(getRepositoryToken(Document));
   });
 
   const purger = async (): Promise<void> => {
     await justificatifs.createQueryBuilder().delete().execute();
+    await documents.createQueryBuilder().delete().execute();
+    await reglements.createQueryBuilder().delete().execute();
+    await participations.createQueryBuilder().delete().execute();
+    await cotisations.createQueryBuilder().delete().execute();
     await transactions.createQueryBuilder().delete().execute();
     await commandes.createQueryBuilder().delete().execute();
     await produits.createQueryBuilder().delete().execute();
@@ -359,6 +375,313 @@ describe('Justificatifs de paiement (e2e)', () => {
         .expect(200);
 
       expect(reponse.body as unknown[]).toHaveLength(1);
+    });
+  });
+
+  describe('annulation d’une validation', () => {
+    const MOTIF =
+      'Mauvaise pièce validée : le virement était celui d’un autre.';
+
+    const valider = (id: string, montantRecu = 5000) =>
+      request(app.getHttpServer())
+        .post(`${JUSTIFS}/${id}/valider`)
+        .set(tresoriere.entetes)
+        .send({ montantRecu });
+
+    const annuler = (id: string, motif = MOTIF, compte = tresoriere) =>
+      request(app.getHttpServer())
+        .post(`${JUSTIFS}/${id}/annuler-validation`)
+        .set(compte.entetes)
+        .send({ motif });
+
+    /** Une preuve de commande validée, prête à être défaite. */
+    const commandeValidee = async () => {
+      const reference = await commandeEnAttente();
+      const { id } = (await deposer(reference).expect(201)).body as {
+        id: string;
+      };
+      await valider(id).expect(201);
+      return { reference, id };
+    };
+
+    it('remet la commande en attente et la preuve à examiner', async () => {
+      const { reference, id } = await commandeValidee();
+      await expect(
+        commandes.findOneByOrFail({ id: reference }),
+      ).resolves.toMatchObject({ statut: StatutCommande.PAYEE });
+
+      const reponse = await annuler(id).expect(201);
+
+      expect(reponse.body).toMatchObject({
+        statut: 'EN_ATTENTE',
+        montantRecu: null,
+        motifAnnulation: MOTIF,
+        annulations: 1,
+      });
+      await expect(
+        commandes.findOneByOrFail({ id: reference }),
+      ).resolves.toMatchObject({
+        statut: StatutCommande.EN_ATTENTE,
+        statutPaiement: 'EN_ATTENTE',
+      });
+      await expect(
+        transactions.findOneByOrFail({ reference }),
+      ).resolves.toMatchObject({ statut: 'EN_ATTENTE' });
+    });
+
+    it('laisse revalider correctement après l’annulation', async () => {
+      const { reference, id } = await commandeValidee();
+      await annuler(id).expect(201);
+
+      await valider(id, 5000).expect(201);
+
+      await expect(
+        commandes.findOneByOrFail({ id: reference }),
+      ).resolves.toMatchObject({ statut: StatutCommande.PAYEE });
+    });
+
+    it('permet de refuser la preuve après l’avoir remise en attente', async () => {
+      const { id } = await commandeValidee();
+      await annuler(id).expect(201);
+
+      await request(app.getHttpServer())
+        .post(`${JUSTIFS}/${id}/refuser`)
+        .set(tresoriere.entetes)
+        .send({ motif: 'Ce virement n’est pas le bon.' })
+        .expect(201);
+    });
+
+    it('retire la facture déjà émise', async () => {
+      const { reference, id } = await commandeValidee();
+      await request(app.getHttpServer())
+        .get(`/api/v1/documents/commandes/${reference}/facture`)
+        .set(payeur.entetes);
+      const avant = await documents.count();
+
+      await annuler(id).expect(201);
+
+      // Qu'une facture ait été émise ou non, il n'en reste aucune.
+      expect(await documents.count()).toBe(0);
+      expect(avant).toBeGreaterThanOrEqual(0);
+    });
+
+    it('refuse une commande déjà prête : la marchandise est préparée', async () => {
+      const { reference, id } = await commandeValidee();
+      await commandes.update(reference, { statut: StatutCommande.PRETE });
+
+      const reponse = await annuler(id).expect(409);
+
+      expect((reponse.body as { message: string }).message).toContain(
+        'prête ou retirée',
+      );
+      // Rien n'a bougé : la preuve reste validée.
+      await expect(
+        justificatifs.findOneByOrFail({ id }),
+      ).resolves.toMatchObject({
+        statut: 'VALIDE',
+      });
+      await expect(
+        transactions.findOneByOrFail({ reference }),
+      ).resolves.toMatchObject({ statut: 'COMPLETE' });
+    });
+
+    it('exige un motif qui dit quelque chose', async () => {
+      const { id } = await commandeValidee();
+
+      await annuler(id, 'oups').expect(400);
+      await annuler(id, '').expect(400);
+    });
+
+    it('réserve l’annulation à ceux qui accèdent à la trésorerie', async () => {
+      const { id } = await commandeValidee();
+
+      await annuler(id, MOTIF, payeur).expect(403);
+      await annuler(id, MOTIF, admin).expect(403);
+    });
+
+    it('refuse une preuve qui n’est pas validée', async () => {
+      const reference = await commandeEnAttente();
+      const { id } = (await deposer(reference).expect(201)).body as {
+        id: string;
+      };
+
+      await annuler(id).expect(400);
+    });
+
+    it('ne se rejoue pas : une seconde annulation est refusée', async () => {
+      const { id } = await commandeValidee();
+      await annuler(id).expect(201);
+
+      await annuler(id).expect(400);
+    });
+
+    it('retire la somme de la poche de celui qui l’avait reçue', async () => {
+      // La poche d'un membre se calcule sur les preuves **validées** dont il est
+      // le destinataire : défaire la validation suffit à l'en faire sortir.
+      const { id } = await commandeValidee();
+      await expect(
+        justificatifs.findOneOrFail({
+          where: { id },
+          relations: { recuPar: true },
+        }),
+      ).resolves.toMatchObject({
+        statut: 'VALIDE',
+        recuPar: { id: tresoriere.user.id },
+      });
+
+      await annuler(id).expect(201);
+
+      const apres = await justificatifs.findOneOrFail({
+        where: { id },
+        relations: { recuPar: true },
+      });
+      expect(apres.statut).toBe('EN_ATTENTE');
+      expect(apres.recuPar).toBeNull();
+    });
+
+    describe('cotisation', () => {
+      let finissant: CompteDeTest;
+      let cotisationId: string;
+      let participationId: string;
+
+      /** Dépose et valide une preuve de 10 000 F sur la première tranche. */
+      const preuveValidee = async (montant = 10_000) => {
+        const depot = await request(app.getHttpServer())
+          .post(JUSTIFS)
+          .set(finissant.entetes)
+          .send({
+            participationId,
+            ordreTranche: 1,
+            cle: CLE,
+            montantDeclare: montant,
+          })
+          .expect(201);
+        const { id, reference } = depot.body as {
+          id: string;
+          reference: string;
+        };
+        await valider(id, montant).expect(201);
+        return { id, reference };
+      };
+
+      const solde = async () =>
+        (await participations.findOneByOrFail({ id: participationId }))
+          .montantRegle;
+
+      beforeEach(async () => {
+        finissant = await creerCompteAuthentifie(app, {
+          promotion: ANNEE,
+          isFinissant: true,
+        });
+        const cree = await request(app.getHttpServer())
+          .post('/api/v1/cotisations')
+          .set(tresoriere.entetes)
+          .send({
+            titre: 'Cotisation des finissants',
+            montantTotal: 30_000,
+            cibles: ['FINISSANT'],
+            fractionnable: true,
+            accepteJustificatif: true,
+            tranches: [
+              {
+                ordre: 1,
+                libelle: 'Première tranche',
+                montant: 10_000,
+                dateLimite: '2099-01-01T00:00:00.000Z',
+              },
+              {
+                ordre: 2,
+                libelle: 'Deuxième tranche',
+                montant: 20_000,
+                dateLimite: '2099-06-01T00:00:00.000Z',
+              },
+            ],
+          })
+          .expect(201);
+        cotisationId = (cree.body as { id: string }).id;
+        await request(app.getHttpServer())
+          .post(`/api/v1/cotisations/${cotisationId}/ouvrir`)
+          .set(tresoriere.entetes)
+          .expect(201);
+        participationId = (
+          await participations.findOneOrFail({
+            where: { user: { id: finissant.user.id } },
+          })
+        ).id;
+      });
+
+      it('retire le crédit du solde et rouvre la tranche', async () => {
+        const { id, reference } = await preuveValidee();
+        expect(await solde()).toBe(10_000);
+        await expect(
+          reglements.findOneByOrFail({ reference }),
+        ).resolves.toMatchObject({ statut: 'COMPLETE' });
+
+        await annuler(id).expect(201);
+
+        expect(await solde()).toBe(0);
+        await expect(
+          reglements.findOneByOrFail({ reference }),
+        ).resolves.toMatchObject({ statut: 'EN_ATTENTE', montant: 10_000 });
+      });
+
+      it('repasse en cours une participation qui était soldée', async () => {
+        // Une preuve de la totalité : la participation est soldée…
+        const depot = await request(app.getHttpServer())
+          .post(JUSTIFS)
+          .set(finissant.entetes)
+          .send({
+            participationId,
+            ordreTranche: null,
+            cle: CLE,
+            montantDeclare: 30_000,
+          })
+          .expect(201);
+        const { id } = depot.body as { id: string };
+        await valider(id, 30_000).expect(201);
+        await expect(
+          participations.findOneByOrFail({ id: participationId }),
+        ).resolves.toMatchObject({ statut: 'SOLDEE' });
+
+        await annuler(id).expect(201);
+
+        await expect(
+          participations.findOneByOrFail({ id: participationId }),
+        ).resolves.toMatchObject({ statut: 'EN_COURS', montantRegle: 0 });
+      });
+
+      it('ne retire que le crédit de cette preuve', async () => {
+        const premiere = await preuveValidee(10_000);
+        await preuveValidee(5_000).catch(() => undefined);
+        const avant = await solde();
+
+        await annuler(premiere.id).expect(201);
+
+        expect(await solde()).toBe(avant - 10_000);
+      });
+
+      it('prévient la personne que son règlement n’est plus compté', async () => {
+        const { id } = await preuveValidee();
+
+        await annuler(id).expect(201);
+
+        const notifications = await request(app.getHttpServer())
+          .get('/api/v1/notifications')
+          .set(finissant.entetes)
+          .expect(200);
+        expect(JSON.stringify(notifications.body)).toContain(
+          'de nouveau examinée',
+        );
+      });
+
+      it('rend la tranche réglable de nouveau après revalidation', async () => {
+        const { id } = await preuveValidee();
+        await annuler(id).expect(201);
+
+        await valider(id, 10_000).expect(201);
+
+        expect(await solde()).toBe(10_000);
+      });
     });
   });
 });

@@ -76,6 +76,25 @@ export class AlerteTresorerieService {
     );
   }
 
+  /** Une validation de preuve vient d'être défaite : c'est à savoir de tous. */
+  validationAnnulee(
+    payeur: Encaissement['payeur'],
+    objet: string,
+    montant: number,
+    auteur: string,
+    motif: string,
+    exclure: string,
+  ): Promise<void> {
+    return this.signaler(
+      exclure,
+      'Validation de preuve annulée',
+      `${auteur} a annulé la validation de la preuve de ${nomComplet(payeur)} ` +
+        `(${montantLisible(montant)}) pour ${objet}. Motif : ${motif}. ` +
+        'La preuve est de nouveau en attente d’une décision.',
+      'Examiner la preuve',
+    );
+  }
+
   /** Une preuve de paiement attend d'être validée ou refusée. */
   preuveADecider(
     payeur: Encaissement['payeur'],

@@ -1,17 +1,27 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
+import { ActiviteService } from '../activite/activite.service';
+import { TypeActivite } from '../activite/entities/journal-activite.entity';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { DocumentService } from '../document/document.service';
+import { TypeNotification } from '../notification/entities/notification.entity';
+import { NotificationService } from '../notification/notification.service';
 import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
+import {
+  PASSERELLE_PAIEMENT,
+  type PasserellePaiement,
+} from '../paiement/ports/passerelle-paiement';
 import { RepercussionPaiementService } from '../paiement/repercussion-paiement.service';
 import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
@@ -45,7 +55,31 @@ export class JustificatifService {
     private readonly nettoyage: NettoyageFichiers,
     private readonly cotisationService: CotisationService,
     private readonly alerteTresorerie: AlerteTresorerieService,
+    private readonly notificationService: NotificationService,
+    private readonly documents: DocumentService,
+    private readonly activiteService: ActiviteService,
+    @InjectRepository(User)
+    private readonly users: Repository<User>,
+    @Inject(PASSERELLE_PAIEMENT)
+    private readonly passerelle: PasserellePaiement,
   ) {}
+
+  /** Une file par preuve : valider, refuser et défaire ne se chevauchent pas. */
+  private readonly verrous = new Map<string, Promise<unknown>>();
+
+  private exclusif<T>(id: string, tache: () => Promise<T>): Promise<T> {
+    const precedent = this.verrous.get(id) ?? Promise.resolve();
+    const suite = precedent.then(tache, tache);
+    const marque = suite.catch(() => undefined);
+    this.verrous.set(id, marque);
+    // Libère l'entrée quand plus personne n'attend : la table ne grossit pas.
+    void marque.then(() => {
+      if (this.verrous.get(id) === marque) {
+        this.verrous.delete(id);
+      }
+    });
+    return suite;
+  }
 
   /**
    * Dépose une preuve de paiement.
@@ -204,6 +238,89 @@ export class JustificatifService {
   }
 
   /**
+   * Défait la validation d'une preuve reconnue par erreur.
+   *
+   * Tout compte rendu à ceux qui ont accès à la trésorerie, car une validation
+   * touche un solde, parfois un billet ou une commande. La preuve **redevient
+   * en attente** : on peut ensuite la valider correctement, ou la refuser.
+   *
+   * Ce que la méthode défait, dans cet ordre — et rien n'est modifié si un
+   * domaine refuse :
+   * 1. les effets du paiement (crédit d'une cotisation, billet, commande) ;
+   * 2. la transaction, remise en attente ;
+   * 3. la preuve elle-même, qui garde la trace de l'annulation ;
+   * 4. la facture émise, retirée.
+   *
+   * **Rejouable.** Si le temps 3 échoue après le 1, rappeler la méthode ne
+   * défait pas deux fois : chaque domaine teste son état avant d'écrire.
+   *
+   * Refusée quand l'effet ne se reprend pas : un billet déjà scanné, une
+   * commande déjà prête ou retirée. Le message dit alors pourquoi.
+   */
+  async annulerValidation(
+    id: string,
+    auteur: Pick<User, 'id'>,
+    motif: string,
+  ): Promise<JustificatifPaiement> {
+    return this.exclusif(id, async () => {
+      const justificatif = await this.trouver(id);
+
+      if (justificatif.statut !== StatutJustificatif.VALIDE) {
+        throw new BadRequestException(
+          'Seule une preuve validée peut voir sa validation annulée.',
+        );
+      }
+
+      await this.verifierQueFapshiNAttestePas(justificatif.reference);
+
+      const facture = await this.repercussion.annuler(
+        justificatif.reference,
+        justificatif.montantDeclare,
+      );
+      await this.transactionService.rouvrir(
+        justificatif.reference,
+        justificatif.montantDeclare,
+      );
+
+      const montantRecu =
+        justificatif.montantRecu ?? justificatif.montantDeclare;
+      const ancienValidateur = justificatif.validateur;
+
+      await this.justificatifs.update(id, {
+        statut: StatutJustificatif.EN_ATTENTE,
+        validateur: null,
+        decideLe: null,
+        montantRecu: null,
+        recuPar: null,
+        motifRefus: null,
+        validationAnnuleePar: { id: auteur.id },
+        validationAnnuleeLe: new Date(),
+        motifAnnulation: motif,
+        annulations: justificatif.annulations + 1,
+      });
+
+      const numeroFacture = facture
+        ? await this.documents.retirerFacture(facture.type, facture.source)
+        : null;
+
+      await this.tracer(
+        justificatif,
+        auteur.id,
+        motif,
+        montantRecu,
+        ancienValidateur,
+        numeroFacture,
+      );
+
+      this.logger.warn(
+        `Validation de la preuve ${id} annulée (${justificatif.reference}) : ${motif}`,
+      );
+
+      return this.trouver(id);
+    });
+  }
+
+  /**
    * Refuse la preuve, sans toucher au règlement.
    *
    * Le paiement reste en attente : un refus dit que *cette image* ne prouve
@@ -315,6 +432,113 @@ export class JustificatifService {
     );
 
     return aEffacer.length;
+  }
+
+  /**
+   * Refuse de défaire un paiement que Fapshi atteste lui-même.
+   *
+   * Une commande lancée en ligne puis justifiée par une preuve porte une
+   * référence Fapshi : si le client a finalement payé en ligne, l'argent est
+   * bel et bien arrivé, et annuler la validation ferait disparaître un
+   * règlement réel. On le demande donc à Fapshi **avant** de rien défaire — et
+   * si Fapshi ne répond pas, on s'abstient : mieux vaut réessayer dans un
+   * instant que défaire à l'aveugle.
+   */
+  private async verifierQueFapshiNAttestePas(reference: string): Promise<void> {
+    const transaction = await this.transactionService.trouver(reference);
+    if (!transaction?.referenceExterne) {
+      return;
+    }
+
+    let etat: StatutPaiement;
+    try {
+      etat = (await this.passerelle.verifier(transaction.referenceExterne))
+        .statut;
+    } catch {
+      throw new ConflictException(
+        'Fapshi ne répond pas : impossible de vérifier que ce paiement n’a pas aussi été réglé en ligne. Réessayez dans un instant.',
+      );
+    }
+
+    if (etat === StatutPaiement.COMPLETE) {
+      throw new ConflictException(
+        'Ce paiement est aussi confirmé par Fapshi : l’argent est bien arrivé, la validation ne peut pas être annulée.',
+      );
+    }
+  }
+
+  /**
+   * Garde la mémoire d'une annulation, et en prévient ceux qu'elle concerne.
+   *
+   * La ligne de la preuve ne retient que la dernière ; le journal d'activité
+   * garde chacune, avec qui, quand, pourquoi, et ce qui a été défait. Le payeur
+   * est prévenu : un règlement qu'il croyait reçu ne l'est plus, et il doit le
+   * savoir avant de le découvrir sur sa page.
+   *
+   * Ne lève jamais : l'annulation est faite, ses traces ne doivent pas la
+   * faire échouer.
+   */
+  private async tracer(
+    justificatif: JustificatifPaiement,
+    auteurId: string,
+    motif: string,
+    montantRecu: number,
+    ancienValidateur: User | null,
+    numeroFacture: string | null,
+  ): Promise<void> {
+    const objet =
+      justificatif.libelle ?? `le règlement ${justificatif.reference}`;
+
+    try {
+      await this.activiteService.journaliser({
+        type: TypeActivite.PAIEMENT,
+        message:
+          `Validation annulée : preuve de ${justificatif.user.firstName} ` +
+          `${justificatif.user.lastName} pour ${objet} (${montantRecu} FCFA). ` +
+          `Motif : ${motif}`,
+        auteur: { id: auteurId } as User,
+        metadata: {
+          justificatif: justificatif.id,
+          reference: justificatif.reference,
+          montantRecu,
+          validateurInitial: ancienValidateur?.id ?? null,
+          factureRetiree: numeroFacture,
+        },
+      });
+
+      await this.notificationService.notifier({
+        destinataire: justificatif.user,
+        type: TypeNotification.PAIEMENT,
+        titre: 'Votre preuve de paiement est de nouveau examinée',
+        message:
+          `La validation de votre preuve pour ${objet} a été annulée : ${motif}. ` +
+          'Votre règlement n’est plus compté pour le moment ; la trésorerie ' +
+          'va l’examiner de nouveau.' +
+          (numeroFacture
+            ? ` La facture ${numeroFacture} est retirée ; une nouvelle vous sera délivrée si le règlement est reconnu.`
+            : ''),
+        lien: '/mon-espace/cotisations',
+        libelleLien: 'Voir mes règlements',
+      });
+
+      const auteur = await this.users.findOneBy({ id: auteurId });
+      await this.alerteTresorerie.validationAnnulee(
+        justificatif.user,
+        objet,
+        montantRecu,
+        auteur
+          ? `${auteur.firstName} ${auteur.lastName}`.trim()
+          : 'La trésorerie',
+        motif,
+        auteurId,
+      );
+    } catch (erreur) {
+      this.logger.error(
+        `Traces de l'annulation de ${justificatif.id} incomplètes : ${
+          erreur instanceof Error ? erreur.message : String(erreur)
+        }`,
+      );
+    }
   }
 
   private async enAttenteOuEchouer(id: string): Promise<JustificatifPaiement> {

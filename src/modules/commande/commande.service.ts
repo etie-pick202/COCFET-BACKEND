@@ -322,6 +322,60 @@ export class CommandeService {
    * Conditionnée au statut de paiement courant dans la requête elle-même :
    * une notification rejouée n'affecte aucune ligne et ne notifie qu'une fois.
    */
+  /**
+   * Défait le paiement d'une commande reconnu à tort.
+   *
+   * La commande repasse « en attente de paiement ». **Refusé dès qu'elle est
+   * prête ou retirée** — la marchandise est préparée ou remise, on ne la
+   * reprend pas d'un clic — et si elle est annulée.
+   *
+   * @returns l'identifiant de la commande (la source de sa facture), ou `null`
+   *   si la référence n'en désigne aucune.
+   */
+  async annulerPaiementHorsLigne(reference: string): Promise<string | null> {
+    const commande = await this.commandes.findOne({ where: { id: reference } });
+    if (!commande) {
+      return null;
+    }
+
+    const refuserSiAvancee = (statut: StatutCommande): void => {
+      if (
+        statut === StatutCommande.PRETE ||
+        statut === StatutCommande.RETIREE
+      ) {
+        throw new ConflictException(
+          'Cette commande est déjà prête ou retirée : la validation ne peut plus être annulée.',
+        );
+      }
+      if (statut === StatutCommande.ANNULEE) {
+        throw new ConflictException(
+          'Cette commande est annulée : il n’y a plus de validation à défaire.',
+        );
+      }
+    };
+    refuserSiAvancee(commande.statut);
+
+    const resultat = await this.commandes
+      .createQueryBuilder()
+      .update(Commande)
+      .set({
+        statut: StatutCommande.EN_ATTENTE,
+        statutPaiement: StatutPaiement.EN_ATTENTE,
+      })
+      .where('id = :id AND statut = :payee', {
+        id: commande.id,
+        payee: StatutCommande.PAYEE,
+      })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      const relue = await this.commandes.findOneByOrFail({ id: commande.id });
+      refuserSiAvancee(relue.statut);
+    }
+
+    return commande.id;
+  }
+
   async confirmerPaiement(reference: string): Promise<void> {
     const commande = await this.commandes.findOne({
       where: { id: reference },
