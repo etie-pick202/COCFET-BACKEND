@@ -136,6 +136,30 @@ export function normaliserOptions(saisies: OptionSaisie[]): OptionEvenement[] {
   });
 }
 
+/** Refuse un corps de requête qui n'est pas un objet de réponses. */
+function lireReponsesBrutes(brutes: unknown): Record<string, unknown> {
+  if (brutes === undefined || brutes === null) {
+    return {};
+  }
+  if (typeof brutes !== 'object' || Array.isArray(brutes)) {
+    throw new BadRequestException('Les réponses doivent être un objet.');
+  }
+  return brutes as Record<string, unknown>;
+}
+
+/** Vérifie qu'une valeur reçue figure parmi les choix de l'option. */
+function verifierValeur(option: OptionEvenement, valeur: unknown): string {
+  if (
+    typeof valeur !== 'string' ||
+    !option.choix.some((c) => c.valeur === valeur)
+  ) {
+    throw new BadRequestException(
+      `« ${String(valeur)} » n'est pas un choix proposé pour « ${option.libelle} ».`,
+    );
+  }
+  return valeur;
+}
+
 /**
  * Contrôle les réponses d'un inscrit contre les options de l'événement.
  *
@@ -143,46 +167,29 @@ export function normaliserOptions(saisies: OptionSaisie[]): OptionEvenement[] {
  * libre ferait de la taille « grand » ou « XL, ou L si pas dispo », impossible
  * à compter pour une commande. Avec `exigerObligatoires`, toute option
  * obligatoire doit avoir sa réponse.
+ *
+ * Les clés écrites dans le résultat sont celles des **options**, jamais celles
+ * du client : une clé reçue ne sert qu'à vérifier qu'elle existe.
  */
 export function validerReponses(
   options: OptionEvenement[],
   brutes: unknown,
   exigerObligatoires: boolean,
 ): Reponses {
-  if (
-    brutes !== undefined &&
-    brutes !== null &&
-    (typeof brutes !== 'object' || Array.isArray(brutes))
-  ) {
-    throw new BadRequestException('Les réponses doivent être un objet.');
+  const recues = lireReponsesBrutes(brutes);
+
+  const connues = new Set(options.map((o) => o.cle));
+  const inconnue = Object.keys(recues).find((cle) => !connues.has(cle));
+  if (inconnue !== undefined) {
+    throw new BadRequestException(`Option inconnue : « ${inconnue} ».`);
   }
 
-  const recues = (brutes ?? {}) as Record<string, unknown>;
   const reponses: Reponses = {};
-
-  for (const cle of Object.keys(recues)) {
-    const option = options.find((o) => o.cle === cle);
-    if (!option) {
-      throw new BadRequestException(`Option inconnue : « ${cle} ».`);
-    }
-
-    const valeur = recues[cle];
-    if (
-      typeof valeur !== 'string' ||
-      !option.choix.some((c) => c.valeur === valeur)
-    ) {
-      throw new BadRequestException(
-        `« ${String(valeur)} » n'est pas un choix proposé pour « ${option.libelle} ».`,
-      );
-    }
-    reponses[cle] = valeur;
-  }
-
-  if (exigerObligatoires) {
-    for (const option of options) {
-      if (option.obligatoire && reponses[option.cle] === undefined) {
-        throw new BadRequestException(`Choisissez : ${option.libelle}.`);
-      }
+  for (const option of options) {
+    if (Object.hasOwn(recues, option.cle)) {
+      reponses[option.cle] = verifierValeur(option, recues[option.cle]);
+    } else if (exigerObligatoires && option.obligatoire) {
+      throw new BadRequestException(`Choisissez : ${option.libelle}.`);
     }
   }
 

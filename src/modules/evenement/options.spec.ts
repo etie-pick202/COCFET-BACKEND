@@ -139,6 +139,15 @@ describe('validerReponses', () => {
     );
   });
 
+  it('ne laisse jamais le client choisir la propriété écrite', () => {
+    const hostile = JSON.parse('{"__proto__": "x", "taille": "M"}') as unknown;
+
+    expect(() => validerReponses(TAILLES, hostile, true)).toThrow(
+      'Option inconnue',
+    );
+    expect(({} as Record<string, unknown>).polluee).toBeUndefined();
+  });
+
   it('refuse une clé inconnue et des réponses qui ne sont pas un objet', () => {
     expect(() => validerReponses(TAILLES, { menu: 'x' }, false)).toThrow(
       'Option inconnue',
