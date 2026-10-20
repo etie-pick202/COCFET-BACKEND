@@ -111,4 +111,28 @@ export class Inscription extends BaseEntity {
   @JoinColumn({ name: 'scanne_par_id' })
   @ApiProperty({ type: () => User, nullable: true })
   scannePar: User | null;
+
+  /**
+   * Les choix de l'inscrit : clé d'option → valeur (taille « L », par exemple).
+   *
+   * Pris **avant** le paiement : une inscription en attente porte déjà son
+   * choix, et en retient le stock tant qu'elle n'est pas annulée.
+   */
+  @Column({ type: 'jsonb', default: () => "'{}'" })
+  @ApiProperty({
+    example: { 'taille-de-t-shirt': 'L' },
+    description: 'Choix faits à l’inscription, par clé d’option.',
+  })
+  reponses: Record<string, string>;
+
+  /** Quand le lot (le T-shirt) a été remis à l'inscrit. Nul : pas encore. */
+  @Column({ name: 'remis_le', type: 'timestamptz', nullable: true })
+  @ApiProperty({ nullable: true, format: 'date-time' })
+  remisLe: Date | null;
+
+  /** Qui l'a remis : sans « qui », impossible de vérifier a posteriori. */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'remis_par_id' })
+  @ApiProperty({ type: () => User, nullable: true })
+  remisPar: User | null;
 }
