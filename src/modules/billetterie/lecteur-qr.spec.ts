@@ -1,5 +1,10 @@
 import { ConfigService } from '@nestjs/config';
-import { ConflictException, ForbiddenException, Logger } from '@nestjs/common';
+import {
+  ConflictException,
+  NotFoundException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
 import { Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
 import { ActiviteService } from '../activite/activite.service';
@@ -16,6 +21,7 @@ import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
 import { UserService } from '../user/user.service';
 import { BilletterieService } from './billetterie.service';
+import { OptionsEvenementService } from './options-evenement.service';
 import { AffectationScanner } from './entities/affectation-scanner.entity';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
 import { PurgeTracesScanService } from './purge-traces-scan.service';
@@ -143,6 +149,7 @@ describe('Lecteur QR — portiers', () => {
       { journaliser } as unknown as ActiviteService,
       utilisateurs as unknown as UserService,
       {} as AlerteTresorerieService,
+      {} as OptionsEvenementService,
       {
         get: jest.fn(),
         getOrThrow: jest.fn().mockReturnValue('secret-de-test'),
@@ -411,6 +418,91 @@ describe('Lecteur QR — portiers', () => {
         where: { evenement: { id: 'evt-gala' } },
         relations: { user: true, affectePar: true },
       });
+    });
+  });
+
+  describe('remise du lot à l’entrée', () => {
+    const portiere = { id: PORTIERE.id, role: Role.STUDENT };
+
+    beforeEach(() => {
+      affectations.existsBy.mockResolvedValue(true);
+    });
+
+    it('marque le lot remis, avec le portier qui l’a remis', async () => {
+      inscriptions.findOne.mockResolvedValue(billet({ remisLe: null }));
+
+      await service.remettre('ins-1', portiere);
+
+      expect(misAJour).toEqual({
+        remisLe: expect.any(Date) as unknown,
+        remisPar: { id: PORTIERE.id },
+      });
+    });
+
+    it('laisse l’administration remettre sans être affectée', async () => {
+      affectations.existsBy.mockResolvedValue(false);
+      inscriptions.findOne.mockResolvedValue(billet({ remisLe: null }));
+
+      await expect(
+        service.remettre('ins-1', { id: 'admin-1', role: Role.ADMIN }),
+      ).resolves.toBeDefined();
+    });
+
+    it('refuse à qui n’est pas à la porte de cet événement', async () => {
+      affectations.existsBy.mockResolvedValue(false);
+
+      await expect(service.remettre('ins-1', portiere)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('refuse un billet non payé ou annulé : rien à remettre', async () => {
+      inscriptions.findOne.mockResolvedValue(
+        billet({ statut: StatutInscription.EN_ATTENTE }),
+      );
+      await expect(service.remettre('ins-1', portiere)).rejects.toThrow(
+        'rien à remettre',
+      );
+
+      inscriptions.findOne.mockResolvedValue(
+        billet({ statut: StatutInscription.ANNULEE }),
+      );
+      await expect(service.remettre('ins-1', portiere)).rejects.toThrow(
+        ConflictException,
+      );
+    });
+
+    it('refuse un lot déjà remis, en disant quand et par qui', async () => {
+      inscriptions.findOne.mockResolvedValue(
+        billet({
+          remisLe: new Date('2026-11-30T08:00:00Z'),
+          remisPar: { firstName: 'Paul', lastName: 'Biya' } as User,
+        }),
+      );
+
+      await expect(service.remettre('ins-1', portiere)).rejects.toThrow(
+        /déjà été remis le .* par Paul Biya/,
+      );
+    });
+
+    it('refuse quand un autre portier l’a remis entre-temps', async () => {
+      inscriptions.findOne.mockResolvedValue(billet({ remisLe: null }));
+      affectees = 0;
+      inscriptions.findOneOrFail.mockResolvedValue(
+        billet({ remisLe: new Date(), remisPar: null }),
+      );
+
+      await expect(service.remettre('ins-1', portiere)).rejects.toThrow(
+        'déjà été remis',
+      );
+    });
+
+    it('signale un billet inconnu', async () => {
+      inscriptions.findOne.mockResolvedValue(null);
+
+      await expect(service.remettre('?', portiere)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 

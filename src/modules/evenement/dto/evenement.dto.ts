@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional, PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsEnum,
@@ -8,16 +11,66 @@ import {
   IsOptional,
   IsString,
   IsUrl,
+  Max,
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
+import { CHOIX_MAX, OPTIONS_MAX } from '../options';
 import { PaginationDto } from '../../../common/pagination';
 import {
   ControleAcces,
   StatutEvenement,
   TypeEvenement,
 } from '../entities/evenement.entity';
+
+export class ChoixOptionDto {
+  @ApiProperty({ example: 'XL' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  valeur: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    example: 30,
+    description:
+      'Nombre maximal d’inscrits à choisir cette valeur. Absent ou nul : illimité.',
+  })
+  @ValidateIf((_, valeur) => valeur !== null && valeur !== undefined)
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(100_000)
+  @IsOptional()
+  stock?: number | null;
+}
+
+export class OptionEvenementDto {
+  @ApiProperty({ example: 'Taille de T-shirt' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(80)
+  libelle: string;
+
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Vrai : on ne peut pas s’inscrire sans répondre.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  obligatoire?: boolean;
+
+  @ApiProperty({ type: [ChoixOptionDto] })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(CHOIX_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => ChoixOptionDto)
+  choix: ChoixOptionDto[];
+}
 
 export class CreerEvenementDto {
   @ApiProperty({ example: 'Gala des finissants 2027' })
@@ -116,6 +169,32 @@ export class CreerEvenementDto {
   @IsBoolean()
   @IsOptional()
   accepteJustificatif?: boolean;
+
+  @ApiPropertyOptional({
+    type: [OptionEvenementDto],
+    description:
+      'Choix demandés à chaque inscrit avant le paiement (taille de T-shirt, ' +
+      'menu…), chacun avec un stock facultatif par valeur. Tableau vide : ' +
+      'aucune option.',
+  })
+  @IsArray()
+  @ArrayMaxSize(OPTIONS_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => OptionEvenementDto)
+  @IsOptional()
+  options?: OptionEvenementDto[];
+
+  @ApiPropertyOptional({
+    default: 3,
+    description:
+      'Les choix se figent ce nombre de jours avant le début de l’événement.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  @IsOptional()
+  optionsFigeesAvantJours?: number;
 }
 
 /**

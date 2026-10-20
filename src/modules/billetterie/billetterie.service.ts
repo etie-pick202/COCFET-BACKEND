@@ -21,6 +21,8 @@ import {
   TypeEvenement,
 } from '../evenement/entities/evenement.entity';
 import { EvenementService } from '../evenement/evenement.service';
+import { validerReponses } from '../evenement/options';
+import { OptionsEvenementService } from './options-evenement.service';
 import { MailService } from '../mail/mail.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
@@ -96,6 +98,7 @@ export class BilletterieService {
     private readonly activiteService: ActiviteService,
     private readonly userService: UserService,
     private readonly alerteTresorerie: AlerteTresorerieService,
+    private readonly options: OptionsEvenementService,
     config: ConfigService,
   ) {
     // `||` et non `??` : une variable posée mais vide doit retomber sur la
@@ -128,6 +131,14 @@ export class BilletterieService {
     this.verifierOuvert(evenement);
     await this.verifierPasDejaInscrit(evenementId, user.id);
 
+    // Les choix demandés (taille de T-shirt…) sont contrôlés **avant** de
+    // réserver la place : une réponse manquante ne doit rien laisser derrière.
+    const reponses = validerReponses(
+      evenement.options ?? [],
+      dto.reponses,
+      true,
+    );
+
     const { prixApplicable } = await this.evenementService.detailPour(
       evenement,
       user,
@@ -150,10 +161,13 @@ export class BilletterieService {
     let inscription: Inscription | null = null;
 
     try {
-      inscription = await this.inscriptions.save(
+      inscription = await this.options.enregistrerAvecStock(
+        evenement,
+        reponses,
         this.inscriptions.create({
           user,
           evenement,
+          reponses,
           codeBillet: this.genererCodeBillet(),
           prix: prixApplicable,
           frais: frais
@@ -210,6 +224,74 @@ export class BilletterieService {
       await this.evenementService.libererUnePlace(evenementId);
       throw erreur;
     }
+  }
+
+  /**
+   * Remet son lot (le T-shirt) à un inscrit, à l'entrée.
+   *
+   * Réservé à ceux qui tiennent la porte de cet événement. Refusé si le billet
+   * n'est pas payé ou annulé, ou si le lot a déjà été remis — et le refus dit
+   * quand et par qui : deux portiers ne doivent pas remettre deux T-shirts.
+   * La condition est dans la requête : deux remises simultanées ne passent pas
+   * toutes les deux.
+   */
+  async remettre(
+    inscriptionId: string,
+    portier: { id: string; role: Role },
+  ): Promise<Inscription> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id: inscriptionId },
+      relations: { user: true, evenement: true, remisPar: true },
+    });
+    if (!inscription) {
+      throw new NotFoundException('Billet inconnu.');
+    }
+
+    if (!(await this.peutScanner(inscription.evenement.id, portier))) {
+      throw new ForbiddenException(
+        'Vous n’êtes pas affecté au contrôle de cet événement.',
+      );
+    }
+    if (
+      inscription.statut === StatutInscription.ANNULEE ||
+      inscription.statut === StatutInscription.EN_ATTENTE
+    ) {
+      throw new ConflictException(
+        'Ce billet n’est pas payé ou a été annulé : rien à remettre.',
+      );
+    }
+
+    const dejaRemis = (i: Inscription) =>
+      new ConflictException(
+        `Le lot a déjà été remis le ${i.remisLe?.toLocaleString('fr-FR')}` +
+          (i.remisPar
+            ? ` par ${i.remisPar.firstName} ${i.remisPar.lastName}.`
+            : '.'),
+      );
+    if (inscription.remisLe) {
+      throw dejaRemis(inscription);
+    }
+
+    const resultat = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({ remisLe: new Date(), remisPar: { id: portier.id } })
+      .where('id = :id AND remis_le IS NULL', { id: inscription.id })
+      .execute();
+
+    if (resultat.affected !== 1) {
+      throw dejaRemis(
+        await this.inscriptions.findOneOrFail({
+          where: { id: inscription.id },
+          relations: { remisPar: true },
+        }),
+      );
+    }
+
+    return this.inscriptions.findOneOrFail({
+      where: { id: inscription.id },
+      relations: { user: true, evenement: true, remisPar: true },
+    });
   }
 
   /**
