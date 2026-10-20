@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import {
   IsUUID,
   IsEnum,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -34,6 +35,25 @@ export class SInscrireDto {
   })
   @IsOptional()
   telephone?: string;
+
+  @ApiPropertyOptional({
+    example: { 'taille-de-t-shirt': 'L' },
+    description:
+      'Choix demandés par l’événement (taille de T-shirt…), par clé d’option. ' +
+      'Obligatoires pour les options obligatoires.',
+  })
+  @IsObject()
+  @IsOptional()
+  reponses?: Record<string, string>;
+}
+
+export class ModifierReponsesDto {
+  @ApiProperty({
+    example: { 'taille-de-t-shirt': 'XL' },
+    description: 'Les nouveaux choix, par clé d’option.',
+  })
+  @IsObject()
+  reponses: Record<string, string>;
 }
 
 export class FiltreInscriptionDto extends PaginationDto {
