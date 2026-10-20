@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -26,6 +27,11 @@ import {
   TypeEvenement,
 } from './entities/evenement.entity';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import {
+  conflitsAvecLesChoix,
+  lireUtilisations,
+  normaliserOptions,
+} from './options';
 
 const TRIS_AUTORISES = ['dateDebut', 'createdAt', 'titre'] as const;
 
@@ -168,6 +174,7 @@ export class EvenementService {
     return this.evenements.save(
       this.evenements.create({
         ...dto,
+        options: normaliserOptions(dto.options ?? []),
         dateDebut: new Date(dto.dateDebut),
         dateFin: dto.dateFin ? new Date(dto.dateFin) : null,
         // Rattaché au mandat en cours : c'est ce qui permettra, une fois la
@@ -201,8 +208,26 @@ export class EvenementService {
       );
     }
 
+    // Des options modifiées ne doivent pas contredire des choix déjà faits :
+    // retirer « XL » alors que douze personnes l'ont pris les laisserait avec
+    // une réponse qui n'existe plus.
+    const options =
+      dto.options !== undefined ? normaliserOptions(dto.options) : undefined;
+    if (options) {
+      const conflits = conflitsAvecLesChoix(
+        options,
+        await lireUtilisations(this.evenements.manager, id),
+      );
+      if (conflits.length > 0) {
+        throw new ConflictException(
+          `Ces options contredisent des choix déjà faits : ${conflits.join(' ')}`,
+        );
+      }
+    }
+
     await this.evenements.update(id, {
       ...dto,
+      ...(options ? { options } : {}),
       ...(dto.dateDebut ? { dateDebut: new Date(dto.dateDebut) } : {}),
       ...(dto.dateFin ? { dateFin: new Date(dto.dateFin) } : {}),
     });

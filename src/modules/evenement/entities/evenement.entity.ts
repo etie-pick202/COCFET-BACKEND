@@ -12,6 +12,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
 import { Produit } from '../../boutique/entities/produit.entity';
 import { Generation } from '../../generation/entities/generation.entity';
 import { Sponsor } from '../../sponsor/entities/sponsor.entity';
+import type { OptionEvenement } from '../options';
 
 export enum TypeEvenement {
   GRATUIT = 'GRATUIT',
@@ -169,4 +170,37 @@ export class Evenement extends BaseEntity {
       'validation de la tresorerie.',
   })
   accepteJustificatif: boolean;
+
+  /**
+   * Choix demandés à chaque inscrit avant le paiement : taille du T-shirt
+   * compris dans le tarif, menu, pointure… Vide pour la plupart des
+   * événements. Voir `options.ts`.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'" })
+  @ApiProperty({
+    description:
+      'Options à choisir à l’inscription, chacune avec ses valeurs et un ' +
+      'stock facultatif par valeur.',
+    example: [
+      {
+        cle: 'taille-de-t-shirt',
+        libelle: 'Taille de T-shirt',
+        obligatoire: true,
+        choix: [
+          { valeur: 'M', stock: 30 },
+          { valeur: 'L', stock: null },
+        ],
+      },
+    ],
+  })
+  options: OptionEvenement[];
+
+  @Column({ name: 'options_figees_avant_jours', type: 'int', default: 3 })
+  @ApiProperty({
+    default: 3,
+    description:
+      'Les choix des inscrits se figent ce nombre de jours avant le début : ' +
+      'la commande (T-shirts…) part, et plus rien ne change.',
+  })
+  optionsFigeesAvantJours: number;
 }

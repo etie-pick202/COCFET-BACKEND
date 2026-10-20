@@ -218,6 +218,30 @@ export class BilletterieController {
     };
   }
 
+  @ApiBearerAuth()
+  @Post('billets/:id/remise')
+  @ApiOperation({
+    summary: 'Remettre son lot (T-shirt) à l’entrée',
+    description:
+      'Réservé à ceux qui tiennent la porte de l’événement. Refusé si le lot ' +
+      'a déjà été remis — le refus dit quand et par qui.',
+  })
+  @ApiCreatedResponse({
+    description: 'Le billet, marqué remis.',
+    type: Inscription,
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Lot déjà remis, ou billet non payé ou annulé.',
+    type: ReponseErreurDto,
+  })
+  remettre(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() requete: Requete,
+  ): Promise<Inscription> {
+    return this.billetterieService.remettre(id, requete.user);
+  }
+
   @Roles(Role.ADMIN)
   @Get('evenements/:id/inscriptions')
   @ApiOperation({ summary: 'Lister les inscrits d’un événement' })
