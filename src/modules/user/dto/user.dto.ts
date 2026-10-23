@@ -7,7 +7,9 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  Max,
   MaxLength,
+  Min,
   MinLength,
 } from 'class-validator';
 import { Role, ROLES_ATTRIBUABLES } from '../../../common/enums/role.enum';
@@ -82,6 +84,18 @@ export class MettreAJourUtilisateurDto {
   @IsBoolean()
   @IsOptional()
   isFinissant?: boolean;
+
+  @ApiPropertyOptional({
+    example: 2027,
+    description:
+      'Année de sortie. Exigée pour passer étudiant un compte dont l’adresse ' +
+      'n’est pas institutionnelle (gmail…) : rien ne permet de la déduire.',
+  })
+  @IsInt()
+  @Min(1990)
+  @Max(2100)
+  @IsOptional()
+  promotion?: number;
 }
 
 export class FiltreUtilisateurDto extends PaginationDto {

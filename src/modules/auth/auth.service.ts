@@ -129,8 +129,15 @@ export class AuthService {
     );
 
     if (!user) {
-      throw new BadRequestException('Lien invalide ou expiré.');
+      throw await this.expliquerLienRefuse(jeton);
     }
+
+    // Les autres liens envoyés entre-temps n'ont plus d'objet : adresse
+    // confirmée, ils répondront « déjà confirmée ».
+    await this.jetonService.invaliderEnAttente(
+      user.id,
+      TypeJeton.VERIFICATION_EMAIL,
+    );
 
     const misAJour = await this.userService.update(user.id, {
       emailVerifieLe: new Date(),
@@ -424,6 +431,37 @@ export class AuthService {
       isFinissant:
         generation !== null && identite.promotion === generation.annee,
     };
+  }
+
+  /**
+   * L'erreur à rendre pour un lien de confirmation refusé.
+   *
+   * Ouvrir deux fois le même lien (un second onglet, un rafraîchissement, un
+   * antivirus qui l'a ouvert avant) ne doit pas laisser croire que le compte
+   * n'est pas confirmé : on le dit, et la personne n'a plus qu'à se connecter.
+   */
+  private async expliquerLienRefuse(jeton: string): Promise<Error> {
+    const { etat, user } = await this.jetonService.etat(
+      jeton,
+      TypeJeton.VERIFICATION_EMAIL,
+    );
+
+    if (etat === 'utilise' && user?.emailVerifieLe) {
+      return new BadRequestException(
+        'Cette adresse est déjà confirmée : vous pouvez vous connecter.',
+      );
+    }
+    if (etat === 'utilise') {
+      return new BadRequestException(
+        'Ce lien a été remplacé par un email plus récent : ouvrez le dernier message reçu, ou demandez un nouveau lien.',
+      );
+    }
+    if (etat === 'expire') {
+      return new BadRequestException(
+        'Ce lien a expiré (il est valable 24 heures) : demandez-en un nouveau.',
+      );
+    }
+    return new BadRequestException('Lien invalide ou expiré.');
   }
 
   private async envoyerVerification(user: User): Promise<void> {

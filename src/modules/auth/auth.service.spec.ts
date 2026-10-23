@@ -64,6 +64,8 @@ describe('AuthService', () => {
     jetonService = {
       emettre: jest.fn().mockResolvedValue('jeton-en-clair'),
       consommer: jest.fn(),
+      invaliderEnAttente: jest.fn().mockResolvedValue(undefined),
+      etat: jest.fn().mockResolvedValue({ etat: 'inconnu', user: null }),
     } as unknown as jest.Mocked<JetonService>;
 
     generationService = {
@@ -271,6 +273,45 @@ describe('AuthService', () => {
       await expect(service.verifierEmail('faux')).rejects.toThrow(
         BadRequestException,
       );
+    });
+
+    describe('lien refusé', () => {
+      beforeEach(() => {
+        jetonService.consommer.mockResolvedValue(null);
+      });
+
+      it('dit que l’adresse est déjà confirmée quand le lien a déjà servi', async () => {
+        jetonService.etat.mockResolvedValue({
+          etat: 'utilise',
+          user: utilisateur({ emailVerifieLe: new Date() }),
+        });
+
+        await expect(service.verifierEmail('deja')).rejects.toThrow(
+          'déjà confirmée',
+        );
+      });
+
+      it('dit qu’un email plus récent a remplacé le lien', async () => {
+        jetonService.etat.mockResolvedValue({
+          etat: 'utilise',
+          user: utilisateur({ emailVerifieLe: null }),
+        });
+
+        await expect(service.verifierEmail('ancien')).rejects.toThrow(
+          'remplacé par un email plus récent',
+        );
+      });
+
+      it('dit que le lien a expiré', async () => {
+        jetonService.etat.mockResolvedValue({
+          etat: 'expire',
+          user: utilisateur(),
+        });
+
+        await expect(service.verifierEmail('vieux')).rejects.toThrow(
+          'a expiré',
+        );
+      });
     });
   });
 

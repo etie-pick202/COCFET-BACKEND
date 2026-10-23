@@ -3,7 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { AppModule } from './../src/app.module';
 import { FiltreExceptionGlobal } from './../src/common/erreurs/filtre-exception-global';
 import { Role } from './../src/common/enums/role.enum';
@@ -169,6 +169,56 @@ describe('Authentification (e2e)', () => {
         .post('/api/v1/auth/rafraichir')
         .send({ refreshToken: ancien })
         .expect(401);
+    });
+  });
+
+  describe('plusieurs liens de confirmation', () => {
+    const EMAIL = 'courrier.lent@2027.ucac-icam.com';
+    const verifier = (jeton: string) =>
+      request(app.getHttpServer())
+        .post('/api/v1/auth/verification-email')
+        .send({ jeton });
+
+    it('laisse valable le premier lien quand un second est demandé', async () => {
+      await inscrire(EMAIL).expect(202);
+      const premier = jetonDepuisLien(liensVerification.get(EMAIL) as string);
+
+      await request(app.getHttpServer())
+        .post('/api/v1/auth/verification-email/renvoyer')
+        .send({ email: EMAIL })
+        .expect(202);
+      const second = jetonDepuisLien(liensVerification.get(EMAIL) as string);
+      expect(second).not.toBe(premier);
+
+      // Le message arrivé en premier est celui sur lequel on clique.
+      await verifier(premier).expect(200);
+    });
+
+    it('dit que l’adresse est déjà confirmée quand on rouvre un autre lien', async () => {
+      const second = jetonDepuisLien(liensVerification.get(EMAIL) as string);
+
+      const reponse = await verifier(second).expect(400);
+
+      expect((reponse.body as { message: string }).message).toContain(
+        'déjà confirmée',
+      );
+    });
+
+    it('dit qu’un lien est expiré plutôt que de le dire invalide', async () => {
+      const lent = 'expire@2027.ucac-icam.com';
+      await inscrire(lent).expect(202);
+      const jeton = jetonDepuisLien(liensVerification.get(lent) as string);
+      await app
+        .get(DataSource)
+        .query(
+          "UPDATE jetons_auth SET expire_le = now() - interval '1 minute' WHERE type = 'VERIFICATION_EMAIL'",
+        );
+
+      const reponse = await verifier(jeton).expect(400);
+
+      expect((reponse.body as { message: string }).message).toContain(
+        'a expiré',
+      );
     });
   });
 
