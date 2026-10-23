@@ -17,6 +17,11 @@ import {
 } from './../src/modules/evenement/entities/evenement.entity';
 import { Generation } from './../src/modules/generation/entities/generation.entity';
 import { MailService } from './../src/modules/mail/mail.service';
+import {
+  PASSERELLE_PAIEMENT,
+  PasserellePaiement,
+} from './../src/modules/paiement/ports/passerelle-paiement';
+import { AlerteTresorerieService } from './../src/modules/notification/alerte-tresorerie.service';
 import { Notification } from './../src/modules/notification/entities/notification.entity';
 import { Transaction } from './../src/modules/paiement/entities/transaction.entity';
 import {
@@ -319,6 +324,129 @@ describe('Webhook de paiement (e2e)', () => {
         where: { titre: 'Gala payant' },
       });
       expect(evenement.inscriptionsActuelles).toBe(0);
+    });
+  });
+
+  describe('paiement arrivé après l’annulation', () => {
+    const envoyer = (code: string, statut: StatutPaiement) =>
+      request(app.getHttpServer())
+        .post(WEBHOOK)
+        .set('Content-Type', 'application/json')
+        .set('x-wh-secret', SECRET_WEBHOOK)
+        .send(notifier(code, statut).toString('utf8'))
+        .expect(200);
+
+    const evenementDe = () =>
+      evenements.findOneOrFail({ where: { titre: 'Gala payant' } });
+
+    it('rend son billet à qui a payé après un échec annoncé', async () => {
+      // Un refus transitoire annule l'inscription ; le paiement aboutit
+      // pourtant ensuite. L'argent est encaissé : le billet doit revenir.
+      const code = await inscriptionEnAttente();
+      await envoyer(code, StatutPaiement.ECHOUE);
+      expect((await evenementDe()).inscriptionsActuelles).toBe(0);
+
+      await envoyer(code, StatutPaiement.COMPLETE);
+
+      await expect(
+        inscriptions.findOne({ where: { codeBillet: code } }),
+      ).resolves.toMatchObject({
+        statut: StatutInscription.CONFIRMEE,
+        statutPaiement: StatutPaiement.COMPLETE,
+      });
+      expect((await evenementDe()).inscriptionsActuelles).toBe(1);
+      expect(
+        (await notifications.find()).some((n) =>
+          n.titre.includes('Paiement confirmé'),
+        ),
+      ).toBe(true);
+    });
+
+    it('ne rouvre qu’une fois, même si la notification est rejouée', async () => {
+      const code = await inscriptionEnAttente();
+      await envoyer(code, StatutPaiement.ECHOUE);
+
+      await envoyer(code, StatutPaiement.COMPLETE);
+      await envoyer(code, StatutPaiement.COMPLETE);
+
+      expect((await evenementDe()).inscriptionsActuelles).toBe(1);
+    });
+
+    it('ne reprend la place de personne : événement complet, à rembourser', async () => {
+      const aRembourser = jest.spyOn(
+        app.get(AlerteTresorerieService),
+        'aRembourser',
+      );
+      const code = await inscriptionEnAttente();
+      await envoyer(code, StatutPaiement.ECHOUE);
+      const evenement = await evenementDe();
+      await evenements.update(evenement.id, {
+        capaciteMax: 1,
+        inscriptionsActuelles: 1,
+      });
+
+      await envoyer(code, StatutPaiement.COMPLETE);
+
+      await expect(
+        inscriptions.findOne({ where: { codeBillet: code } }),
+      ).resolves.toMatchObject({ statut: StatutInscription.ANNULEE });
+      expect((await evenementDe()).inscriptionsActuelles).toBe(1);
+
+      const titres = (await notifications.find()).map((n) => n.titre);
+      expect(titres).toContain('Paiement reçu, billet indisponible');
+      expect(aRembourser).toHaveBeenCalledWith(
+        expect.objectContaining({ id: etudiant.user.id }),
+        expect.stringContaining(code),
+        expect.any(Number),
+      );
+    });
+
+    it('refuse d’annuler un billet que Fapshi dit payé, et le confirme', async () => {
+      const code = await inscriptionEnAttente();
+      const billet = await inscriptions.findOneOrFail({
+        where: { codeBillet: code },
+      });
+      const passerelle = app.get<PasserellePaiement>(PASSERELLE_PAIEMENT);
+      const verifier = jest.spyOn(passerelle, 'verifier').mockResolvedValue({
+        reference: code,
+        referenceExterne: 'trx_simule',
+        statut: StatutPaiement.COMPLETE,
+        urlRedirection: null,
+      });
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/billets/${billet.id}`)
+        .set(etudiant.entetes)
+        .expect(409);
+
+      verifier.mockRestore();
+      await expect(
+        inscriptions.findOne({ where: { codeBillet: code } }),
+      ).resolves.toMatchObject({
+        statut: StatutInscription.CONFIRMEE,
+        statutPaiement: StatutPaiement.COMPLETE,
+      });
+    });
+
+    it('s’abstient d’annuler quand Fapshi ne répond pas', async () => {
+      const code = await inscriptionEnAttente();
+      const billet = await inscriptions.findOneOrFail({
+        where: { codeBillet: code },
+      });
+      const passerelle = app.get<PasserellePaiement>(PASSERELLE_PAIEMENT);
+      const verifier = jest
+        .spyOn(passerelle, 'verifier')
+        .mockRejectedValue(new Error('réseau'));
+
+      await request(app.getHttpServer())
+        .delete(`/api/v1/billets/${billet.id}`)
+        .set(etudiant.entetes)
+        .expect(409);
+
+      verifier.mockRestore();
+      await expect(
+        inscriptions.findOne({ where: { codeBillet: code } }),
+      ).resolves.toMatchObject({ statut: StatutInscription.EN_ATTENTE });
     });
   });
 
