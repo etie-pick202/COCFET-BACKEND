@@ -10,6 +10,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcrypt';
 import { Brackets, Repository } from 'typeorm';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
+import { lireIdentiteCampus } from '../../common/identite/identite-campus';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
   ChangerMotDePasseDto,
@@ -303,6 +304,7 @@ export class UserService {
         ? { isFinissant: dto.isFinissant }
         : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+      ...(await this.attributsEtudiant(cible, dto)),
     });
 
     if (dto.isActive === false) {
@@ -314,6 +316,59 @@ export class UserService {
     this.logger.log(`Compte ${id} modifié par ${demandeurId}.`);
 
     return misAJour;
+  }
+
+  /**
+   * La promotion et le marquage de finissant qui suivent un changement de rôle.
+   *
+   * Tout ce qui concerne les étudiants — l'annuaire, les cotisations ciblées,
+   * le tableau de bord — se fonde sur la **promotion**, pas sur le rôle. Passer
+   * quelqu'un étudiant sans promotion changeait son badge et rien d'autre : il
+   * restait absent de tout. Une adresse institutionnelle donne la promotion ;
+   * pour une autre (gmail…), l'administration l'indique, faute de quoi on
+   * refuse plutôt que de laisser un étudiant à moitié créé.
+   *
+   * Repasser visiteur retire la promotion : un visiteur n'en a pas.
+   */
+  private async attributsEtudiant(
+    cible: User,
+    dto: MettreAJourUtilisateurDto,
+  ): Promise<Partial<User>> {
+    if (dto.role === Role.VISITOR && cible.role === Role.STUDENT) {
+      return { promotion: null, isFinissant: false };
+    }
+
+    const roleFinal = dto.role ?? cible.role;
+    const concerne =
+      roleFinal === Role.STUDENT &&
+      (dto.role === Role.STUDENT || dto.promotion !== undefined);
+    if (!concerne) {
+      return {};
+    }
+
+    const annee = await this.anneeGenerationActive();
+    const promotion =
+      dto.promotion ??
+      cible.promotion ??
+      lireIdentiteCampus(cible.email, annee ?? undefined).promotion;
+
+    if (promotion === null) {
+      throw new BadRequestException(
+        'Indiquez la promotion (année de sortie) de cet étudiant : son adresse ne permet pas de la déduire.',
+      );
+    }
+
+    return {
+      promotion,
+      isFinissant: dto.isFinissant ?? (annee !== null && promotion === annee),
+    };
+  }
+
+  private async anneeGenerationActive(): Promise<number | null> {
+    const lignes = await this.users.manager.query<{ annee: number }[]>(
+      'SELECT annee FROM generations WHERE is_active = true LIMIT 1',
+    );
+    return lignes[0]?.annee ?? null;
   }
 
   compterAdministrateurs(): Promise<number> {
