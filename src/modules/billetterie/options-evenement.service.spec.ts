@@ -41,7 +41,13 @@ describe('OptionsEvenementService', () => {
   let sansReponse: { confirmees: string; en_attente: string };
   let update: jest.Mock;
   let notifier: jest.Mock;
-  let gestionnaire: { query: jest.Mock; update: jest.Mock; save: jest.Mock };
+  let affectees: number;
+  let gestionnaire: {
+    query: jest.Mock;
+    update: jest.Mock;
+    save: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
 
   beforeEach(() => {
     evenement = {
@@ -69,7 +75,16 @@ describe('OptionsEvenementService', () => {
       if (sql.includes('jsonb_exists')) return Promise.resolve([sansReponse]);
       return Promise.resolve([]);
     });
+    affectees = 1;
+    const constructeur: Record<string, jest.Mock> = {};
+    for (const nom of ['update', 'set', 'where']) {
+      constructeur[nom] = jest.fn(() => constructeur);
+    }
+    constructeur.execute = jest.fn(() =>
+      Promise.resolve({ affected: affectees }),
+    );
     gestionnaire = {
+      createQueryBuilder: jest.fn(() => constructeur),
       query: requete,
       update,
       save: jest.fn((i: unknown) => Promise.resolve(i)),
@@ -312,6 +327,36 @@ describe('OptionsEvenementService', () => {
 
       await expect(service.relancer('e1')).resolves.toBe(0);
       expect(notifier).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('rouvrirApresPaiement', () => {
+    const rouvrir = () =>
+      service.rouvrirApresPaiement(
+        evenement as Evenement,
+        {
+          id: 'i1',
+          reponses: { taille: 'M' },
+        } as unknown as Inscription,
+      );
+
+    it('rouvre quand la taille est encore disponible', async () => {
+      await expect(rouvrir()).resolves.toBe(true);
+    });
+
+    it('ne rouvre pas quand la taille a été prise entre-temps', async () => {
+      utilisations = [
+        { cle: 'taille', valeur: 'M', confirmees: '2', en_attente: '0' },
+      ];
+
+      await expect(rouvrir()).resolves.toBe(false);
+      expect(gestionnaire.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('ne rouvre pas une inscription qui ne l’est plus', async () => {
+      affectees = 0;
+
+      await expect(rouvrir()).resolves.toBe(false);
     });
   });
 

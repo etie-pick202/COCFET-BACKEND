@@ -317,6 +317,10 @@ export class BilletterieService {
       );
     }
 
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      await this.verifierQueLePaiementNEstPasArrive(inscription);
+    }
+
     await this.inscriptions.update(inscriptionId, {
       statut: StatutInscription.ANNULEE,
       urlPaiement: null,
@@ -330,6 +334,47 @@ export class BilletterieService {
       // que l'argent revient tout seul.
       this.logger.warn(
         `Inscription payée annulée (${inscriptionId}, ${inscription.prix} FCFA) : remboursement à traiter manuellement.`,
+      );
+    }
+  }
+
+  /**
+   * Interroge Fapshi avant d'annuler un billet dont le paiement est en attente.
+   *
+   * Un reseau qui coupe apres la validation sur le telephone laisse l'argent
+   * debite et le billet « en attente » : annuler a ce moment-la rendrait la
+   * place d'une personne qui a deja paye. Si Fapshi dit « paye », le billet
+   * est confirme et l'annulation refusee ; s'il ne repond pas, on s'abstient
+   * plutot que d'annuler a l'aveugle.
+   */
+  private async verifierQueLePaiementNEstPasArrive(
+    inscription: Inscription,
+  ): Promise<void> {
+    const transaction = await this.transactionService.trouver(
+      inscription.codeBillet,
+    );
+    if (!transaction?.referenceExterne) {
+      return;
+    }
+
+    let etat: StatutPaiement;
+    try {
+      etat = (await this.paiement.verifier(transaction.referenceExterne))
+        .statut;
+    } catch {
+      throw new ConflictException(
+        'Impossible de vérifier votre paiement pour le moment : réessayez dans un instant, avant d’annuler.',
+      );
+    }
+
+    if (etat === StatutPaiement.COMPLETE) {
+      await this.transactionService.appliquer(
+        inscription.codeBillet,
+        StatutPaiement.COMPLETE,
+      );
+      await this.confirmerPaiement(inscription.codeBillet);
+      throw new ConflictException(
+        'Votre paiement est bien arrivé : votre billet est confirmé et n’a pas été annulé.',
       );
     }
   }
@@ -595,19 +640,32 @@ export class BilletterieService {
     }
 
     if (inscription.statut === StatutInscription.ANNULEE) {
-      // La place a deja ete rendue, et probablement reprise depuis. Confirmer
-      // ici delivrerait un billet pour un evenement peut-etre complet, et
-      // afficherait comme confirmee une inscription que la personne croit
-      // annulee. L'argent est bien arrive : il appelle un remboursement.
-      this.logger.warn(
-        `Paiement recu pour une inscription annulee (${reference}, ` +
-          `${inscription.prix} FCFA) : remboursement a traiter manuellement.`,
-      );
+      // L'argent est arrive apres l'annulation (echec transitoire, annulation
+      // faite pendant que la confirmation voyageait, webhook en retard). La
+      // personne a paye : on lui rend son billet si la place le permet, et
+      // sinon on le dit a la tresorerie, qui rembourse.
+      if (!(await this.rouvrirApresPaiement(inscription))) {
+        await this.signalerARembourser(inscription);
+        return;
+      }
+    } else if (!(await this.confirmerSiEnAttente(inscription))) {
       return;
     }
 
-    // Conditionnee au statut courant : un second webhook pour la meme
-    // reference n'affecte aucune ligne, et la notification ne part qu'une fois.
+    await this.apresConfirmation(inscription);
+  }
+
+  /**
+   * Conditionnee au statut courant : un second webhook pour la meme reference
+   * n'affecte aucune ligne, et la notification ne part qu'une fois.
+   *
+   * La condition est **dans la requete** et non seulement avant : une
+   * annulation concurrente passerait entre la lecture et l'ecriture, et
+   * l'inscription serait confirmee malgre tout.
+   */
+  private async confirmerSiEnAttente(
+    inscription: Inscription,
+  ): Promise<boolean> {
     const resultat = await this.inscriptions
       .createQueryBuilder()
       .update(Inscription)
@@ -618,9 +676,6 @@ export class BilletterieService {
         // offrirait un moyen de payer ce qui est deja regle.
         urlPaiement: null,
       })
-      // La condition sur le statut est **dans la requete** et non seulement
-      // au-dessus : une annulation concurrente passerait entre la lecture et
-      // l'ecriture, et l'inscription serait confirmee malgre tout.
       .where(
         'id = :id AND statut_paiement != :complete AND statut != :annulee',
         {
@@ -631,10 +686,100 @@ export class BilletterieService {
       )
       .execute();
 
-    if (resultat.affected !== 1) {
-      return;
+    return resultat.affected === 1;
+  }
+
+  /**
+   * Rend son billet a quelqu'un dont le paiement est arrive apres l'annulation.
+   *
+   * Ne le fait que si rien n'est pris a personne : l'evenement est toujours
+   * ouvert, la personne n'a pas depuis une autre inscription active (deux
+   * billets payes pour une seule personne), une place est libre et le choix
+   * d'option (la taille de T-shirt) n'est pas epuise. Sinon `false` : le
+   * paiement appelle un remboursement.
+   */
+  private async rouvrirApresPaiement(
+    inscription: Inscription,
+  ): Promise<boolean> {
+    const { evenement } = inscription;
+    const fin = evenement.dateFin ?? evenement.dateDebut;
+
+    if (
+      evenement.statut === StatutEvenement.ARCHIVE ||
+      fin.getTime() <= Date.now() ||
+      (await this.aUneAutreInscriptionActive(inscription))
+    ) {
+      return false;
+    }
+    if (!(await this.evenementService.reserverUnePlace(evenement.id))) {
+      return false;
     }
 
+    let rouverte = false;
+    try {
+      rouverte = await this.options.rouvrirApresPaiement(
+        evenement,
+        inscription,
+      );
+    } finally {
+      // Place reprise pour rien : on la rend, y compris si l'ecriture a leve.
+      if (!rouverte) {
+        await this.evenementService.libererUnePlace(evenement.id);
+      }
+    }
+
+    return rouverte;
+  }
+
+  private async aUneAutreInscriptionActive(
+    inscription: Inscription,
+  ): Promise<boolean> {
+    const autres = await this.inscriptions
+      .createQueryBuilder('i')
+      .where('i.evenement_id = :evenement AND i.user_id = :user', {
+        evenement: inscription.evenement.id,
+        user: inscription.user.id,
+      })
+      .andWhere('i.id != :id AND i.statut != :annulee', {
+        id: inscription.id,
+        annulee: StatutInscription.ANNULEE,
+      })
+      .getCount();
+
+    return autres > 0;
+  }
+
+  /**
+   * Un paiement est arrive pour un billet qu'on ne peut pas rendre : le dire a
+   * la personne et a la tresorerie, sans quoi l'argent resterait sans trace.
+   */
+  private async signalerARembourser(inscription: Inscription): Promise<void> {
+    const montant = inscription.frais?.montantTtc ?? inscription.prix;
+    this.logger.warn(
+      `Paiement recu pour une inscription annulee non reouvrable ` +
+        `(${inscription.codeBillet}, ${montant} FCFA) : remboursement a traiter.`,
+    );
+
+    await this.alerteTresorerie.aRembourser(
+      inscription.user,
+      `le billet « ${inscription.evenement.titre} » (${inscription.codeBillet})`,
+      montant,
+    );
+    await this.notificationService.notifier({
+      destinataire: inscription.user,
+      type: TypeNotification.PAIEMENT,
+      titre: 'Paiement reçu, billet indisponible',
+      message:
+        `Votre paiement pour « ${inscription.evenement.titre} » est bien arrivé, ` +
+        'mais votre inscription avait été annulée et il n’est plus possible de ' +
+        'la rétablir. Le bureau va vous rembourser : conservez le code ' +
+        `${inscription.codeBillet}.`,
+      lien: '/billets',
+    });
+  }
+
+  /** Ce qui suit toute confirmation : prevenir, encaisser, tracer, emettre. */
+  private async apresConfirmation(inscription: Inscription): Promise<void> {
     await this.notificationService.notifier({
       destinataire: inscription.user,
       type: TypeNotification.PAIEMENT,
