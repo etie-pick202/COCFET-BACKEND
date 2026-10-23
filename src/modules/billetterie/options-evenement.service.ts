@@ -23,6 +23,7 @@ import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { versCsv } from '../tableau-de-bord/export-csv';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
+import { StatutPaiement } from '../paiement/enums/paiement.enum';
 
 /** Une valeur proposée, avec ce qu'il en reste. */
 export interface ChoixConsulte {
@@ -157,6 +158,52 @@ export class OptionsEvenementService {
       await this.verrouiller(gestionnaire, evenement.id);
       await this.verifierStock(gestionnaire, evenement, reponses, null);
       return gestionnaire.save(inscription);
+    });
+  }
+
+  /**
+   * Rouvre une inscription annulée dont le paiement vient pourtant d'aboutir.
+   *
+   * La taille choisie est recontrôlée sous le même verrou que toute inscription
+   * : pendant l'annulation, quelqu'un a pu la prendre. Rend `false` si elle est
+   * épuisée, ou si l'inscription n'est plus annulée (déjà rouverte).
+   */
+  async rouvrirApresPaiement(
+    evenement: Evenement,
+    inscription: Inscription,
+  ): Promise<boolean> {
+    return this.inscriptions.manager.transaction(async (gestionnaire) => {
+      await this.verrouiller(gestionnaire, evenement.id);
+
+      try {
+        await this.verifierStock(
+          gestionnaire,
+          evenement,
+          inscription.reponses ?? {},
+          inscription.id,
+        );
+      } catch (erreur) {
+        if (erreur instanceof ConflictException) {
+          return false;
+        }
+        throw erreur;
+      }
+
+      const resultat = await gestionnaire
+        .createQueryBuilder()
+        .update(Inscription)
+        .set({
+          statut: StatutInscription.CONFIRMEE,
+          statutPaiement: StatutPaiement.COMPLETE,
+          urlPaiement: null,
+        })
+        .where('id = :id AND statut = :annulee', {
+          id: inscription.id,
+          annulee: StatutInscription.ANNULEE,
+        })
+        .execute();
+
+      return resultat.affected === 1;
     });
   }
 

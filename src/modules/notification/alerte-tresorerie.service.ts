@@ -61,6 +61,23 @@ export class AlerteTresorerieService {
     );
   }
 
+  /** Un paiement est arrivé pour un billet qu'on ne peut plus rendre. */
+  aRembourser(
+    payeur: Encaissement['payeur'],
+    objet: string,
+    montant: number,
+  ): Promise<void> {
+    return this.signaler(
+      payeur.id,
+      'Paiement à rembourser',
+      `${nomComplet(payeur)} a réglé ${montantLisible(montant)} pour ${objet}, ` +
+        'mais l’inscription avait été annulée et ne peut plus être rétablie ' +
+        '(plus de place, choix épuisé ou événement terminé). Le paiement est ' +
+        'encaissé : il faut le rembourser.',
+      'Ouvrir la trésorerie',
+    );
+  }
+
   /** Un membre vient de déposer de l'argent de sa poche sur la plateforme. */
   remiseSurPlateforme(
     membre: Encaissement['payeur'],
