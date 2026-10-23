@@ -24,6 +24,24 @@ export const DUREES_VALIDITE_MS: Record<TypeJeton, number> = {
   [TypeJeton.CHANGEMENT_EMAIL]: 60 * 60 * 1000,
 };
 
+/**
+ * Types dont les liens se cumulent : demander un nouvel email ne rend pas le
+ * précédent inutilisable.
+ *
+ * Un email de confirmation peut arriver en retard, ou dans le désordre. Si le
+ * renvoi condamnait le premier lien, quelqu'un qui clique sur le message reçu
+ * en premier — arrivé deux minutes plus tôt — se voyait répondre « expiré ».
+ * Tous vont à la même boîte et ne servent qu'à prouver qu'on la possède :
+ * en laisser plusieurs valables n'ouvre rien de plus.
+ *
+ * Les autres types donnent la main sur le compte (mot de passe, adresse de
+ * connexion) : un seul lien à la fois y reste la règle.
+ */
+const LIENS_CUMULABLES = new Set<TypeJeton>([TypeJeton.VERIFICATION_EMAIL]);
+
+/** Pourquoi un lien est refusé, pour le dire à la personne. */
+export type EtatJeton = 'inconnu' | 'expire' | 'utilise' | 'valide';
+
 @Injectable()
 export class JetonService {
   constructor(
@@ -36,22 +54,13 @@ export class JetonService {
    * existe : seule l'empreinte est conservée.
    *
    * Les jetons du même type encore en attente sont invalidés, pour qu'un lien
-   * demandé trois fois n'en laisse pas trois utilisables.
+   * demandé trois fois n'en laisse pas trois utilisables — sauf pour les types
+   * cumulables (voir `LIENS_CUMULABLES`).
    */
   async emettre(user: User, type: TypeJeton): Promise<string> {
-    // Requête explicite plutôt que critère d'objet : « consommeLe: undefined »
-    // ne signifie pas « IS NULL » pour TypeORM, il ne correspond à rien et
-    // l'update n'affecte alors aucune ligne. Et `update()` ne sait pas filtrer
-    // sur une relation.
-    await this.jetons
-      .createQueryBuilder()
-      .update(JetonAuth)
-      .set({ consommeLe: new Date() })
-      .where('user_id = :userId AND type = :type AND consomme_le IS NULL', {
-        userId: user.id,
-        type,
-      })
-      .execute();
+    if (!LIENS_CUMULABLES.has(type)) {
+      await this.invaliderEnAttente(user.id, type);
+    }
 
     const valeur = randomBytes(OCTETS_JETON).toString('base64url');
 
@@ -66,6 +75,28 @@ export class JetonService {
     );
 
     return valeur;
+  }
+
+  /**
+   * Rend inutilisables les jetons de ce type qui attendent encore.
+   *
+   * Appelée aussi quand un lien cumulable a servi : les autres liens du même
+   * compte n'ont plus de raison d'être.
+   */
+  async invaliderEnAttente(userId: string, type: TypeJeton): Promise<void> {
+    // Requête explicite plutôt que critère d'objet : « consommeLe: undefined »
+    // ne signifie pas « IS NULL » pour TypeORM, il ne correspond à rien et
+    // l'update n'affecte alors aucune ligne. Et `update()` ne sait pas filtrer
+    // sur une relation.
+    await this.jetons
+      .createQueryBuilder()
+      .update(JetonAuth)
+      .set({ consommeLe: new Date() })
+      .where('user_id = :userId AND type = :type AND consomme_le IS NULL', {
+        userId,
+        type,
+      })
+      .execute();
   }
 
   /**
@@ -100,6 +131,34 @@ export class JetonService {
       .execute();
 
     return resultat.affected === 1 ? jeton.user : null;
+  }
+
+  /**
+   * Dit pourquoi un jeton est refusé, sans rien modifier.
+   *
+   * « Lien invalide ou expiré » pour tous les cas laisse la personne sans
+   * issue : un lien déjà ouvert, un lien dépassé et un lien inventé appellent
+   * trois réponses différentes.
+   */
+  async etat(
+    valeur: string,
+    type: TypeJeton,
+  ): Promise<{ etat: EtatJeton; user: User | null }> {
+    const jeton = await this.jetons.findOne({
+      where: { empreinte: this.empreinte(valeur), type },
+      relations: { user: true },
+    });
+
+    if (!jeton) {
+      return { etat: 'inconnu', user: null };
+    }
+    if (jeton.consommeLe !== null) {
+      return { etat: 'utilise', user: jeton.user };
+    }
+    return {
+      etat: jeton.expireLe <= new Date() ? 'expire' : 'valide',
+      user: jeton.user,
+    };
   }
 
   /** Purge les jetons expirés depuis longtemps : ils n'ont plus aucune valeur. */
