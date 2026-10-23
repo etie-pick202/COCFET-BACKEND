@@ -101,14 +101,43 @@ describe('JetonService (e2e)', () => {
   });
 
   it('invalide les jetons précédents du même type', async () => {
-    const premier = await service.emettre(user, TypeJeton.VERIFICATION_EMAIL);
-    await service.emettre(user, TypeJeton.VERIFICATION_EMAIL);
+    const premier = await service.emettre(
+      user,
+      TypeJeton.REINITIALISATION_MOT_DE_PASSE,
+    );
+    await service.emettre(user, TypeJeton.REINITIALISATION_MOT_DE_PASSE);
 
     // Redemander un lien doit rendre le précédent inutilisable, sinon chaque
     // demande laisserait un lien valide de plus dans la nature.
     expect(
-      await service.consommer(premier, TypeJeton.VERIFICATION_EMAIL),
+      await service.consommer(premier, TypeJeton.REINITIALISATION_MOT_DE_PASSE),
     ).toBeNull();
+  });
+
+  it('laisse valables tous les liens de confirmation d’email', async () => {
+    const premier = await service.emettre(user, TypeJeton.VERIFICATION_EMAIL);
+    await service.emettre(user, TypeJeton.VERIFICATION_EMAIL);
+
+    // Un email arrive en retard ou dans le désordre : celui sur lequel on
+    // clique ne doit pas avoir été condamné par le renvoi suivant.
+    expect(
+      await service.consommer(premier, TypeJeton.VERIFICATION_EMAIL),
+    ).not.toBeNull();
+  });
+
+  it('dit pourquoi un jeton est refusé', async () => {
+    const valeur = await service.emettre(user, TypeJeton.VERIFICATION_EMAIL);
+
+    expect(
+      (await service.etat(valeur, TypeJeton.VERIFICATION_EMAIL)).etat,
+    ).toBe('valide');
+    await service.consommer(valeur, TypeJeton.VERIFICATION_EMAIL);
+    expect(
+      (await service.etat(valeur, TypeJeton.VERIFICATION_EMAIL)).etat,
+    ).toBe('utilise');
+    expect(
+      (await service.etat('inconnu', TypeJeton.VERIFICATION_EMAIL)).etat,
+    ).toBe('inconnu');
   });
 
   it("n'invalide pas les jetons d'un autre type", async () => {
