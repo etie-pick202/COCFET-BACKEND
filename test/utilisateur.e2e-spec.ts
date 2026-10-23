@@ -297,7 +297,7 @@ describe('Utilisateurs et profils (e2e)', () => {
       await request(app.getHttpServer())
         .patch(`${UTILISATEURS}/${second.user.id}`)
         .set(admin.entetes)
-        .send({ role: Role.STUDENT })
+        .send({ role: Role.STUDENT, promotion: 2027 })
         .expect(200);
 
       await request(app.getHttpServer())

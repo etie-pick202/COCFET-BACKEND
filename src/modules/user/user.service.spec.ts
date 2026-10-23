@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '../../common/enums/role.enum';
 import { UserService } from './user.service';
 
@@ -8,14 +8,22 @@ type Depot = {
   update: jest.Mock;
   countBy: jest.Mock;
   createQueryBuilder: jest.Mock;
+  manager: { query: jest.Mock };
 };
 
-function creer(compte: { id: string; role: Role; avatar?: string | null }) {
+function creer(compte: {
+  id: string;
+  role: Role;
+  avatar?: string | null;
+  email?: string;
+  promotion?: number | null;
+}) {
   const depot: Depot = {
     findOne: jest.fn().mockResolvedValue(compte),
     delete: jest.fn().mockResolvedValue(undefined),
     update: jest.fn().mockResolvedValue(undefined),
     countBy: jest.fn().mockResolvedValue(2),
+    manager: { query: jest.fn().mockResolvedValue([{ annee: 2027 }]) },
     // Lecture par `trouverOuEchouer` : toute la chaîne renvoie le compte.
     createQueryBuilder: jest.fn().mockReturnValue({
       addSelect: jest.fn().mockReturnThis(),
@@ -106,6 +114,112 @@ describe('UserService', () => {
       await service.administrer('u1', { isFinissant: true }, 'a1', Role.ADMIN);
 
       expect(depot.update).toHaveBeenCalledWith('u1', { isFinissant: true });
+    });
+
+    describe('passage en étudiant', () => {
+      const GMAIL = 'amie@gmail.com';
+
+      it('exige la promotion quand l’adresse ne la donne pas', async () => {
+        const { service, depot } = creer({
+          id: 'u1',
+          role: Role.VISITOR,
+          email: GMAIL,
+          promotion: null,
+        });
+
+        await expect(
+          service.administrer('u1', { role: Role.STUDENT }, 'a1', Role.ADMIN),
+        ).rejects.toThrow(BadRequestException);
+        expect(depot.update).not.toHaveBeenCalled();
+      });
+
+      it('enregistre la promotion indiquée et marque le finissant', async () => {
+        const { service, depot } = creer({
+          id: 'u1',
+          role: Role.VISITOR,
+          email: GMAIL,
+          promotion: null,
+        });
+
+        await service.administrer(
+          'u1',
+          { role: Role.STUDENT, promotion: 2027 },
+          'a1',
+          Role.ADMIN,
+        );
+
+        expect(depot.update).toHaveBeenCalledWith('u1', {
+          role: Role.STUDENT,
+          promotion: 2027,
+          isFinissant: true,
+        });
+      });
+
+      it('ne marque pas finissant une autre promotion', async () => {
+        const { service, depot } = creer({
+          id: 'u1',
+          role: Role.VISITOR,
+          email: GMAIL,
+          promotion: null,
+        });
+
+        await service.administrer(
+          'u1',
+          { role: Role.STUDENT, promotion: 2029 },
+          'a1',
+          Role.ADMIN,
+        );
+
+        expect(depot.update).toHaveBeenCalledWith('u1', {
+          role: Role.STUDENT,
+          promotion: 2029,
+          isFinissant: false,
+        });
+      });
+
+      it('déduit la promotion d’une adresse institutionnelle', async () => {
+        const { service, depot } = creer({
+          id: 'u1',
+          role: Role.VISITOR,
+          email: 'a.b@2027.ucac-icam.com',
+          promotion: null,
+        });
+
+        await service.administrer(
+          'u1',
+          { role: Role.STUDENT },
+          'a1',
+          Role.ADMIN,
+        );
+
+        expect(depot.update).toHaveBeenCalledWith('u1', {
+          role: Role.STUDENT,
+          promotion: 2027,
+          isFinissant: true,
+        });
+      });
+
+      it('retire la promotion en repassant visiteur', async () => {
+        const { service, depot } = creer({
+          id: 'u1',
+          role: Role.STUDENT,
+          email: GMAIL,
+          promotion: 2027,
+        });
+
+        await service.administrer(
+          'u1',
+          { role: Role.VISITOR },
+          'a1',
+          Role.ADMIN,
+        );
+
+        expect(depot.update).toHaveBeenCalledWith('u1', {
+          role: Role.VISITOR,
+          promotion: null,
+          isFinissant: false,
+        });
+      });
     });
   });
 });
