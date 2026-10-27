@@ -22,6 +22,8 @@ minimumReleaseAgeExclude:
   - brace-expansion@5.0.9
   - fast-uri@3.1.5
   - nanoid@3.3.18
+  - body-parser@2.4.0
+  - multer@2.5.0
 
 # CVE dans des dépendances transitives que nous ne contrôlons pas directement
 # (principalement via l'arbre mjml de @nestjs-modules/mailer). On force les
@@ -38,7 +40,7 @@ overrides:
   # undici : deni de service (GHSA-rfgv-xxqx-mfg5). Remonte par cheerio, dans
   # l'arbre mjml de @nestjs-modules/mailer — donc au rendu des emails.
   # Borne haute : cheerio attend la branche 6.
-  undici: '>=6.28.1 <7.0.0'
+  undici: '>=6.29.1 <7.0.0'
   tar: '>=7.5.19'
   linkify-it: '>=5.0.2'
   # js-yaml : le plafond de fusions de cles (maxTotalMergeKeys) n'empeche pas
@@ -64,7 +66,11 @@ overrides:
   # multer : deni de service par nom de champ ou index de tableau surdimensionne,
   # et fuite de descripteur de fichier sur un televersement interrompu. Remonte
   # par @nestjs/platform-express — donc sur chaque route qui accepte un fichier.
-  multer: '>=2.3.0'
+  multer: '>=2.5.0'
+  # body-parser : avis de securite corrige en 2.4.0. Remonte par express 5, donc
+  # par @nestjs/platform-express : il lit le corps de chaque requete. Borne
+  # haute : express 5 demande la branche 2.
+  body-parser@^2.0.0: '>=2.4.0 <3.0.0'
   # svgo : « removeScripts » laissait passer des liens executables par
   # contournement de l'espace de noms. Remonte par l'arbre mjml de
   # @nestjs-modules/mailer, au rendu des emails — jamais applique a un SVG
