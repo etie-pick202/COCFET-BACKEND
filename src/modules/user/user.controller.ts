@@ -43,6 +43,8 @@ import {
   FiltreUtilisateurDto,
   MettreAJourProfilDto,
   MettreAJourUtilisateurDto,
+  ProcheTrouve,
+  RechercheProcheDto,
   UtilisateurExpose,
 } from './dto/user.dto';
 import { UserService } from './user.service';
@@ -165,6 +167,28 @@ export class UserController {
       message:
         'Un lien de confirmation vient d’être envoyé à votre nouvelle adresse.',
     };
+  }
+
+  /** Trente par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
+  @LimiteDebit({ requetes: 30, fenetreSecondes: 60 })
+  @Get('recherche')
+  @ApiOperation({
+    summary: 'Retrouver une personne pour lui offrir un billet',
+    description:
+      'Ouvert à tout membre connecté. Trois caractères au moins ; huit ' +
+      'suggestions au plus, adresse masquée, comptes actifs et confirmés ' +
+      'seulement. Déclarée avant « :id ».',
+  })
+  @ApiOkResponse({ description: 'Les meilleures correspondances.' })
+  rechercher(
+    @Query() requeteRecherche: RechercheProcheDto,
+    @Req() requete: Requete,
+  ): Promise<ProcheTrouve[]> {
+    return this.userService.rechercherProches(
+      requete.user.id,
+      requeteRecherche.q,
+      requeteRecherche.evenementId,
+    );
   }
 
   // ───────────────────────────  Administration  ─────────────────────────

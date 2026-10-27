@@ -61,6 +61,21 @@ export class AlerteTresorerieService {
     );
   }
 
+  /** Un billet offert vient d'être annulé par son titulaire : le payeur est à rembourser. */
+  billetOffertAnnule(
+    payeur: Encaissement['payeur'],
+    objet: string,
+    montant: number,
+  ): Promise<void> {
+    return this.signaler(
+      payeur.id,
+      'Billet offert annulé : à rembourser',
+      `${nomComplet(payeur)} avait payé ${objet} (${montantLisible(montant)}). ` +
+        'Le titulaire l’a annulé : c’est le payeur qu’il faut rembourser.',
+      'Ouvrir la trésorerie',
+    );
+  }
+
   /** Un paiement est arrivé pour un billet qu'on ne peut plus rendre. */
   aRembourser(
     payeur: Encaissement['payeur'],

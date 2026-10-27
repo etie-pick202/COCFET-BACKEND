@@ -11,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { Brackets, Repository } from 'typeorm';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { lireIdentiteCampus } from '../../common/identite/identite-campus';
+import type { ProcheTrouve } from './dto/user.dto';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import {
   ChangerMotDePasseDto,
@@ -371,7 +372,87 @@ export class UserService {
     return lignes[0]?.annee ?? null;
   }
 
+  /**
+   * Retrouve une personne déjà inscrite, pour lui offrir un billet ou régler sa
+   * part.
+   *
+   * N'importe quel membre peut la lancer : elle expose donc le strict minimum.
+   * Seuls les comptes actifs et dont l'adresse est confirmée sont proposés,
+   * huit au plus, et l'adresse est **masquée** dans la réponse — de quoi
+   * reconnaître la bonne personne, pas de quoi collecter des emails. Trois
+   * caractères au moins sont exigés, et le débit de la route est limité.
+   */
+  async rechercherProches(
+    demandeurId: string,
+    recherche: string,
+    evenementId?: string,
+  ): Promise<ProcheTrouve[]> {
+    const terme = recherche.trim();
+    // `%` et `_` sont des jokers de LIKE : tapés par l'utilisateur, ils
+    // doivent chercher le caractère lui-même.
+    const echappe = terme.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+    const lignes = await this.users.manager.query<
+      {
+        id: string;
+        prenom: string;
+        nom: string;
+        avatar: string | null;
+        email: string;
+        promotion: number | null;
+      }[]
+    >(
+      `SELECT u.id, u.first_name AS prenom, u.last_name AS nom, u.avatar,
+              u.email, u.promotion
+         FROM users u
+        WHERE u.is_active = true
+          AND u.email_verifie_le IS NOT NULL
+          AND u.id <> $1
+          AND u.role <> $2
+          AND (u.first_name ILIKE $3
+               OR u.last_name ILIKE $3
+               OR (u.first_name || ' ' || u.last_name) ILIKE $3
+               OR (u.last_name || ' ' || u.first_name) ILIKE $3
+               OR u.email ILIKE $3)
+          AND ($4::uuid IS NULL OR NOT EXISTS (
+                SELECT 1 FROM inscriptions i
+                 WHERE i.user_id = u.id
+                   AND i.evenement_id = $4::uuid
+                   AND i.statut <> 'ANNULEE'))
+        ORDER BY (lower(u.email) = lower($5)) DESC,
+                 (u.first_name ILIKE $6 OR u.last_name ILIKE $6) DESC,
+                 u.first_name, u.last_name
+        LIMIT 8`,
+      [
+        demandeurId,
+        Role.SUPER_ADMIN,
+        `%${echappe}%`,
+        evenementId ?? null,
+        terme,
+        `${echappe}%`,
+      ],
+    );
+
+    return lignes.map((l) => ({
+      id: l.id,
+      prenom: l.prenom,
+      nom: l.nom,
+      avatar: l.avatar,
+      emailMasque: masquerEmail(l.email),
+      promotion: l.promotion,
+    }));
+  }
+
   compterAdministrateurs(): Promise<number> {
     return this.users.countBy({ role: Role.ADMIN, isActive: true });
   }
+}
+
+/** « marie.dupont@gmail.com » → « m***@gmail.com ». */
+export function masquerEmail(email: string): string {
+  const arobase = email.lastIndexOf('@');
+  if (arobase <= 0) {
+    return '***';
+  }
+  return `${email[0]}***${email.slice(arobase)}`;
 }
