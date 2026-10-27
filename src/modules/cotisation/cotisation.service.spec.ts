@@ -852,6 +852,8 @@ describe('CotisationService', () => {
           reference: 'COT-1',
           mode: ModeReglement.EN_LIGNE,
           statut: StatutPaiement.EN_ATTENTE,
+          participation: { user: { id: 'u1' } },
+          payeur: null,
         });
         transactions.trouver.mockResolvedValue({ referenceExterne: 'ext-1' });
 
@@ -869,6 +871,8 @@ describe('CotisationService', () => {
           id: 'r1',
           mode: ModeReglement.JUSTIFICATIF,
           statut: StatutPaiement.EN_ATTENTE,
+          participation: { user: { id: 'u1' } },
+          payeur: null,
         });
 
         await expect(
