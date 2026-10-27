@@ -1,6 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
+import { User } from '../../user/entities/user.entity';
 import { StatutPaiement } from '../../paiement/enums/paiement.enum';
 import { ParticipationCotisation } from './participation-cotisation.entity';
 
@@ -95,4 +96,25 @@ export class ReglementCotisation extends BaseEntity {
   @Column({ name: 'url_paiement', type: 'varchar', nullable: true })
   @ApiProperty({ nullable: true })
   urlPaiement: string | null;
+
+  /**
+   * Qui a payé ce règlement, quand ce n'est pas la personne qui cotise. Nul :
+   * elle a réglé sa part elle-même.
+   *
+   * Sans cela, le versement d'un proche serait indiscernable de celui de
+   * l'intéressé : impossible de lui adresser la facture, de remercier celui qui
+   * paie, ni de savoir à qui rendre l'argent.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'payeur_id' })
+  payeur: User | null;
+
+  /**
+   * Référence du paiement partagé, quand plusieurs règlements se règlent d'un
+   * seul coup (« moi et lui »). Nulle sinon : la transaction porte alors la
+   * référence du règlement lui-même.
+   */
+  @Index()
+  @Column({ name: 'groupe_paiement', type: 'varchar', nullable: true })
+  groupePaiement: string | null;
 }

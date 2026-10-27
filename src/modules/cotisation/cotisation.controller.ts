@@ -25,6 +25,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { Role } from '../../common/enums/role.enum';
+import { LimiteDebit } from '../../common/guards/limite-debit.decorator';
 import {
   ApiErreursAuthentification,
   ApiErreurValidation,
@@ -33,12 +34,19 @@ import {
 import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
 import { Privilege } from '../bureau/privileges';
-import { CotisationService } from './cotisation.service';
+import { RechercheProcheDto } from '../user/dto/user.dto';
+import {
+  CotisationService,
+  GroupePaye,
+  ProcheCotisation,
+  ReglementOffert,
+} from './cotisation.service';
 import {
   CreerCotisationDto,
   ApercuFraisDto,
   MettreAJourCotisationDto,
   PayerEcheanceDto,
+  PayerGroupeDto,
 } from './dto/cotisation.dto';
 import { FraisParMethode } from './echeances';
 import { Cotisation } from './entities/cotisation.entity';
@@ -76,6 +84,17 @@ export class CotisationController {
   })
   mesCotisations(@Req() requete: Requete) {
     return this.cotisationService.mesCotisations(requete.user.id);
+  }
+
+  /** Déclaré avant « :id », sans quoi « offertes » serait pris pour un identifiant. */
+  @Get('offertes')
+  @ApiOperation({
+    summary: 'Les règlements que j’ai payés pour d’autres',
+    description: 'Du plus récent au plus ancien, avec leur état.',
+  })
+  @ApiOkResponse({ description: 'Mes règlements offerts.' })
+  reglementsOfferts(@Req() requete: Requete): Promise<ReglementOffert[]> {
+    return this.cotisationService.reglementsOfferts(requete.user.id);
   }
 
   @Get('participations/:participationId')
@@ -142,6 +161,58 @@ export class CotisationController {
       participationId,
       dto,
     );
+  }
+
+  /** Trente par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
+  @LimiteDebit({ requetes: 30, fenetreSecondes: 60 })
+  @Get(':id/proches')
+  @ApiOperation({
+    summary: 'Retrouver une personne pour qui cotiser',
+    description:
+      'Seules les personnes appelées à la même cotisation et qui ont encore ' +
+      'quelque chose à verser sont proposées — et il faut l’être soi-même. ' +
+      'Trois caractères au moins ; huit suggestions au plus, adresse masquée.',
+  })
+  @ApiOkResponse({ description: 'Les meilleures correspondances.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Vous n’êtes pas appelé à cette cotisation.',
+    type: ReponseErreurDto,
+  })
+  rechercherProches(
+    @Req() requete: Requete,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() recherche: RechercheProcheDto,
+  ): Promise<ProcheCotisation[]> {
+    return this.cotisationService.rechercherProches(
+      requete.user.id,
+      id,
+      recherche.q,
+    );
+  }
+
+  @Post(':id/payer-groupe')
+  @ApiOperation({
+    summary: 'Régler pour soi et/ou pour d’autres, d’un seul paiement',
+    description:
+      'De une à cinq personnes appelées à la même cotisation. Chaque ' +
+      'règlement crédite la participation de son titulaire ; la facture est ' +
+      'au nom de celui qui paie. Tout ou rien.',
+  })
+  @ApiCreatedResponse({
+    description: 'Les règlements lancés et le paiement à suivre.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Une échéance n’est plus réglable.',
+    type: ReponseErreurDto,
+  })
+  payerPourPlusieurs(
+    @Req() requete: Requete,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PayerGroupeDto,
+  ): Promise<GroupePaye> {
+    return this.cotisationService.payerPourPlusieurs(requete.user, id, dto);
   }
 
   @Delete('reglements/:reglementId')

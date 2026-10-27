@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   forwardRef,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -33,12 +34,14 @@ import {
 } from '../paiement/ports/passerelle-paiement';
 import { TransactionService } from '../paiement/transaction.service';
 import { User } from '../user/entities/user.entity';
+import { masquerEmail } from '../user/user.service';
 import { Avancement, calculerAvancement } from './avancement';
 import { estVise } from './cible';
 import {
   CreerCotisationDto,
   MettreAJourCotisationDto,
   PayerEcheanceDto,
+  PayerGroupeDto,
 } from './dto/cotisation.dto';
 import {
   EcheancePayable,
@@ -70,7 +73,58 @@ export interface MaCotisation {
   /** Échéances réglables, dans l'ordre : prochaine tranche, puis totalité. */
   echeances: EcheancePayable[];
   /** Ses règlements, du plus récent au plus ancien. */
-  reglements: ReglementCotisation[];
+  reglements: (ReglementCotisation & { payePar: string | null })[];
+}
+
+/** Une personne pour qui l'on peut cotiser, avec ce qu'on peut régler pour elle. */
+export interface ProcheCotisation {
+  participationId: string;
+  prenom: string;
+  nom: string;
+  avatar: string | null;
+  /** « m***@gmail.com » : de quoi la reconnaître, pas la contacter. */
+  emailMasque: string;
+  promotion: number | null;
+  montantRestant: number;
+  /** Les échéances réglables pour elle maintenant (vide : un règlement attend). */
+  echeances: EcheancePayable[];
+}
+
+/** Ce que l'on rend à qui vient de régler pour plusieurs personnes. */
+export interface GroupePaye {
+  /** Référence du paiement : à suivre sur la page de retour. */
+  reference: string;
+  statutPaiement: StatutPaiement;
+  urlPaiement: string | null;
+  /** Ce qui est débité, frais compris. */
+  montantDebite: number;
+  reglements: {
+    id: string;
+    libelle: string;
+    montant: number;
+    statut: StatutPaiement;
+    beneficiaire: { prenom: string; nom: string };
+    pourMoi: boolean;
+  }[];
+}
+
+/** Un règlement que l'on a payé pour quelqu'un d'autre. */
+export interface ReglementOffert {
+  id: string;
+  libelle: string;
+  montant: number;
+  statut: StatutPaiement;
+  createdAt: Date;
+  cotisation: string;
+  beneficiaire: { prenom: string; nom: string };
+}
+
+interface ReglementReserve {
+  participation: ParticipationCotisation;
+  echeance: EcheancePayable;
+  montant: number;
+  frais: ReturnType<typeof calculerFrais>;
+  reglement: ReglementCotisation;
 }
 
 /** Ce qu'il faut pour rattacher un justificatif à une échéance. */
@@ -490,7 +544,7 @@ export class CotisationService {
 
     const reglements = await this.reglements.find({
       where: { participation: { id: In(participations.map((p) => p.id)) } },
-      relations: { participation: true },
+      relations: { participation: true, payeur: true },
       order: { createdAt: 'DESC' },
     });
 
@@ -517,7 +571,7 @@ export class CotisationService {
     const participation = await this.sienne(userId, participationId);
     const reglements = await this.reglements.find({
       where: { participation: { id: participationId } },
-      relations: { participation: true },
+      relations: { participation: true, payeur: true },
       order: { createdAt: 'DESC' },
     });
 
@@ -538,7 +592,15 @@ export class CotisationService {
       reglements: siens.map((reglement) => {
         const allege: Partial<ReglementCotisation> = { ...reglement };
         delete allege.participation;
-        return allege as ReglementCotisation;
+        // Qui a payé, dit en toutes lettres : le compte du payeur n'a rien à
+        // faire dans la réponse d'un autre.
+        const payePar = reglement.payeur
+          ? `${reglement.payeur.firstName} ${reglement.payeur.lastName}`
+          : null;
+        delete allege.payeur;
+        return { ...allege, payePar } as ReglementCotisation & {
+          payePar: string | null;
+        };
       }),
     };
   }
@@ -856,6 +918,383 @@ export class CotisationService {
     return this.reglements.findOneOrFail({ where: { id: reglement.id } });
   }
 
+  // ───────────────────  Cotiser pour quelqu'un, payer à plusieurs  ───────────────────
+
+  /**
+   * Retrouve les personnes pour qui l'on peut cotiser : celles appelées à la
+   * **même** cotisation, qui ont encore quelque chose à verser.
+   *
+   * Il faut être soi-même appelé à la cotisation : on ne règle pas la part d'une
+   * personne d'une cotisation à laquelle on n'a pas accès. Huit résultats au
+   * plus, adresse masquée, trois caractères au moins côté contrôleur.
+   */
+  async rechercherProches(
+    userId: string,
+    cotisationId: string,
+    recherche: string,
+  ): Promise<ProcheCotisation[]> {
+    await this.maParticipation(userId, cotisationId);
+
+    const terme = recherche.trim();
+    // `%` et `_` sont des jokers de LIKE : tapés par l'utilisateur, ils
+    // doivent chercher le caractère lui-même.
+    const echappe = terme.replace(/[\\%_]/g, (c) => `\\${c}`);
+
+    const lignes = await this.participations.manager.query<{ id: string }[]>(
+      `SELECT p.id
+         FROM participations_cotisation p
+         JOIN users u ON u.id = p.user_id
+        WHERE p.cotisation_id = $1
+          AND u.id <> $2
+          AND u.is_active = true
+          AND u.email_verifie_le IS NOT NULL
+          AND p.statut = 'EN_COURS'
+          AND p.montant_regle < p.montant_du
+          AND (u.first_name ILIKE $3
+               OR u.last_name ILIKE $3
+               OR (u.first_name || ' ' || u.last_name) ILIKE $3
+               OR (u.last_name || ' ' || u.first_name) ILIKE $3
+               OR u.email ILIKE $3)
+        ORDER BY (lower(u.email) = lower($4)) DESC,
+                 (u.first_name ILIKE $5 OR u.last_name ILIKE $5) DESC,
+                 u.first_name, u.last_name
+        LIMIT 8`,
+      [cotisationId, userId, `%${echappe}%`, terme, `${echappe}%`],
+    );
+    if (lignes.length === 0) {
+      return [];
+    }
+
+    const ids = lignes.map((l) => l.id);
+    const [trouvees, enAttente] = await Promise.all([
+      this.participations.find({
+        where: { id: In(ids) },
+        relations: { cotisation: { tranches: true }, user: true },
+      }),
+      this.reglements.find({
+        where: {
+          participation: { id: In(ids) },
+          statut: StatutPaiement.EN_ATTENTE,
+        },
+        relations: { participation: true },
+      }),
+    ]);
+    const parId = new Map(trouvees.map((p) => [p.id, p]));
+
+    return ids.flatMap((id) => {
+      const participation = parId.get(id);
+      if (!participation) {
+        return [];
+      }
+      const { avancement, echeances } = this.situation(
+        participation,
+        enAttente.filter((r) => r.participation.id === id),
+      );
+      return [
+        {
+          participationId: id,
+          prenom: participation.user.firstName,
+          nom: participation.user.lastName,
+          avatar: participation.user.avatar,
+          emailMasque: masquerEmail(participation.user.email),
+          promotion: participation.user.promotion,
+          montantRestant: avancement.montantRestant,
+          echeances: echeances.filter((e) => e.payable),
+        },
+      ];
+    });
+  }
+
+  /**
+   * Règle d'un seul paiement les échéances de plusieurs personnes — soi-même
+   * et/ou des proches appelés à la même cotisation.
+   *
+   * Chaque règlement crédite **la participation de son titulaire**, et garde
+   * en mémoire qui a payé : c'est à lui que reviennent la facture et un
+   * éventuel remboursement. Tout ou rien : si l'une des échéances n'est plus
+   * réglable, ou si le paiement est refusé, aucun règlement n'est conservé.
+   */
+  async payerPourPlusieurs(
+    payeur: Pick<User, 'id'>,
+    cotisationId: string,
+    dto: PayerGroupeDto,
+  ): Promise<GroupePaye> {
+    const mienne = await this.maParticipation(payeur.id, cotisationId);
+    const lignes = dto.lignes.map((l) => ({
+      ...l,
+      participationId: l.participationId ?? mienne.id,
+    }));
+
+    const ids = lignes.map((l) => l.participationId);
+    if (new Set(ids).size !== ids.length) {
+      throw new BadRequestException(
+        'La même personne ne peut figurer qu’une fois dans un paiement.',
+      );
+    }
+
+    // Une référence de groupe dès qu'il y a plusieurs règlements.
+    const groupe =
+      lignes.length >= 2
+        ? `GRP-${randomBytes(6).toString('hex').toUpperCase()}`
+        : null;
+
+    const crees = await this.reserverLesReglements(
+      payeur.id,
+      cotisationId,
+      lignes,
+      dto,
+      groupe,
+    );
+
+    const reference = groupe ?? crees[0].reglement.reference;
+    const montantTotal = crees.reduce((t, c) => t + c.frais.montantTtc, 0);
+    const fraisPrestataire = crees.reduce((t, c) => t + c.frais.fraisFapshi, 0);
+    const compte = await this.users.findOneByOrFail({ id: payeur.id });
+
+    try {
+      // Ouverte avant l'appel au prestataire : un webhook qui arrive pendant
+      // l'attente trouve une ligne à mettre à jour.
+      await this.transactionService.ouvrir({
+        reference,
+        montant: montantTotal,
+        origine: OrigineTransaction.COTISATION,
+        user: compte,
+        methodePaiement: dto.methodePaiement ?? null,
+        fraisPrestataire,
+      });
+
+      const resultat = await this.paiement.initier({
+        reference,
+        montant: montantTotal,
+        methode: dto.methodePaiement ?? null,
+        telephone: dto.telephone ?? null,
+        description:
+          crees.length > 1
+            ? `Cotisation — ${crees[0].participation.cotisation.titre} (${crees.length} personnes)`
+            : `Cotisation — ${crees[0].participation.cotisation.titre} — ${crees[0].echeance.libelle}`,
+      });
+
+      if (resultat.referenceExterne) {
+        await this.transactionService.enregistrerReferenceExterne(
+          reference,
+          resultat.referenceExterne,
+        );
+      }
+      if (resultat.statut === StatutPaiement.ECHOUE) {
+        throw new BadRequestException(
+          'Le paiement a été refusé par l’opérateur. Rien n’a été débité.',
+        );
+      }
+      if (resultat.urlRedirection) {
+        await this.reglements.update(
+          crees.map((c) => c.reglement.id),
+          { urlPaiement: resultat.urlRedirection },
+        );
+      }
+
+      // Abouti dès l'appel : aucun webhook ne viendra, l'issue se traite ici.
+      if (
+        resultat.statut === StatutPaiement.COMPLETE &&
+        (await this.transactionService.appliquer(
+          reference,
+          StatutPaiement.COMPLETE,
+        ))
+      ) {
+        const transaction = await this.transactionService.trouver(reference);
+        if (transaction) {
+          await this.traiterIssue(transaction, StatutPaiement.COMPLETE);
+        }
+      }
+
+      return await this.resumeDuPaiement(
+        reference,
+        payeur.id,
+        crees,
+        resultat.urlRedirection,
+        montantTotal,
+      );
+    } catch (erreur) {
+      // Refermés ensemble : un règlement resté « en attente » bloquerait la
+      // personne derrière un paiement qui n'aboutira jamais.
+      await this.transactionService.abandonner(reference);
+      await this.reglements.update(
+        crees.map((c) => c.reglement.id),
+        { statut: StatutPaiement.ECHOUE, urlPaiement: null },
+      );
+      throw erreur;
+    }
+  }
+
+  /** Les règlements que l'on a payés pour d'autres. */
+  async reglementsOfferts(userId: string): Promise<ReglementOffert[]> {
+    const offerts = await this.reglements.find({
+      where: { payeur: { id: userId } },
+      relations: { participation: { user: true, cotisation: true } },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+
+    return offerts.map((r) => ({
+      id: r.id,
+      libelle: r.libelle,
+      montant: r.montant,
+      statut: r.statut,
+      createdAt: r.createdAt,
+      cotisation: r.participation.cotisation.titre,
+      beneficiaire: {
+        prenom: r.participation.user.firstName,
+        nom: r.participation.user.lastName,
+      },
+    }));
+  }
+
+  /** La participation de la personne à cette cotisation, ou un refus. */
+  private async maParticipation(
+    userId: string,
+    cotisationId: string,
+  ): Promise<ParticipationCotisation> {
+    const participation = await this.participations.findOne({
+      where: { cotisation: { id: cotisationId }, user: { id: userId } },
+    });
+    if (!participation) {
+      throw new ForbiddenException(
+        'Vous n’êtes pas appelé à cette cotisation : vous ne pouvez pas régler la part d’autrui.',
+      );
+    }
+    return participation;
+  }
+
+  /**
+   * Enregistre un règlement par ligne, à la suite, en tenant les verrous de
+   * toutes les participations concernées — pris dans l'ordre, pour que deux
+   * paiements croisés ne s'attendent pas l'un l'autre.
+   */
+  private async reserverLesReglements(
+    payeurId: string,
+    cotisationId: string,
+    lignes: {
+      participationId: string;
+      ordreTranche?: number;
+      montant?: number;
+    }[],
+    dto: PayerGroupeDto,
+    groupe: string | null,
+  ): Promise<ReglementReserve[]> {
+    const cles = lignes
+      .map((l) => l.participationId)
+      .sort((a, b) => a.localeCompare(b));
+
+    return this.avecVerrous(cles, async () => {
+      const crees: ReglementReserve[] = [];
+      try {
+        for (const ligne of lignes) {
+          crees.push(
+            await this.reserverUnReglement(
+              payeurId,
+              cotisationId,
+              ligne,
+              dto,
+              groupe,
+            ),
+          );
+        }
+        return crees;
+      } catch (erreur) {
+        // Tout ou rien : un règlement déjà écrit ne doit pas rester seul.
+        if (crees.length > 0) {
+          await this.reglements.delete(crees.map((c) => c.reglement.id));
+        }
+        throw erreur;
+      }
+    });
+  }
+
+  private async reserverUnReglement(
+    payeurId: string,
+    cotisationId: string,
+    ligne: { participationId: string; ordreTranche?: number; montant?: number },
+    dto: PayerGroupeDto,
+    groupe: string | null,
+  ): Promise<ReglementReserve> {
+    const participation = await this.participations.findOne({
+      where: { id: ligne.participationId, cotisation: { id: cotisationId } },
+      relations: { cotisation: { tranches: true }, user: true },
+    });
+    if (!participation || !participation.user.isActive) {
+      throw new NotFoundException(
+        'Cette personne n’est pas appelée à cette cotisation.',
+      );
+    }
+
+    const { echeance, montant } = await this.echeanceChoisie(
+      participation,
+      ligne.ordreTranche ?? null,
+      ligne.montant,
+    );
+    const frais = calculerFrais(montant, dto.methodePaiement, this.tauxFrais);
+    const pourAutrui = participation.user.id !== payeurId;
+
+    const reglement = await this.reglements.save(
+      this.reglements.create({
+        participation,
+        ordreTranche: echeance.ordreTranche,
+        libelle: echeance.libelle,
+        montant,
+        montantDebite: frais.montantTtc,
+        reference: this.genererReference(),
+        mode: ModeReglement.EN_LIGNE,
+        statut: StatutPaiement.EN_ATTENTE,
+        payeur: pourAutrui ? { id: payeurId } : null,
+        groupePaiement: groupe,
+      }),
+    );
+
+    return { participation, echeance, montant, frais, reglement };
+  }
+
+  /** Prend les verrous un à un, dans l'ordre donné. */
+  private avecVerrous<T>(cles: string[], tache: () => Promise<T>): Promise<T> {
+    if (cles.length === 0) {
+      return tache();
+    }
+    const [premiere, ...reste] = cles;
+    return this.exclusif(premiere, () => this.avecVerrous(reste, tache));
+  }
+
+  private async resumeDuPaiement(
+    reference: string,
+    payeurId: string,
+    crees: ReglementReserve[],
+    urlPaiement: string | null,
+    montantDebite: number,
+  ): Promise<GroupePaye> {
+    const relus = await this.reglements.find({
+      where: { id: In(crees.map((c) => c.reglement.id)) },
+      relations: { participation: { user: true } },
+      order: { createdAt: 'ASC' },
+    });
+
+    return {
+      reference,
+      statutPaiement: relus.every((r) => r.statut === StatutPaiement.COMPLETE)
+        ? StatutPaiement.COMPLETE
+        : StatutPaiement.EN_ATTENTE,
+      urlPaiement,
+      montantDebite,
+      reglements: relus.map((r) => ({
+        id: r.id,
+        libelle: r.libelle,
+        montant: r.montant,
+        statut: r.statut,
+        beneficiaire: {
+          prenom: r.participation.user.firstName,
+          nom: r.participation.user.lastName,
+        },
+        pourMoi: r.participation.user.id === payeurId,
+      })),
+    };
+  }
+
   /**
    * Abandonne un paiement en ligne resté en attente.
    *
@@ -874,10 +1313,14 @@ export class CotisationService {
     reglementId: string,
   ): Promise<void> {
     const reglement = await this.reglements.findOne({
-      where: { id: reglementId, participation: { user: { id: user.id } } },
+      where: { id: reglementId },
+      relations: { participation: { user: true }, payeur: true },
     });
 
-    if (!reglement) {
+    // Celui qui a payé décide de son paiement ; pour un règlement payé par un
+    // autre, ni son titulaire ni personne d'autre n'y touche.
+    const responsable = reglement?.payeur ?? reglement?.participation.user;
+    if (!reglement || responsable?.id !== user.id) {
       throw new NotFoundException('Ce règlement n’existe pas.');
     }
     if (reglement.statut !== StatutPaiement.EN_ATTENTE) {
@@ -889,27 +1332,32 @@ export class CotisationService {
       );
     }
 
-    const transaction = await this.transactionService.trouver(
-      reglement.reference,
-    );
+    // Un paiement partagé s'abandonne en entier : sa page de paiement est une.
+    const reference = reglement.groupePaiement ?? reglement.reference;
+    const transaction = await this.transactionService.trouver(reference);
     if (transaction?.referenceExterne) {
       try {
         await this.paiement.expirer(transaction.referenceExterne);
       } catch (erreur) {
         this.logger.warn(
-          `Lien de paiement ${reglement.reference} non expiré : ${(erreur as Error).message}`,
+          `Lien de paiement ${reference} non expiré : ${(erreur as Error).message}`,
         );
       }
     }
 
-    await this.transactionService.appliquer(
-      reglement.reference,
-      StatutPaiement.ECHOUE,
-    );
-    await this.reglements.update(reglement.id, {
-      statut: StatutPaiement.ECHOUE,
-      urlPaiement: null,
-    });
+    await this.transactionService.appliquer(reference, StatutPaiement.ECHOUE);
+    const referme = { statut: StatutPaiement.ECHOUE, urlPaiement: null };
+    if (reglement.groupePaiement) {
+      await this.reglements.update(
+        {
+          groupePaiement: reglement.groupePaiement,
+          statut: StatutPaiement.EN_ATTENTE,
+        },
+        referme,
+      );
+    } else {
+      await this.reglements.update(reglement.id, referme);
+    }
   }
 
   /**
@@ -1016,14 +1464,24 @@ export class CotisationService {
     statut: StatutPaiement,
     motif?: string,
   ): Promise<void> {
-    const reglement = await this.reglements.findOne({
+    const relations = {
+      participation: { cotisation: { tranches: true }, user: true },
+      payeur: true,
+    };
+    // Un règlement à sa propre référence, ou ceux d'un paiement partagé.
+    const seul = await this.reglements.findOne({
       where: { reference: transaction.reference },
-      relations: {
-        participation: { cotisation: { tranches: true }, user: true },
-      },
+      relations,
     });
+    const reglements = seul
+      ? [seul]
+      : await this.reglements.find({
+          where: { groupePaiement: transaction.reference },
+          relations,
+          order: { createdAt: 'ASC' },
+        });
 
-    if (!reglement) {
+    if (reglements.length === 0) {
       // Ancien régime : la référence était l'identifiant de la participation.
       if (statut === StatutPaiement.COMPLETE) {
         await this.enregistrerReglement(
@@ -1034,79 +1492,187 @@ export class CotisationService {
       return;
     }
 
+    for (const reglement of reglements) {
+      await this.traiterUnReglement(
+        reglement,
+        transaction,
+        statut,
+        motif,
+        reglements.length > 1,
+      );
+    }
+
+    // Un échec de groupe ne prévient le payeur qu'une fois, pas à chaque ligne.
+    if (statut === StatutPaiement.ECHOUE && reglements.length > 1) {
+      await this.prevenirDeLEchecDuGroupe(reglements);
+    }
+  }
+
+  private async traiterUnReglement(
+    reglement: ReglementCotisation,
+    transaction: Transaction,
+    statut: StatutPaiement,
+    motif: string | undefined,
+    dansUnGroupe: boolean,
+  ): Promise<void> {
+    if (statut === StatutPaiement.COMPLETE) {
+      await this.crediter(reglement, transaction, dansUnGroupe);
+    } else if (statut === StatutPaiement.ECHOUE) {
+      await this.refuser(reglement, motif, dansUnGroupe);
+    }
+  }
+
+  /** Le règlement est reçu : crédit, messages, alerte à la trésorerie. */
+  private async crediter(
+    reglement: ReglementCotisation,
+    transaction: Transaction,
+    dansUnGroupe: boolean,
+  ): Promise<void> {
     const { participation } = reglement;
     const titre = participation.cotisation.titre;
+    const titulaire = participation.user;
+    const offreur = reglement.payeur;
 
-    if (statut === StatutPaiement.COMPLETE) {
-      const credit =
-        reglement.mode === ModeReglement.JUSTIFICATIF
-          ? transaction.montant
-          : reglement.montant;
+    const credit =
+      reglement.mode === ModeReglement.JUSTIFICATIF
+        ? transaction.montant
+        : reglement.montant;
 
-      await this.reglements.update(reglement.id, {
-        statut: StatutPaiement.COMPLETE,
-        montant: credit,
-        urlPaiement: null,
-      });
-      await this.enregistrerReglement(participation.id, credit);
+    await this.reglements.update(reglement.id, {
+      statut: StatutPaiement.COMPLETE,
+      montant: credit,
+      urlPaiement: null,
+    });
+    await this.enregistrerReglement(participation.id, credit);
 
-      const apres = await this.participations.findOneOrFail({
-        where: { id: participation.id },
-      });
-      const avancement = calculerAvancement(
-        apres.montantDu,
-        apres.montantRegle,
-        participation.cotisation.tranches ?? [],
-      );
+    const apres = await this.participations.findOneOrFail({
+      where: { id: participation.id },
+    });
+    const avancement = calculerAvancement(
+      apres.montantDu,
+      apres.montantRegle,
+      participation.cotisation.tranches ?? [],
+    );
+    const bilan = this.bilanApresReglement(reglement.ordreTranche, avancement);
 
+    await this.notifierLeCredit(reglement, credit, bilan);
+
+    // Ce qui a été reçu : le débité en ligne (frais compris, que le
+    // prestataire a retenus), ou le montant certifié d'un justificatif. Dans
+    // un paiement partagé, la part de ce règlement-ci, pas le total.
+    const nomTitulaire = `${titulaire.firstName} ${titulaire.lastName}`;
+    await this.alerteTresorerie.encaissement({
+      origine: 'cotisation',
+      payeur: offreur ?? titulaire,
+      objet: offreur
+        ? `« ${titre} » (${reglement.libelle}) de ${nomTitulaire}`
+        : `« ${titre} » (${reglement.libelle})`,
+      montant: dansUnGroupe
+        ? (reglement.montantDebite ?? credit)
+        : transaction.montant,
+      fraisPrestataire: dansUnGroupe ? null : transaction.fraisPrestataire,
+    });
+  }
+
+  /** Dit à la personne — et à celui qui a payé pour elle — que le règlement est reçu. */
+  private async notifierLeCredit(
+    reglement: ReglementCotisation,
+    credit: number,
+    bilan: string,
+  ): Promise<void> {
+    const { participation } = reglement;
+    const titre = participation.cotisation.titre;
+    const titulaire = participation.user;
+    const offreur = reglement.payeur;
+
+    await this.notificationService.notifier({
+      destinataire: titulaire,
+      type: TypeNotification.PAIEMENT,
+      titre: offreur
+        ? `${offreur.firstName} ${offreur.lastName} a réglé pour vous : ${titre}`
+        : `Règlement reçu : ${titre}`,
+      message: offreur
+        ? `${offreur.firstName} ${offreur.lastName} a réglé ${montantLisible(credit)} ` +
+          `(${reglement.libelle}) de votre cotisation. ${bilan}`
+        : `Votre règlement de ${montantLisible(credit)} (${reglement.libelle}) ` +
+          `a bien été reçu. ${bilan} ` +
+          'Votre facture est disponible sur la page de la cotisation.',
+      // La page de la cotisation : c'est là que la facture de chaque
+      // règlement se consulte et se télécharge.
+      lien: `/mon-espace/cotisations/${participation.id}`,
+      libelleLien: offreur
+        ? 'Voir ma cotisation'
+        : 'Voir ma cotisation et ma facture',
+    });
+
+    if (offreur) {
       await this.notificationService.notifier({
-        destinataire: participation.user,
+        destinataire: offreur,
         type: TypeNotification.PAIEMENT,
-        titre: `Règlement reçu : ${titre}`,
+        titre: `Règlement payé pour ${titulaire.firstName} ${titulaire.lastName}`,
         message:
           `Votre règlement de ${montantLisible(credit)} (${reglement.libelle}) ` +
-          'a bien été reçu. ' +
-          this.bilanApresReglement(reglement.ordreTranche, avancement) +
-          ' Votre facture est disponible sur la page de la cotisation.',
-        // La page de la cotisation : c'est là que la facture de chaque
-        // règlement se consulte et se télécharge.
-        lien: `/mon-espace/cotisations/${participation.id}`,
-        libelleLien: 'Voir ma cotisation et ma facture',
+          `pour « ${titre} » est bien reçu. Votre facture est disponible dans vos cotisations.`,
+        lien: '/mon-espace/cotisations',
+        libelleLien: 'Voir mes cotisations',
       });
+    }
+  }
 
-      // Ce qui a été reçu : le débité en ligne (frais compris, que le
-      // prestataire a retenus), ou le montant certifié d'un justificatif.
-      await this.alerteTresorerie.encaissement({
-        origine: 'cotisation',
-        payeur: participation.user,
-        objet: `« ${titre} » (${reglement.libelle})`,
-        montant: transaction.montant,
-        fraisPrestataire: transaction.fraisPrestataire,
-      });
+  /** Le règlement n'a pas abouti. */
+  private async refuser(
+    reglement: ReglementCotisation,
+    motif: string | undefined,
+    dansUnGroupe: boolean,
+  ): Promise<void> {
+    await this.reglements.update(reglement.id, {
+      statut: StatutPaiement.ECHOUE,
+      urlPaiement: null,
+    });
+
+    // Dans un groupe, le payeur est prévenu une fois pour tout le paiement.
+    if (dansUnGroupe) {
       return;
     }
 
-    if (statut === StatutPaiement.ECHOUE) {
-      await this.reglements.update(reglement.id, {
-        statut: StatutPaiement.ECHOUE,
-        urlPaiement: null,
-      });
+    const { participation } = reglement;
+    // Pour un règlement offert, c'est le payeur qui est prévenu — la personne
+    // ne savait pas qu'on réglait pour elle.
+    const offreur = reglement.payeur;
+    const raison = motif ? ` : ${motif}.` : '.';
+    await this.notificationService.notifier({
+      destinataire: offreur ?? participation.user,
+      type: TypeNotification.PAIEMENT,
+      titre: `Règlement non abouti : ${participation.cotisation.titre}`,
+      message:
+        reglement.mode === ModeReglement.JUSTIFICATIF
+          ? `Votre justificatif (${reglement.libelle}) a été refusé${raison}` +
+            ' Vous pouvez en déposer un autre, ou régler en ligne.'
+          : `Le paiement de « ${reglement.libelle} » n’a pas abouti. ` +
+            'Rien ne vous a été crédité : vous pouvez réessayer.',
+      lien: offreur
+        ? '/mon-espace/cotisations'
+        : `/mon-espace/cotisations/${participation.id}`,
+      libelleLien: 'Voir mes cotisations',
+    });
+  }
 
-      const raison = motif ? ` : ${motif}.` : '.';
-      await this.notificationService.notifier({
-        destinataire: participation.user,
-        type: TypeNotification.PAIEMENT,
-        titre: `Règlement non abouti : ${titre}`,
-        message:
-          reglement.mode === ModeReglement.JUSTIFICATIF
-            ? `Votre justificatif (${reglement.libelle}) a été refusé${raison}` +
-              ' Vous pouvez en déposer un autre, ou régler en ligne.'
-            : `Le paiement de « ${reglement.libelle} » n’a pas abouti. ` +
-              'Rien ne vous a été crédité : vous pouvez réessayer.',
-        lien: `/mon-espace/cotisations/${participation.id}`,
-        libelleLien: 'Voir ma cotisation',
-      });
-    }
+  private async prevenirDeLEchecDuGroupe(
+    reglements: ReglementCotisation[],
+  ): Promise<void> {
+    const [premier] = reglements;
+    const destinataire = premier.payeur ?? premier.participation.user;
+
+    await this.notificationService.notifier({
+      destinataire,
+      type: TypeNotification.PAIEMENT,
+      titre: `Règlement non abouti : ${premier.participation.cotisation.titre}`,
+      message:
+        `Le paiement de ${reglements.length} règlements n’a pas abouti. ` +
+        'Rien n’a été crédité : vous pouvez réessayer.',
+      lien: '/mon-espace/cotisations',
+      libelleLien: 'Voir mes cotisations',
+    });
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
