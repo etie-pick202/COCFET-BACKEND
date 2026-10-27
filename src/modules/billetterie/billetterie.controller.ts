@@ -33,12 +33,15 @@ import {
   ReponseErreurDto,
   ReponseMessageDto,
 } from '../../common/swagger';
+import { LimiteDebit } from '../../common/guards/limite-debit.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RechercheProcheDto } from '../user/dto/user.dto';
 import { UserService } from '../user/user.service';
 import {
   BilletOffert,
   BilletterieService,
   GroupeInscrit,
+  ProcheAvecTarif,
 } from './billetterie.service';
 import {
   AffecterScannerDto,
@@ -133,6 +136,30 @@ export class BilletterieController {
     }
 
     return this.billetterieService.inscrireGroupe(id, user, dto);
+  }
+
+  /** Trente par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
+  @LimiteDebit({ requetes: 30, fenetreSecondes: 60 })
+  @Get('evenements/:id/proches')
+  @ApiOperation({
+    summary: 'Retrouver une personne à inscrire, avec le prix de son billet',
+    description:
+      'Comme la recherche de personnes, en écartant celles déjà inscrites à ' +
+      'cet événement, et en ajoutant le tarif de chacune (campus ou externe).',
+  })
+  @ApiOkResponse({
+    description: 'Les meilleures correspondances, avec leur tarif.',
+  })
+  rechercherProches(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() recherche: RechercheProcheDto,
+    @Req() requete: Requete,
+  ): Promise<ProcheAvecTarif[]> {
+    return this.billetterieService.rechercherProches(
+      id,
+      requete.user,
+      recherche.q,
+    );
   }
 
   /** Déclaré avant « billets/:id », sans quoi « offerts » serait pris pour un identifiant. */

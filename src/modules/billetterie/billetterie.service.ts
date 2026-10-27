@@ -32,6 +32,7 @@ import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
+import type { ProcheTrouve } from '../user/dto/user.dto';
 import { User } from '../user/entities/user.entity';
 import { UserService } from '../user/user.service';
 import {
@@ -90,6 +91,13 @@ export interface GroupeInscrit {
     beneficiaire: { id: string; prenom: string; nom: string };
     pourMoi: boolean;
   }[];
+}
+
+/** Une personne retrouvée, avec ce que son billet coûterait pour cet événement. */
+export interface ProcheAvecTarif extends ProcheTrouve {
+  /** Le tarif de **cette personne** : campus ou externe selon sa promotion. */
+  prix: number;
+  tarifCampus: boolean;
 }
 
 /** Un billet que l'on a payé pour quelqu'un d'autre. */
@@ -331,6 +339,38 @@ export class BilletterieService {
       );
       throw erreur;
     }
+  }
+
+  /**
+   * Retrouve une personne à inscrire, avec le prix de son billet.
+   *
+   * Le prix dépend de **la personne inscrite**, pas de celle qui paie : l'écran
+   * d'inscription doit l'afficher avant de payer, sans quoi le total annoncé
+   * ne serait pas celui débité.
+   */
+  async rechercherProches(
+    evenementId: string,
+    demandeur: { id: string; role: Role },
+    recherche: string,
+  ): Promise<ProcheAvecTarif[]> {
+    const evenement = await this.evenementService.trouver(evenementId, {
+      role: demandeur.role,
+    });
+    const proches = await this.userService.rechercherProches(
+      demandeur.id,
+      recherche,
+      evenementId,
+    );
+
+    return Promise.all(
+      proches.map(async (proche) => {
+        const { prixApplicable, tarifCampus } =
+          await this.evenementService.detailPour(evenement, {
+            promotion: proche.promotion,
+          } as User);
+        return { ...proche, prix: prixApplicable, tarifCampus };
+      }),
+    );
   }
 
   /** Les billets que l'on a payés pour d'autres, sans leurs codes d'entrée. */

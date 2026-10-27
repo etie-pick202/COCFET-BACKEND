@@ -297,6 +297,56 @@ describe('Inscrire un proche (e2e)', () => {
     });
   });
 
+  describe('retrouver une personne pour un événement', () => {
+    it('donne le tarif de chaque personne, pas celui de celui qui paie', async () => {
+      const id = await creerEvenement();
+
+      const campus = await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/proches`)
+        .query({ q: 'dupont' })
+        .set(payeur.entetes)
+        .expect(200);
+      const hors = await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/proches`)
+        .query({ q: 'bello' })
+        .set(payeur.entetes)
+        .expect(200);
+
+      expect(campus.body).toEqual([
+        expect.objectContaining({
+          prenom: 'Marie',
+          prix: 5000,
+          tarifCampus: true,
+        }),
+      ]);
+      expect(hors.body).toEqual([
+        expect.objectContaining({
+          prenom: 'Aïcha',
+          prix: 8000,
+          tarifCampus: false,
+        }),
+      ]);
+    });
+
+    it('écarte les personnes déjà inscrites, et exige trois caractères', async () => {
+      const id = await creerEvenement();
+      await inscrire(id, [{ userId: amie.user.id }]).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/proches`)
+        .query({ q: 'dupont' })
+        .set(payeur.entetes)
+        .expect(200);
+      expect(reponse.body).toEqual([]);
+
+      await request(app.getHttpServer())
+        .get(`${EVENEMENTS}/${id}/proches`)
+        .query({ q: 'du' })
+        .set(payeur.entetes)
+        .expect(400);
+    });
+  });
+
   describe('offrir un billet', () => {
     it('inscrit le proche à son tarif et mémorise qui paie', async () => {
       const id = await creerEvenement();
