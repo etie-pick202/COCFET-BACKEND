@@ -230,11 +230,16 @@ export class TransactionService {
         return `/don/merci?reference=${encodeURIComponent(transaction.reference)}`;
       case OrigineTransaction.EVENEMENT: {
         const [inscription] = await this.transactions.manager.query<
-          { id: string }[]
-        >('SELECT id FROM inscriptions WHERE code_billet = $1 LIMIT 1', [
-          transaction.reference,
-        ]);
-        return inscription
+          { id: string; payeur_id: string | null }[]
+        >(
+          'SELECT id, payeur_id FROM inscriptions WHERE code_billet = $1 LIMIT 1',
+          [transaction.reference],
+        );
+        // Un billet payé pour un proche n'est pas le sien : le payeur ne peut
+        // pas l'ouvrir. Il est renvoyé vers ses événements, où il suit ce qu'il
+        // a payé (un paiement groupé n'a, de toute façon, pas de billet à son
+        // nom).
+        return inscription && !inscription.payeur_id
           ? `/billets/${inscription.id}/qr`
           : '/mon-espace/evenements';
       }
