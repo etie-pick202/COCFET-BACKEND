@@ -5,7 +5,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
 import { LIMITE_MAXIMALE, PaginationDto, triAutorise } from './pagination.dto';
-import { paginer } from './resultat-pagine';
+import { construireMeta, paginer } from './resultat-pagine';
 
 const valider = (brut: Record<string, unknown>) => {
   const dto = plainToInstance(PaginationDto, brut, {
@@ -80,6 +80,30 @@ describe('triAutorise', () => {
       'createdAt',
     );
     expect(triAutorise(undefined, COLONNES, 'createdAt')).toBe('createdAt');
+  });
+});
+
+describe('construireMeta', () => {
+  it('annonce une page suivante et une précédente au milieu', () => {
+    expect(construireMeta(2, 20, 65)).toEqual({
+      page: 2,
+      limite: 20,
+      total: 65,
+      totalPages: 4,
+      aSuivante: true,
+      aPrecedente: true,
+    });
+  });
+
+  it('n’annonce rien de plus en première et dernière page', () => {
+    expect(construireMeta(1, 20, 15)).toMatchObject({
+      aSuivante: false,
+      aPrecedente: false,
+    });
+    expect(construireMeta(4, 20, 65)).toMatchObject({
+      aSuivante: false,
+      aPrecedente: true,
+    });
   });
 });
 

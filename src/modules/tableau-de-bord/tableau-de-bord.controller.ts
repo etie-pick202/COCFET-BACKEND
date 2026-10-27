@@ -7,6 +7,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { Role } from '../../common/enums/role.enum';
+import { MetaPagination } from '../../common/pagination';
 import {
   ApiErreursAuthentification,
   ApiErreurValidation,
@@ -82,7 +83,7 @@ export class TableauDeBordController {
   @ApiOkResponse({ description: 'Page du journal.' })
   activite(@Query() filtre: FiltreActiviteDto): Promise<{
     donnees: JournalActivite[];
-    meta: { page: number; limite: number; total: number; totalPages: number };
+    meta: MetaPagination;
   }> {
     return this.tableauDeBordService.activite(filtre);
   }
@@ -102,7 +103,7 @@ export class TableauDeBordController {
   })
   journal(@Query() filtre: FiltreTransactionDto): Promise<{
     donnees: TransactionDuJournal[];
-    meta: { page: number; limite: number; total: number; totalPages: number };
+    meta: MetaPagination;
   }> {
     return this.tresorerieService.journal(filtre);
   }
