@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { Role } from '../../common/enums/role.enum';
-import { UserService } from './user.service';
+import { masquerEmail, UserService } from './user.service';
 
 type Depot = {
   findOne: jest.Mock;
@@ -221,5 +221,19 @@ describe('UserService', () => {
         });
       });
     });
+  });
+});
+
+describe('masquerEmail', () => {
+  it('garde la première lettre et le domaine', () => {
+    expect(masquerEmail('marie.dupont@gmail.com')).toBe('m***@gmail.com');
+    expect(masquerEmail('a.b@2027.ucac-icam.com')).toBe(
+      'a***@2027.ucac-icam.com',
+    );
+  });
+
+  it('ne rend rien d’une adresse malformée', () => {
+    expect(masquerEmail('pas-une-adresse')).toBe('***');
+    expect(masquerEmail('@domaine.cm')).toBe('***');
   });
 });

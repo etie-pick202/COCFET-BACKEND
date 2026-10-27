@@ -10,7 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHmac, randomBytes } from 'node:crypto';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { ActiviteService } from '../activite/activite.service';
 import { TypeActivite } from '../activite/entities/journal-activite.entity';
@@ -32,11 +32,13 @@ import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { TransactionService } from '../paiement/transaction.service';
 import type { PasserellePaiement } from '../paiement/ports/passerelle-paiement';
 import { PASSERELLE_PAIEMENT } from '../paiement/ports/passerelle-paiement';
+import type { ProcheTrouve } from '../user/dto/user.dto';
 import { User } from '../user/entities/user.entity';
 import { UserService } from '../user/user.service';
 import {
   CodeBillet,
   FiltreInscriptionDto,
+  InscrireGroupeDto,
   SInscrireDto,
 } from './dto/billetterie.dto';
 import { Inscription, StatutInscription } from './entities/inscription.entity';
@@ -65,6 +67,49 @@ const STATUTS_ACTIFS = new Set([
   StatutInscription.CONFIRMEE,
   StatutInscription.UTILISEE,
 ]);
+
+/** Une personne à inscrire dans un paiement, avec ce qu'elle devra. */
+interface Participant {
+  user: User;
+  reponses: Record<string, string>;
+  /** Le tarif **de cette personne** : campus ou externe, selon sa promotion. */
+  prix: number;
+}
+
+/** Ce que l'on rend à qui vient d'inscrire des proches — jamais leurs codes d'entrée. */
+export interface GroupeInscrit {
+  /** Référence du paiement : à suivre sur la page de retour. */
+  reference: string;
+  statutPaiement: StatutPaiement;
+  urlPaiement: string | null;
+  /** Ce qui est débité au payeur, frais compris. */
+  montantDebite: number;
+  billets: {
+    id: string;
+    statut: StatutInscription;
+    prix: number;
+    beneficiaire: { id: string; prenom: string; nom: string };
+    pourMoi: boolean;
+  }[];
+}
+
+/** Une personne retrouvée, avec ce que son billet coûterait pour cet événement. */
+export interface ProcheAvecTarif extends ProcheTrouve {
+  /** Le tarif de **cette personne** : campus ou externe selon sa promotion. */
+  prix: number;
+  tarifCampus: boolean;
+}
+
+/** Un billet que l'on a payé pour quelqu'un d'autre. */
+export interface BilletOffert {
+  id: string;
+  statut: StatutInscription;
+  statutPaiement: StatutPaiement;
+  prix: number;
+  createdAt: Date;
+  evenement: { id: string; titre: string; dateDebut: Date; lieu: string };
+  beneficiaire: { prenom: string; nom: string };
+}
 
 @Injectable()
 export class BilletterieService {
@@ -226,6 +271,485 @@ export class BilletterieService {
     }
   }
 
+  // ─────────────────────  Inscrire des proches, payer à plusieurs  ─────────────────────
+
+  /**
+   * Inscrit une ou plusieurs personnes — le payeur lui-même, ses proches — et
+   * règle le tout d'**un seul** paiement.
+   *
+   * Chaque billet est au nom de son titulaire, au **tarif de son titulaire** :
+   * un étudiant du campus ne paie pas le prix externe parce qu'un ami lui
+   * offre sa place. Le payeur est mémorisé : c'est à lui que reviennent la
+   * facture et un éventuel remboursement.
+   *
+   * Tout ou rien. Les places sont réservées d'un bloc, et si l'une manque, ou
+   * si le paiement est refusé, rien n'est gardé : ni inscription, ni place, ni
+   * transaction. Sans cela, on se retrouverait avec trois amis inscrits sur
+   * cinq, et un paiement à rembourser.
+   */
+  async inscrireGroupe(
+    evenementId: string,
+    payeur: User,
+    dto: InscrireGroupeDto,
+  ): Promise<GroupeInscrit> {
+    const evenement = await this.evenementService.trouver(evenementId, {
+      role: payeur.role,
+    });
+    this.verifierOuvert(evenement);
+
+    const participants = await this.resoudreParticipants(
+      evenement,
+      payeur,
+      dto,
+    );
+    await this.reserverDesPlaces(evenementId, participants.length);
+
+    const payants = participants.filter((p) => p.prix > 0);
+    // Un billet que l'on paie pour soi garde sa transaction à son code, comme
+    // toujours. Dès qu'on paie pour quelqu'un d'autre, ou pour plusieurs, la
+    // référence est celle du groupe : le code d'un billet est son droit
+    // d'entrée, et la référence de paiement se retrouve dans l'adresse du
+    // retour de Fapshi — elle ne doit pas révéler le billet d'un autre.
+    const pourAutrui = payants.some((p) => p.user.id !== payeur.id);
+    const groupe =
+      payants.length >= 2 || pourAutrui
+        ? `GRP-${randomBytes(6).toString('hex').toUpperCase()}`
+        : null;
+
+    const creees: Inscription[] = [];
+    try {
+      for (const participant of participants) {
+        creees.push(
+          await this.creerPour(evenement, payeur, participant, dto, groupe),
+        );
+      }
+      return await this.lancerLeReglement(
+        evenement,
+        payeur,
+        creees,
+        dto,
+        groupe,
+      );
+    } catch (erreur) {
+      await this.defaireLeGroupe(
+        evenementId,
+        participants.length,
+        creees,
+        groupe,
+      );
+      throw erreur;
+    }
+  }
+
+  /**
+   * Retrouve une personne à inscrire, avec le prix de son billet.
+   *
+   * Le prix dépend de **la personne inscrite**, pas de celle qui paie : l'écran
+   * d'inscription doit l'afficher avant de payer, sans quoi le total annoncé
+   * ne serait pas celui débité.
+   */
+  async rechercherProches(
+    evenementId: string,
+    demandeur: { id: string; role: Role },
+    recherche: string,
+  ): Promise<ProcheAvecTarif[]> {
+    const evenement = await this.evenementService.trouver(evenementId, {
+      role: demandeur.role,
+    });
+    const proches = await this.userService.rechercherProches(
+      demandeur.id,
+      recherche,
+      evenementId,
+    );
+
+    return Promise.all(
+      proches.map(async (proche) => {
+        const { prixApplicable, tarifCampus } =
+          await this.evenementService.detailPour(evenement, {
+            promotion: proche.promotion,
+          } as User);
+        return { ...proche, prix: prixApplicable, tarifCampus };
+      }),
+    );
+  }
+
+  /** Les billets que l'on a payés pour d'autres, sans leurs codes d'entrée. */
+  async billetsOfferts(userId: string): Promise<BilletOffert[]> {
+    const offerts = await this.inscriptions.find({
+      where: { payeur: { id: userId } },
+      relations: { user: true, evenement: true },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    });
+
+    return offerts.map((i) => ({
+      id: i.id,
+      statut: i.statut,
+      statutPaiement: i.statutPaiement,
+      prix: i.prix,
+      createdAt: i.createdAt,
+      evenement: {
+        id: i.evenement.id,
+        titre: i.evenement.titre,
+        dateDebut: i.evenement.dateDebut,
+        lieu: i.evenement.lieu,
+      },
+      beneficiaire: { prenom: i.user.firstName, nom: i.user.lastName },
+    }));
+  }
+
+  /**
+   * Les personnes à inscrire, vérifiées une à une : compte actif et confirmé,
+   * pas déjà inscrit, une seule fois dans la liste, avec son propre tarif.
+   */
+  private async resoudreParticipants(
+    evenement: Evenement,
+    payeur: User,
+    dto: InscrireGroupeDto,
+  ): Promise<Participant[]> {
+    const vus = new Set<string>();
+    const participants: Participant[] = [];
+
+    for (const demande of dto.participants) {
+      const user =
+        demande.userId && demande.userId !== payeur.id
+          ? await this.beneficiaire(demande.userId)
+          : payeur;
+
+      if (vus.has(user.id)) {
+        throw new BadRequestException(
+          'La même personne ne peut figurer qu’une fois dans un paiement.',
+        );
+      }
+      vus.add(user.id);
+
+      await this.verifierPasDejaInscrit(
+        evenement.id,
+        user.id,
+        user.id === payeur.id ? undefined : user,
+      );
+
+      const { prixApplicable } = await this.evenementService.detailPour(
+        evenement,
+        user,
+      );
+      participants.push({
+        user,
+        prix: prixApplicable,
+        // Les choix obligatoires ne sont exigés que de soi-même : un proche
+        // qui n'a pas encore choisi sa taille sera relancé avant le figeage.
+        reponses: validerReponses(
+          evenement.options ?? [],
+          demande.reponses,
+          user.id === payeur.id,
+        ),
+      });
+    }
+
+    return participants;
+  }
+
+  private async beneficiaire(userId: string): Promise<User> {
+    const user = await this.userService.findById(userId);
+    if (!user?.isActive || !user.emailVerifieLe) {
+      throw new NotFoundException(
+        'Cette personne n’est pas inscrite sur la plateforme.',
+      );
+    }
+    return user;
+  }
+
+  /** Réserve toutes les places d'un coup, ou aucune. */
+  private async reserverDesPlaces(
+    evenementId: string,
+    nombre: number,
+  ): Promise<void> {
+    let prises = 0;
+    for (let i = 0; i < nombre; i++) {
+      if (!(await this.evenementService.reserverUnePlace(evenementId))) {
+        await this.libererDesPlaces(evenementId, prises);
+        throw new ConflictException(
+          nombre === 1
+            ? 'Cet événement est complet.'
+            : 'Il ne reste pas assez de places pour tous ces billets.',
+        );
+      }
+      prises++;
+    }
+  }
+
+  private async libererDesPlaces(
+    evenementId: string,
+    nombre: number,
+  ): Promise<void> {
+    for (let i = 0; i < nombre; i++) {
+      await this.evenementService.libererUnePlace(evenementId);
+    }
+  }
+
+  private creerPour(
+    evenement: Evenement,
+    payeur: User,
+    participant: Participant,
+    dto: InscrireGroupeDto,
+    groupe: string | null,
+  ): Promise<Inscription> {
+    const { user, prix, reponses } = participant;
+    const payant = prix > 0;
+    const frais = payant
+      ? calculerFrais(prix, dto.methodePaiement, this.tauxFrais)
+      : null;
+
+    return this.options.enregistrerAvecStock(
+      evenement,
+      reponses,
+      this.inscriptions.create({
+        user,
+        evenement,
+        reponses,
+        // Mémorisé seulement quand ce n'est pas soi : un billet que l'on paie
+        // pour soi n'a pas de « payeur » à part.
+        payeur: user.id === payeur.id ? null : payeur,
+        groupePaiement: payant ? groupe : null,
+        codeBillet: this.genererCodeBillet(),
+        prix,
+        frais: frais
+          ? {
+              fraisFapshi: frais.fraisFapshi,
+              fraisRetrait: frais.fraisRetrait,
+              montantTtc: frais.montantTtc,
+            }
+          : AUCUN_FRAIS,
+        methodePaiement: dto.methodePaiement ?? null,
+        statut: payant
+          ? StatutInscription.EN_ATTENTE
+          : StatutInscription.CONFIRMEE,
+        statutPaiement: payant
+          ? StatutPaiement.EN_ATTENTE
+          : StatutPaiement.COMPLETE,
+      }),
+    );
+  }
+
+  /** Lance le paiement des billets à régler, puis prévient les personnes concernées. */
+  private async lancerLeReglement(
+    evenement: Evenement,
+    payeur: User,
+    creees: Inscription[],
+    dto: InscrireGroupeDto,
+    groupe: string | null,
+  ): Promise<GroupeInscrit> {
+    const gratuites = creees.filter(
+      (i) => i.statut === StatutInscription.CONFIRMEE,
+    );
+    const aPayer = creees.filter(
+      (i) => i.statut === StatutInscription.EN_ATTENTE,
+    );
+
+    let reference = creees[0].codeBillet;
+    let urlPaiement: string | null = null;
+
+    if (aPayer.length > 0 && groupe) {
+      reference = groupe;
+      urlPaiement = await this.lancerPaiementGroupe(
+        groupe,
+        aPayer,
+        evenement,
+        dto,
+        payeur,
+      );
+    } else if (aPayer.length === 1) {
+      reference = aPayer[0].codeBillet;
+      urlPaiement = await this.lancerPaiement(aPayer[0], evenement, dto);
+    }
+
+    if (urlPaiement) {
+      // Conservée : qui ferme l'onglet avant de payer doit pouvoir y revenir.
+      await this.inscriptions.update(
+        aPayer.map((i) => i.id),
+        { urlPaiement },
+      );
+    }
+
+    await this.prevenirApresInscription(payeur, evenement, gratuites, aPayer);
+
+    return this.resumeDuGroupe(reference, payeur, creees, aPayer, urlPaiement);
+  }
+
+  private async lancerPaiementGroupe(
+    reference: string,
+    aPayer: Inscription[],
+    evenement: Evenement,
+    dto: InscrireGroupeDto,
+    payeur: User,
+  ): Promise<string | null> {
+    // La somme de ce que chaque billet doit, frais compris : le payeur règle
+    // tout d'un coup, et la transaction porte ce total.
+    const montant = aPayer.reduce((t, i) => t + (i.frais.montantTtc ?? 0), 0);
+    const fraisPrestataire = aPayer.reduce(
+      (t, i) => t + (i.frais.fraisFapshi ?? 0),
+      0,
+    );
+
+    // Ouverte avant l'appel : un webhook qui arrive pendant l'attente trouve
+    // une ligne à mettre à jour.
+    await this.transactionService.ouvrir({
+      reference,
+      montant,
+      origine: OrigineTransaction.EVENEMENT,
+      user: payeur,
+      methodePaiement: dto.methodePaiement ?? null,
+      fraisPrestataire,
+    });
+
+    const resultat = await this.paiement.initier({
+      reference,
+      montant,
+      methode: dto.methodePaiement ?? null,
+      telephone: dto.telephone ?? null,
+      description: `Billets (${aPayer.length}) — ${evenement.titre}`,
+    });
+
+    if (resultat.referenceExterne) {
+      await this.transactionService.enregistrerReferenceExterne(
+        reference,
+        resultat.referenceExterne,
+      );
+    }
+    if (resultat.statut === StatutPaiement.ECHOUE) {
+      throw new BadRequestException(
+        'Le paiement a été refusé. Aucune place ne vous a été réservée.',
+      );
+    }
+    // Abouti dès l'appel : aucun webhook ne viendra, on confirme ici.
+    if (
+      resultat.statut === StatutPaiement.COMPLETE &&
+      (await this.transactionService.appliquer(
+        reference,
+        StatutPaiement.COMPLETE,
+      ))
+    ) {
+      await this.confirmerPaiement(reference);
+    }
+
+    return resultat.urlRedirection;
+  }
+
+  private async prevenirApresInscription(
+    payeur: User,
+    evenement: Evenement,
+    gratuites: Inscription[],
+    aPayer: Inscription[],
+  ): Promise<void> {
+    for (const billet of gratuites) {
+      await this.emettreBilletGratuit(payeur, evenement, billet);
+    }
+
+    // Réglé dès l'appel (paiement direct) : les messages de confirmation
+    // partent, et non ceux d'une attente.
+    const attente = aPayer.filter(
+      (i) => i.statut !== StatutInscription.CONFIRMEE,
+    );
+    for (const billet of aPayer.filter(
+      (i) => i.statut === StatutInscription.CONFIRMEE,
+    )) {
+      await this.apresConfirmation(billet);
+    }
+
+    if (attente.length > 0) {
+      await this.notificationService.notifier({
+        destinataire: payeur,
+        type: TypeNotification.EVENEMENT,
+        titre: `Inscription en attente de paiement : ${evenement.titre}`,
+        message:
+          attente.length > 1
+            ? `Vos ${attente.length} places sont réservées le temps du paiement.`
+            : 'Votre place est réservée le temps du paiement.',
+        lien: '/mon-espace/evenements',
+        libelleLien: 'Voir mes inscriptions',
+      });
+    }
+  }
+
+  /** Un billet sans rien à payer : valide tout de suite, et dit à qui il est offert. */
+  private async emettreBilletGratuit(
+    payeur: User,
+    evenement: Evenement,
+    billet: Inscription,
+  ): Promise<void> {
+    const offert = billet.user.id !== payeur.id;
+
+    await this.notificationService.notifier({
+      destinataire: billet.user,
+      type: TypeNotification.EVENEMENT,
+      titre: offert
+        ? `Vous êtes inscrit(e) : ${evenement.titre}`
+        : `Inscription confirmée : ${evenement.titre}`,
+      message: offert
+        ? `${payeur.firstName} ${payeur.lastName} vous a inscrit(e). Votre billet est valide. Code d'entrée : ${billet.codeBillet}.`
+        : `Votre billet est valide. Code d'entrée : ${billet.codeBillet}.`,
+      lien: `/billets/${billet.id}`,
+      libelleLien: 'Voir mon billet',
+    });
+    await this.emettreBillet({ ...billet, evenement });
+  }
+
+  /** Ce que l'on rend au payeur : l'état de chaque billet, jamais son code d'entrée. */
+  private async resumeDuGroupe(
+    reference: string,
+    payeur: User,
+    creees: Inscription[],
+    aPayer: Inscription[],
+    urlPaiement: string | null,
+  ): Promise<GroupeInscrit> {
+    const relues = await this.inscriptions.find({
+      where: { id: In(creees.map((i) => i.id)) },
+      relations: { user: true },
+      order: { createdAt: 'ASC' },
+    });
+    const apayerIds = new Set(aPayer.map((i) => i.id));
+    const regle = relues
+      .filter((i) => apayerIds.has(i.id))
+      .every((i) => i.statut === StatutInscription.CONFIRMEE);
+
+    return {
+      reference,
+      statutPaiement: regle
+        ? StatutPaiement.COMPLETE
+        : StatutPaiement.EN_ATTENTE,
+      urlPaiement,
+      montantDebite: aPayer.reduce((t, i) => t + (i.frais.montantTtc ?? 0), 0),
+      billets: relues.map((i) => ({
+        id: i.id,
+        statut: i.statut,
+        prix: i.prix,
+        beneficiaire: {
+          id: i.user.id,
+          prenom: i.user.firstName,
+          nom: i.user.lastName,
+        },
+        pourMoi: i.user.id === payeur.id,
+      })),
+    };
+  }
+
+  /** Défait tout ce qu'un paiement de groupe avait commencé. */
+  private async defaireLeGroupe(
+    evenementId: string,
+    places: number,
+    creees: Inscription[],
+    groupe: string | null,
+  ): Promise<void> {
+    for (const inscription of creees) {
+      await this.transactionService.abandonner(inscription.codeBillet);
+      await this.inscriptions.delete(inscription.id);
+    }
+    if (groupe) {
+      await this.transactionService.abandonner(groupe);
+    }
+    await this.libererDesPlaces(evenementId, places);
+  }
+
   /**
    * Remet son lot (le T-shirt) à un inscrit, à l'entrée.
    *
@@ -317,6 +841,16 @@ export class BilletterieService {
       );
     }
 
+    const payeur = await this.payeurDuBillet(inscriptionId);
+    if (payeur && inscription.statut === StatutInscription.EN_ATTENTE) {
+      // Quelqu'un règle ce billet : l'annuler pendant ce temps ferait payer une
+      // place qui n'existe plus. Il pourra l'être une fois le paiement tranché.
+      throw new ConflictException(
+        `${payeur.firstName} ${payeur.lastName} est en train de régler ce billet : ` +
+          'il pourra être annulé une fois le paiement confirmé.',
+      );
+    }
+
     if (inscription.statut === StatutInscription.EN_ATTENTE) {
       await this.verifierQueLePaiementNEstPasArrive(inscription);
     }
@@ -335,7 +869,52 @@ export class BilletterieService {
       this.logger.warn(
         `Inscription payée annulée (${inscriptionId}, ${inscription.prix} FCFA) : remboursement à traiter manuellement.`,
       );
+      if (payeur) {
+        await this.prevenirLePayeurDeLAnnulation(payeur, inscription, userId);
+      }
     }
+  }
+
+  /** Qui a payé ce billet à la place de son titulaire, le cas échéant. */
+  private async payeurDuBillet(inscriptionId: string): Promise<User | null> {
+    const avecPayeur = await this.inscriptions.findOne({
+      where: { id: inscriptionId },
+      relations: { payeur: true },
+    });
+    return avecPayeur?.payeur ?? null;
+  }
+
+  /**
+   * Le titulaire annule un billet qu'un autre avait payé : l'argent revient au
+   * **payeur**, pas à lui. Le payeur le sait, et la trésorerie aussi, car le
+   * remboursement est manuel.
+   */
+  private async prevenirLePayeurDeLAnnulation(
+    payeur: User,
+    inscription: Inscription,
+    titulaireId: string,
+  ): Promise<void> {
+    const montant = inscription.frais?.montantTtc ?? inscription.prix;
+    const compte = await this.userService.findById(titulaireId);
+    const titulaire = compte
+      ? `${compte.firstName} ${compte.lastName}`
+      : 'Le titulaire';
+
+    await this.notificationService.notifier({
+      destinataire: payeur,
+      type: TypeNotification.PAIEMENT,
+      titre: 'Billet offert annulé',
+      message:
+        `${titulaire} a annulé le billet que vous aviez payé pour « ${inscription.evenement.titre} ». ` +
+        'Le bureau vous rembourse.',
+      lien: '/mon-espace/evenements',
+      libelleLien: 'Voir mes événements',
+    });
+    await this.alerteTresorerie.billetOffertAnnule(
+      payeur,
+      `le billet « ${inscription.evenement.titre} » de ${titulaire}`,
+      montant,
+    );
   }
 
   /**
@@ -350,9 +929,10 @@ export class BilletterieService {
   private async verifierQueLePaiementNEstPasArrive(
     inscription: Inscription,
   ): Promise<void> {
-    const transaction = await this.transactionService.trouver(
-      inscription.codeBillet,
-    );
+    // Un billet réglé en groupe n'a pas de transaction à son nom : c'est celle
+    // du groupe qui dit s'il est payé.
+    const reference = inscription.groupePaiement ?? inscription.codeBillet;
+    const transaction = await this.transactionService.trouver(reference);
     if (!transaction?.referenceExterne) {
       return;
     }
@@ -369,10 +949,10 @@ export class BilletterieService {
 
     if (etat === StatutPaiement.COMPLETE) {
       await this.transactionService.appliquer(
-        inscription.codeBillet,
+        reference,
         StatutPaiement.COMPLETE,
       );
-      await this.confirmerPaiement(inscription.codeBillet);
+      await this.confirmerPaiement(reference);
       throw new ConflictException(
         'Votre paiement est bien arrivé : votre billet est confirmé et n’a pas été annulé.',
       );
@@ -629,16 +1209,41 @@ export class BilletterieService {
   }
 
   async confirmerPaiement(reference: string): Promise<void> {
-    const inscription = await this.inscriptions.findOne({
-      where: { codeBillet: reference },
-      relations: { user: true, evenement: true },
-    });
+    const billets = await this.billetsDuPaiement(reference);
 
-    if (!inscription) {
+    if (billets.length === 0) {
       this.logger.warn(`Paiement reçu pour un billet inconnu : ${reference}`);
       return;
     }
 
+    for (const billet of billets) {
+      await this.confirmerUnBillet(billet);
+    }
+  }
+
+  /**
+   * Les billets que règle une référence : un seul quand on a payé le sien, ou
+   * plusieurs quand le paiement est groupé.
+   */
+  private async billetsDuPaiement(reference: string): Promise<Inscription[]> {
+    const relations = { user: true, evenement: true, payeur: true };
+
+    const seul = await this.inscriptions.findOne({
+      where: { codeBillet: reference },
+      relations,
+    });
+    if (seul) {
+      return [seul];
+    }
+
+    return this.inscriptions.find({
+      where: { groupePaiement: reference },
+      relations,
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  private async confirmerUnBillet(inscription: Inscription): Promise<void> {
     if (inscription.statut === StatutInscription.ANNULEE) {
       // L'argent est arrive apres l'annulation (echec transitoire, annulation
       // faite pendant que la confirmation voyageait, webhook en retard). La
@@ -780,37 +1385,63 @@ export class BilletterieService {
 
   /** Ce qui suit toute confirmation : prevenir, encaisser, tracer, emettre. */
   private async apresConfirmation(inscription: Inscription): Promise<void> {
+    const { user, evenement } = inscription;
+    // Quelqu'un d'autre a payé ce billet : il faut le dire aux deux.
+    const offreur =
+      inscription.payeur && inscription.payeur.id !== user.id
+        ? inscription.payeur
+        : null;
+    const nomTitulaire = `${user.firstName} ${user.lastName}`;
+
     await this.notificationService.notifier({
-      destinataire: inscription.user,
+      destinataire: user,
       type: TypeNotification.PAIEMENT,
-      titre: 'Paiement confirmé',
-      message: `Votre billet pour « ${inscription.evenement.titre} » est confirmé. Code : ${inscription.codeBillet}. Votre facture est disponible sur la page du billet.`,
+      titre: offreur ? 'Un billet vous est offert' : 'Paiement confirmé',
+      message: offreur
+        ? `${offreur.firstName} ${offreur.lastName} a payé votre billet pour « ${evenement.titre} ». Il est confirmé. Code : ${inscription.codeBillet}.`
+        : `Votre billet pour « ${evenement.titre} » est confirmé. Code : ${inscription.codeBillet}. Votre facture est disponible sur la page du billet.`,
       lien: `/billets/${inscription.id}`,
-      libelleLien: 'Voir mon billet et ma facture',
+      libelleLien: offreur
+        ? 'Voir mon billet'
+        : 'Voir mon billet et ma facture',
     });
+
+    if (offreur) {
+      await this.notificationService.notifier({
+        destinataire: offreur,
+        type: TypeNotification.PAIEMENT,
+        titre: 'Billet payé pour un proche',
+        message: `Le billet de ${nomTitulaire} pour « ${evenement.titre} » est confirmé. Votre facture est disponible dans vos événements.`,
+        lien: '/mon-espace/evenements',
+        libelleLien: 'Voir mes événements',
+      });
+    }
 
     // La trésorerie apprend ce qui entre. Le montant est celui qui a été
     // débité, frais compris — c'est ce qu'elle retrouvera sur le relevé.
     await this.alerteTresorerie.encaissement({
       origine: 'billetterie',
-      payeur: inscription.user,
-      objet: `le billet « ${inscription.evenement.titre} »`,
+      payeur: offreur ?? user,
+      objet: offreur
+        ? `le billet « ${evenement.titre} » de ${nomTitulaire}`
+        : `le billet « ${evenement.titre} »`,
       montant: inscription.frais?.montantTtc ?? inscription.prix,
       fraisPrestataire: inscription.frais?.fraisFapshi ?? null,
     });
 
+    const auteur = offreur ?? user;
     await this.activiteService.journaliser({
       type: TypeActivite.PAIEMENT,
-      message:
-        `${inscription.user.firstName} ${inscription.user.lastName} a payé ` +
-        `son billet pour « ${inscription.evenement.titre} » ` +
-        `(${inscription.prix} FCFA).`,
-      auteur: inscription.user,
+      message: offreur
+        ? `${auteur.firstName} ${auteur.lastName} a payé le billet de ${nomTitulaire} pour « ${evenement.titre} » (${inscription.prix} FCFA).`
+        : `${user.firstName} ${user.lastName} a payé son billet pour « ${evenement.titre} » (${inscription.prix} FCFA).`,
+      auteur,
       metadata: {
         inscriptionId: inscription.id,
-        evenementId: inscription.evenement.id,
+        evenementId: evenement.id,
         montant: inscription.prix,
         codeBillet: inscription.codeBillet,
+        payeurId: auteur.id,
       },
     });
 
@@ -832,18 +1463,49 @@ export class BilletterieService {
    * aucune ligne et ne libère donc pas deux fois la même place.
    */
   async echouerPaiement(reference: string, motif: string): Promise<void> {
-    const inscription = await this.inscriptions.findOne({
-      where: { codeBillet: reference },
-      relations: { user: true, evenement: true },
-    });
+    const billets = await this.billetsDuPaiement(reference);
 
-    if (!inscription) {
+    if (billets.length === 0) {
       this.logger.warn(
         `Échec de paiement pour un billet inconnu : ${reference}`,
       );
       return;
     }
 
+    const refermes: Inscription[] = [];
+    for (const billet of billets) {
+      if (await this.refermerFauteDePaiement(billet)) {
+        refermes.push(billet);
+      }
+    }
+    if (refermes.length === 0) {
+      return;
+    }
+
+    // Prévenu une seule fois, et c'est celui qui paie : un proche n'a rien
+    // demandé et ne sait pas qu'on lui offrait un billet.
+    const [premier] = refermes;
+    const destinataire = premier.payeur ?? premier.user;
+    const pluriel = refermes.length > 1;
+    await this.notificationService.notifier({
+      destinataire,
+      type: TypeNotification.PAIEMENT,
+      titre: 'Paiement non abouti',
+      message:
+        `${pluriel ? 'Vos inscriptions' : 'Votre inscription'} à « ${premier.evenement.titre} » ` +
+        `${pluriel ? 'ont été annulées' : 'a été annulée'} : ${motif} ` +
+        `${pluriel ? 'Les places sont' : 'La place est'} de nouveau disponible${pluriel ? 's' : ''}, vous pouvez réessayer.`,
+      lien: `/evenements/${premier.evenement.id}`,
+    });
+  }
+
+  /**
+   * Referme un billet dont le paiement n'aboutira pas, et rend sa place.
+   * `false` quand il ne l'était déjà plus : rien n'est alors rendu deux fois.
+   */
+  private async refermerFauteDePaiement(
+    inscription: Inscription,
+  ): Promise<boolean> {
     const resultat = await this.inscriptions
       .createQueryBuilder()
       .update(Inscription)
@@ -859,24 +1521,14 @@ export class BilletterieService {
       .execute();
 
     if (resultat.affected !== 1) {
-      return;
+      return false;
     }
 
     await this.evenementService.libererUnePlace(inscription.evenement.id);
-
-    await this.notificationService.notifier({
-      destinataire: inscription.user,
-      type: TypeNotification.PAIEMENT,
-      titre: 'Paiement non abouti',
-      message:
-        `Votre inscription à « ${inscription.evenement.titre} » a été annulée : ` +
-        `${motif} La place est de nouveau disponible, vous pouvez réessayer.`,
-      lien: `/evenements/${inscription.evenement.id}`,
-    });
-
     this.logger.log(
       `Inscription ${inscription.codeBillet} annulée faute de paiement : place rendue.`,
     );
+    return true;
   }
 
   /**
@@ -1001,6 +1653,7 @@ export class BilletterieService {
   private async verifierPasDejaInscrit(
     evenementId: string,
     userId: string,
+    proche?: User,
   ): Promise<void> {
     const existante = await this.inscriptions.findOne({
       where: {
@@ -1013,7 +1666,11 @@ export class BilletterieService {
     // Une inscription annulée ne bloque pas : on doit pouvoir se réinscrire
     // après s'être désisté.
     if (existante && STATUTS_ACTIFS.has(existante.statut)) {
-      throw new ConflictException('Vous êtes déjà inscrit à cet événement.');
+      throw new ConflictException(
+        proche
+          ? `${proche.firstName} ${proche.lastName} est déjà inscrit(e) à cet événement.`
+          : 'Vous êtes déjà inscrit à cet événement.',
+      );
     }
   }
 
@@ -1137,7 +1794,7 @@ export class BilletterieService {
   private async lancerPaiement(
     inscription: Inscription,
     evenement: Evenement,
-    dto: SInscrireDto,
+    dto: Pick<SInscrireDto, 'methodePaiement' | 'telephone'>,
   ): Promise<string | null> {
     // « frais.montantTtc », jamais « prix » : c'est ce total, prix plus les
     // frais Fapshi et de retrait, qu'il faut réellement encaisser — sans quoi

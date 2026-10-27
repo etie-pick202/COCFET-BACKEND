@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Max,
   MaxLength,
   Min,
@@ -220,4 +221,40 @@ export function exposerUtilisateur(user: User): UtilisateurExpose {
     aUnMotDePasse: user.passwordHash !== null,
     creeLe: user.createdAt,
   };
+}
+
+/** Une suggestion de la recherche de personne — jamais plus que le nécessaire. */
+export interface ProcheTrouve {
+  id: string;
+  prenom: string;
+  nom: string;
+  avatar: string | null;
+  /** « m***@gmail.com » : de quoi reconnaître la personne, pas la contacter. */
+  emailMasque: string;
+  promotion: number | null;
+}
+
+export class RechercheProcheDto {
+  @ApiProperty({
+    example: 'marie dup',
+    description:
+      'Au moins trois caractères : nom, prénom ou adresse email, en entier ou ' +
+      'en partie.',
+  })
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? value.trim() : value,
+  )
+  @IsString()
+  @MinLength(3)
+  @MaxLength(80)
+  q: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Écarte les personnes déjà inscrites à cet événement : on ne leur ' +
+      'offre pas un second billet.',
+  })
+  @IsUUID()
+  @IsOptional()
+  evenementId?: string;
 }

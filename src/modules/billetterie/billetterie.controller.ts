@@ -33,13 +33,21 @@ import {
   ReponseErreurDto,
   ReponseMessageDto,
 } from '../../common/swagger';
+import { LimiteDebit } from '../../common/guards/limite-debit.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RechercheProcheDto } from '../user/dto/user.dto';
 import { UserService } from '../user/user.service';
-import { BilletterieService } from './billetterie.service';
+import {
+  BilletOffert,
+  BilletterieService,
+  GroupeInscrit,
+  ProcheAvecTarif,
+} from './billetterie.service';
 import {
   AffecterScannerDto,
   CodeBillet,
   FiltreInscriptionDto,
+  InscrireGroupeDto,
   ScannerBilletDto,
   SInscrireDto,
 } from './dto/billetterie.dto';
@@ -98,6 +106,74 @@ export class BilletterieController {
     }
 
     return this.billetterieService.sInscrire(id, user, dto);
+  }
+
+  @Post('evenements/:id/inscription-groupe')
+  @ApiOperation({
+    summary: 'Inscrire des proches, et payer pour plusieurs',
+    description:
+      'De une à cinq personnes — vous-même et/ou des comptes déjà inscrits ' +
+      'sur la plateforme — réglées d’un seul paiement. Chacune reçoit son ' +
+      'billet, à son tarif. Tout ou rien : si une place manque ou que le ' +
+      'paiement est refusé, rien n’est gardé.',
+  })
+  @ApiCreatedResponse({
+    description: 'L’état de chaque billet et le paiement à suivre.',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Complet, ou une personne est déjà inscrite.',
+    type: ReponseErreurDto,
+  })
+  async inscrireGroupe(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: InscrireGroupeDto,
+    @Req() requete: Requete,
+  ): Promise<GroupeInscrit> {
+    const user = await this.userService.findById(requete.user.id);
+    if (!user) {
+      throw new NotFoundException("Ce compte n'existe plus.");
+    }
+
+    return this.billetterieService.inscrireGroupe(id, user, dto);
+  }
+
+  /** Trente par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
+  @LimiteDebit({ requetes: 30, fenetreSecondes: 60 })
+  @Get('evenements/:id/proches')
+  @ApiOperation({
+    summary: 'Retrouver une personne à inscrire, avec le prix de son billet',
+    description:
+      'Comme la recherche de personnes, en écartant celles déjà inscrites à ' +
+      'cet événement, et en ajoutant le tarif de chacune (campus ou externe).',
+  })
+  @ApiOkResponse({
+    description: 'Les meilleures correspondances, avec leur tarif.',
+  })
+  rechercherProches(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() recherche: RechercheProcheDto,
+    @Req() requete: Requete,
+  ): Promise<ProcheAvecTarif[]> {
+    return this.billetterieService.rechercherProches(
+      id,
+      requete.user,
+      recherche.q,
+    );
+  }
+
+  /** Déclaré avant « billets/:id », sans quoi « offerts » serait pris pour un identifiant. */
+  @Get('billets/offerts')
+  @ApiOperation({
+    summary: 'Les billets que j’ai payés pour d’autres',
+    description:
+      'Leur état, sans les codes d’entrée : ce sont ceux de leurs titulaires.',
+  })
+  @ApiOkResponse({
+    description: 'Mes billets offerts, du plus récent au plus ancien.',
+  })
+  billetsOfferts(@Req() requete: Requete): Promise<BilletOffert[]> {
+    return this.billetterieService.billetsOfferts(requete.user.id);
   }
 
   @Get('billets')
