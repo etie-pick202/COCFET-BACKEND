@@ -7,6 +7,7 @@ import { StatutPaiement } from './enums/paiement.enum';
 import { TransactionService } from './transaction.service';
 import { CotisationService } from '../cotisation/cotisation.service';
 import { FondsService } from '../fonds/fonds.service';
+import { DonService } from '../don/don.service';
 
 /**
  * Applique au domaine l'issue d'un paiement, d'où qu'elle vienne.
@@ -37,6 +38,8 @@ export class RepercussionPaiementService {
     private readonly commandeService: CommandeService,
     @Inject(forwardRef(() => FondsService))
     private readonly fondsService: FondsService,
+    @Inject(forwardRef(() => DonService))
+    private readonly donService: DonService,
   ) {}
 
   /**
@@ -113,6 +116,13 @@ export class RepercussionPaiementService {
     // déplace de l'argent d'une poche vers le compte, et rien d'autre.
     if (transaction.origine === OrigineTransaction.REMISE) {
       await this.fondsService.traiterIssue(transaction, statut);
+      return;
+    }
+
+    // Un don n'a ni billet ni commande : il crédite le comité, et prévient
+    // ceux qui doivent l'être.
+    if (transaction.origine === OrigineTransaction.DON) {
+      await this.donService.traiterIssue(transaction, statut);
       return;
     }
 
