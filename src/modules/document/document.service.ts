@@ -228,14 +228,19 @@ export class DocumentService {
   ): Promise<Document> {
     const inscription = await this.inscriptions.findOne({
       where: { id: inscriptionId },
-      relations: { user: true, evenement: true },
+      relations: { user: true, evenement: true, payeur: true },
     });
 
     if (!inscription) {
       throw new NotFoundException('Inscription introuvable.');
     }
 
-    this.verifierAcces(inscription.user?.id ?? null, demandeur);
+    // La facture est à celui qui a payé : le titulaire du billet, quand il l'a
+    // réglé lui-même, sinon la personne qui le lui a offert.
+    const redevable = inscription.payeur ?? inscription.user;
+    const offert = inscription.payeur !== null;
+
+    this.verifierAcces(redevable?.id ?? null, demandeur);
 
     if (inscription.statutPaiement !== StatutPaiement.COMPLETE) {
       throw new ConflictException(
@@ -246,19 +251,23 @@ export class DocumentService {
     return this.emettre(
       TypeDocument.RECU_BILLETTERIE,
       inscription.id,
-      inscription.user,
+      redevable,
       (charte, emisLe) => ({
         contenu: {
           genre: 'RECU_BILLETTERIE',
           charte,
           emisLe,
-          titulaire: this.titulaire(inscription.user),
-          evenement: inscription.evenement?.titre ?? 'Événement',
+          titulaire: this.titulaire(redevable),
+          evenement: offert
+            ? `${inscription.evenement?.titre ?? 'Événement'} — billet de ${inscription.user.firstName} ${inscription.user.lastName}`
+            : (inscription.evenement?.titre ?? 'Événement'),
           dateEvenement: (
             inscription.evenement?.dateDebut ?? inscription.createdAt
           ).toISOString(),
           lieu: inscription.evenement?.lieu ?? 'Non précisé',
-          codeBillet: inscription.codeBillet,
+          // Le code d'entrée est celui du titulaire : la facture d'un payeur ne
+          // le porte pas.
+          codeBillet: offert ? 'Billet offert' : inscription.codeBillet,
           prix: inscription.prix,
           fraisFapshi: inscription.frais?.fraisFapshi ?? null,
           fraisRetrait: inscription.frais?.fraisRetrait ?? null,

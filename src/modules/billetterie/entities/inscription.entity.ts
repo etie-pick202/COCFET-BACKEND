@@ -125,6 +125,29 @@ export class Inscription extends BaseEntity {
   })
   reponses: Record<string, string>;
 
+  /**
+   * Qui a payé ce billet, quand ce n'est pas son titulaire. Nul : la personne
+   * a payé le sien.
+   *
+   * Sans cela, un billet offert serait indiscernable du billet de celui qui le
+   * reçoit : impossible de prévenir le payeur, de lui adresser la facture, ni
+   * de savoir à qui rembourser si le billet est annulé.
+   */
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'payeur_id' })
+  @ApiProperty({ type: () => User, nullable: true })
+  payeur: User | null;
+
+  /**
+   * Référence du paiement partagé, quand plusieurs billets se règlent d'un
+   * seul coup. Nulle pour un billet payé seul : sa transaction porte alors son
+   * propre code.
+   */
+  @Index()
+  @Column({ name: 'groupe_paiement', type: 'varchar', nullable: true })
+  @ApiProperty({ nullable: true })
+  groupePaiement: string | null;
+
   /** Quand le lot (le T-shirt) a été remis à l'inscrit. Nul : pas encore. */
   @Column({ name: 'remis_le', type: 'timestamptz', nullable: true })
   @ApiProperty({ nullable: true, format: 'date-time' })

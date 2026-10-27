@@ -1,7 +1,11 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsUUID,
+  ValidateNested,
   IsEnum,
   IsObject,
   IsOptional,
@@ -45,6 +49,53 @@ export class SInscrireDto {
   @IsObject()
   @IsOptional()
   reponses?: Record<string, string>;
+}
+
+/** Plafond d'un paiement groupé, payeur compris. */
+export const PARTICIPANTS_MAX = 5;
+
+export class ParticipantDto {
+  @ApiPropertyOptional({
+    description: 'Le compte à inscrire. Absent : le payeur lui-même.',
+  })
+  @IsUUID()
+  @IsOptional()
+  userId?: string;
+
+  @ApiPropertyOptional({
+    example: { 'taille-de-t-shirt': 'L' },
+    description:
+      'Choix demandés par l’événement pour cette personne. Facultatifs pour ' +
+      'un proche : sans eux, il est relancé avant la date de figeage.',
+  })
+  @IsObject()
+  @IsOptional()
+  reponses?: Record<string, string>;
+}
+
+export class InscrireGroupeDto {
+  @ApiProperty({
+    type: [ParticipantDto],
+    description: `De 1 à ${PARTICIPANTS_MAX} personnes, payées d'un seul paiement.`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(PARTICIPANTS_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => ParticipantDto)
+  participants: ParticipantDto[];
+
+  @ApiPropertyOptional({ enum: MethodePaiement })
+  @IsEnum(MethodePaiement)
+  @IsOptional()
+  methodePaiement?: MethodePaiement;
+
+  @ApiPropertyOptional({ example: '+237699000002' })
+  @Matches(/^\+?\d{8,15}$/, {
+    message: 'telephone doit être un numéro valide, ex. +237699000002',
+  })
+  @IsOptional()
+  telephone?: string;
 }
 
 export class ModifierReponsesDto {
