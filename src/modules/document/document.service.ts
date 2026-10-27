@@ -173,7 +173,10 @@ export class DocumentService {
   ): Promise<Document> {
     const reglement = await this.reglements.findOne({
       where: { id: reglementId },
-      relations: { participation: { user: true, cotisation: true } },
+      relations: {
+        participation: { user: true, cotisation: true },
+        payeur: true,
+      },
     });
 
     if (!reglement) {
@@ -181,7 +184,11 @@ export class DocumentService {
     }
 
     const { participation } = reglement;
-    this.verifierAcces(participation.user?.id ?? null, demandeur);
+    // La facture est à celui qui a payé : la personne elle-même, ou celle qui a
+    // réglé à sa place.
+    const redevable = reglement.payeur ?? participation.user;
+    const offert = Boolean(reglement.payeur);
+    this.verifierAcces(redevable?.id ?? null, demandeur);
 
     if (reglement.statut !== StatutPaiement.COMPLETE) {
       throw new ConflictException(
@@ -196,14 +203,16 @@ export class DocumentService {
     return this.emettre(
       TypeDocument.FACTURE_COTISATION,
       reglement.id,
-      participation.user,
+      redevable,
       (charte, emisLe) => ({
         contenu: {
           genre: 'FACTURE_COTISATION',
           charte,
           emisLe,
-          titulaire: this.titulaire(participation.user),
-          cotisation: participation.cotisation.titre,
+          titulaire: this.titulaire(redevable),
+          cotisation: offert
+            ? `${participation.cotisation.titre} — pour ${participation.user.firstName} ${participation.user.lastName}`
+            : participation.cotisation.titre,
           echeance: reglement.libelle,
           montant: reglement.montant,
           fraisPaiement:
@@ -238,7 +247,7 @@ export class DocumentService {
     // La facture est à celui qui a payé : le titulaire du billet, quand il l'a
     // réglé lui-même, sinon la personne qui le lui a offert.
     const redevable = inscription.payeur ?? inscription.user;
-    const offert = inscription.payeur !== null;
+    const offert = Boolean(inscription.payeur);
 
     this.verifierAcces(redevable?.id ?? null, demandeur);
 
