@@ -58,6 +58,20 @@ describe('TresorerieService — canal de paiement', () => {
     ]);
   });
 
+  it('dit s’il y a une page avant et une après', async () => {
+    // Sans ces deux indicateurs, les boutons « Précédent » et « Suivant » du
+    // journal restaient grisés : la page les lit pour s'activer.
+    const { service: s } = service([ligne('A', 1000)], []);
+
+    const { meta } = await s.journal({ page: 2, limite: 1 });
+
+    expect(meta).toMatchObject({
+      page: 2,
+      aPrecedente: true,
+      aSuivante: false,
+    });
+  });
+
   it('ne lit pas les preuves quand la page est vide', async () => {
     const { service: s, depot } = service([], []);
 

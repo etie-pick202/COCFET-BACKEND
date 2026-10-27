@@ -5,5 +5,5 @@ export {
   triAutorise,
 } from './pagination.dto';
 export type { Ordre } from './pagination.dto';
-export { paginer } from './resultat-pagine';
+export { construireMeta, paginer } from './resultat-pagine';
 export type { MetaPagination, ResultatPagine } from './resultat-pagine';

@@ -136,6 +136,7 @@ describe('annulation d’une validation de paiement', () => {
         { annulerConfirmationHorsLigne: billet } as never,
         { annulerPaiementHorsLigne: commande } as never,
         {} as never,
+        {} as never,
       );
       return { service, cotisation, commande, billet };
     };

@@ -13,6 +13,8 @@ export enum OrigineTransaction {
    * les recettes du bureau.
    */
   REMISE = 'REMISE',
+  /** Un don au comité, en général ou pour un événement : une recette. */
+  DON = 'DON',
 }
 
 /**

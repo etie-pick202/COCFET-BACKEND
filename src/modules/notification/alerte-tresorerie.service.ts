@@ -78,6 +78,32 @@ export class AlerteTresorerieService {
     );
   }
 
+  /**
+   * Un don vient d'arriver.
+   *
+   * Le donateur est dit tel qu'il se présente — « Anonyme » quand il ne veut
+   * pas être connu. `exclure` est son compte, quand il en a un : un trésorier
+   * qui donne n'a pas besoin qu'on lui annonce son propre don.
+   */
+  donRecu(
+    donateur: string,
+    montant: number,
+    evenement: string | null,
+    exclure: string | null,
+  ): Promise<void> {
+    const destination = evenement
+      ? 'pour « ' + evenement + ' »'
+      : 'au comité en général';
+
+    return this.signaler(
+      exclure ?? '',
+      'Nouveau don',
+      `${donateur} a fait un don de ${montantLisible(montant)} ${destination}. ` +
+        'Les frais du prestataire sont à la charge du donateur.',
+      'Voir les dons',
+    );
+  }
+
   /** Un membre vient de déposer de l'argent de sa poche sur la plateforme. */
   remiseSurPlateforme(
     membre: Encaissement['payeur'],
