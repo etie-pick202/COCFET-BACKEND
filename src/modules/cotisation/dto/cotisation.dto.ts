@@ -10,6 +10,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -150,6 +151,56 @@ export class ChoixEcheanceDto {
   @Min(1)
   @IsOptional()
   ordreTranche?: number;
+}
+
+/** Plafond d'un paiement partagé, payeur compris. */
+export const LIGNES_MAX = 5;
+
+/** Une personne à régler dans un paiement partagé, et ce qu'on règle pour elle. */
+export class LigneGroupeDto extends ChoixEcheanceDto {
+  @ApiPropertyOptional({
+    description: 'La participation à régler. Absent : la mienne.',
+  })
+  @IsUUID()
+  @IsOptional()
+  participationId?: string;
+
+  @ApiPropertyOptional({
+    example: 5000,
+    description:
+      'Montant à régler, en FCFA, frais exclus : mêmes règles que pour son ' +
+      'propre règlement.',
+  })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  montant?: number;
+}
+
+export class PayerGroupeDto {
+  @ApiProperty({
+    type: [LigneGroupeDto],
+    description: `De 1 à ${LIGNES_MAX} personnes, réglées d'un seul paiement.`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(LIGNES_MAX)
+  @ValidateNested({ each: true })
+  @Type(() => LigneGroupeDto)
+  lignes: LigneGroupeDto[];
+
+  @ApiPropertyOptional({ enum: MethodePaiement })
+  @IsEnum(MethodePaiement)
+  @IsOptional()
+  methodePaiement?: MethodePaiement;
+
+  @ApiPropertyOptional({ example: '+237699000002' })
+  @Matches(/^\+?\d{8,15}$/, {
+    message: 'telephone doit être un numéro valide, ex. +237699000002',
+  })
+  @IsOptional()
+  telephone?: string;
 }
 
 /** Montant dont on veut connaître le coût en ligne. */
