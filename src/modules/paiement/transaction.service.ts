@@ -226,6 +226,8 @@ export class TransactionService {
         return '/mon-espace/cotisations';
       case OrigineTransaction.REMISE:
         return '/admin/finances';
+      case OrigineTransaction.DON:
+        return `/don/merci?reference=${encodeURIComponent(transaction.reference)}`;
       case OrigineTransaction.EVENEMENT: {
         const [inscription] = await this.transactions.manager.query<
           { id: string }[]

@@ -16,6 +16,30 @@ export interface ResultatPagine<T> {
 }
 
 /**
+ * Les informations de pagination, à partir de la page demandée et du total.
+ *
+ * Une seule façon de les calculer : les construire à la main, c'était omettre
+ * `aSuivante` et `aPrecedente` sur deux listes, dont les boutons « Suivant » et
+ * « Précédent » restaient alors grisés pour toujours.
+ */
+export function construireMeta(
+  page: number,
+  limite: number,
+  total: number,
+): MetaPagination {
+  return {
+    page,
+    limite,
+    total,
+    totalPages: Math.ceil(total / limite),
+    // Comparaison au total et non à `donnees.length` : une dernière page
+    // pleine ne signifie pas qu'une suivante existe.
+    aSuivante: page * limite < total,
+    aPrecedente: page > 1,
+  };
+}
+
+/**
  * Assemble le résultat à partir du couple `[donnees, total]` que renvoie
  * `findAndCount` / `getManyAndCount`.
  */
@@ -24,19 +48,6 @@ export function paginer<T>(
   pagination: PaginationDto,
 ): ResultatPagine<T> {
   const { page, limite } = pagination;
-  const totalPages = Math.ceil(total / limite);
 
-  return {
-    donnees,
-    meta: {
-      page,
-      limite,
-      total,
-      totalPages,
-      // Comparaison au total et non à `donnees.length` : une dernière page
-      // pleine ne signifie pas qu'une suivante existe.
-      aSuivante: page * limite < total,
-      aPrecedente: page > 1,
-    },
-  };
+  return { donnees, meta: construireMeta(page, limite, total) };
 }

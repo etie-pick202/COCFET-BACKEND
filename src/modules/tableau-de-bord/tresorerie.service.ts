@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { construireMeta, MetaPagination } from '../../common/pagination';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ObjectLiteral, Repository, SelectQueryBuilder } from 'typeorm';
 import { Inscription } from '../billetterie/entities/inscription.entity';
@@ -100,7 +101,7 @@ export class TresorerieService {
   /** Journal brut, filtrable. C'est la pièce comptable, pas un indicateur. */
   async journal(filtre: FiltreTransactionDto): Promise<{
     donnees: TransactionDuJournal[];
-    meta: { page: number; limite: number; total: number; totalPages: number };
+    meta: MetaPagination;
   }> {
     const page = filtre.page ?? 1;
     const limite = Math.min(filtre.limite ?? 20, 100);
@@ -115,7 +116,7 @@ export class TresorerieService {
 
     return {
       donnees: await this.avecCanal(donnees),
-      meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
+      meta: construireMeta(page, limite, total),
     };
   }
 

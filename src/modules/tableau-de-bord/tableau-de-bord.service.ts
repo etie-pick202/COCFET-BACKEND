@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { construireMeta, MetaPagination } from '../../common/pagination';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JournalActivite } from '../activite/entities/journal-activite.entity';
@@ -52,7 +53,7 @@ export class TableauDeBordService {
    */
   async activite(filtre: FiltreActiviteDto): Promise<{
     donnees: JournalActivite[];
-    meta: { page: number; limite: number; total: number; totalPages: number };
+    meta: MetaPagination;
   }> {
     const page = filtre.page ?? 1;
     const limite = Math.min(filtre.limite ?? 20, 100);
@@ -83,7 +84,7 @@ export class TableauDeBordService {
 
     return {
       donnees,
-      meta: { page, limite, total, totalPages: Math.ceil(total / limite) },
+      meta: construireMeta(page, limite, total),
     };
   }
 

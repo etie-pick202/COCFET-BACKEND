@@ -5,6 +5,7 @@ import { StatutPaiement } from './enums/paiement.enum';
 import { RepercussionPaiementService } from './repercussion-paiement.service';
 import { TransactionService } from './transaction.service';
 import { CotisationService } from '../cotisation/cotisation.service';
+import { DonService } from '../don/don.service';
 import { FondsService } from '../fonds/fonds.service';
 
 /**
@@ -22,6 +23,7 @@ describe('RepercussionPaiementService', () => {
   let billet: { confirmerPaiement: jest.Mock; echouerPaiement: jest.Mock };
   let traiterIssue: jest.Mock;
   let fondsTraiterIssue: jest.Mock;
+  let donTraiterIssue: jest.Mock;
 
   const transaction = (origine: OrigineTransaction) =>
     ({ reference: 'REF-1', origine }) as Transaction;
@@ -40,6 +42,7 @@ describe('RepercussionPaiementService', () => {
     };
     traiterIssue = jest.fn().mockResolvedValue(undefined);
     fondsTraiterIssue = jest.fn().mockResolvedValue(undefined);
+    donTraiterIssue = jest.fn().mockResolvedValue(undefined);
 
     service = new RepercussionPaiementService(
       { traiterIssue } as unknown as CotisationService,
@@ -47,6 +50,7 @@ describe('RepercussionPaiementService', () => {
       billet as unknown as BilletterieService,
       commande as unknown as CommandeService,
       { traiterIssue: fondsTraiterIssue } as unknown as FondsService,
+      { traiterIssue: donTraiterIssue } as unknown as DonService,
     );
   });
 
@@ -155,6 +159,21 @@ describe('RepercussionPaiementService', () => {
       depot,
       StatutPaiement.COMPLETE,
     );
+    expect(commande.confirmerPaiement).not.toHaveBeenCalled();
+    expect(billet.confirmerPaiement).not.toHaveBeenCalled();
+  });
+
+  it('confie l’issue d’un don à son domaine, sans billet ni commande', async () => {
+    const don = {
+      reference: 'DON-1',
+      origine: OrigineTransaction.DON,
+      montant: 10_000,
+    };
+    trouver.mockResolvedValue(don);
+
+    await service.repercuter('DON-1', StatutPaiement.COMPLETE);
+
+    expect(donTraiterIssue).toHaveBeenCalledWith(don, StatutPaiement.COMPLETE);
     expect(commande.confirmerPaiement).not.toHaveBeenCalled();
     expect(billet.confirmerPaiement).not.toHaveBeenCalled();
   });
