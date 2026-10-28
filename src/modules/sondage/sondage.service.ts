@@ -7,9 +7,16 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
+import {
+  DataSource,
+  EntityManager,
+  In,
+  QueryFailedError,
+  Repository,
+} from 'typeorm';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { User } from '../user/entities/user.entity';
@@ -48,6 +55,7 @@ export class SondageService {
     private readonly votes: Repository<Vote>,
     private readonly dataSource: DataSource,
     private readonly notificationService: NotificationService,
+    private readonly nettoyage: NettoyageFichiers,
   ) {}
 
   // ─────────────────────────────  Lecture  ──────────────────────────────
@@ -149,6 +157,7 @@ export class SondageService {
       options: sondage.options.map((option) => ({
         id: option.id,
         texte: option.texte,
+        image: option.image,
         votes: visibles ? option.votes : null,
         pourcentage: visibles
           ? this.part(option.votes, sondage.totalVotes)
@@ -199,6 +208,7 @@ export class SondageService {
 
   async creer(dto: CreerSondageDto): Promise<Sondage> {
     const deadline = this.deadlineValide(dto.deadline);
+    this.verifierTitresDistincts(dto.options.map((option) => option.texte));
 
     const { options, evenementId, ...reste } = dto;
 
@@ -209,7 +219,10 @@ export class SondageService {
         ...(evenementId ? { evenement: { id: evenementId } } : {}),
         // `cascade` sur la relation insère les options avec le sondage : deux
         // enregistrements séparés laisseraient exister un sondage sans options.
-        options: options.map((texte) => ({ texte, votes: 0 }) as OptionSondage),
+        options: options.map(
+          ({ texte, image }) =>
+            ({ texte, image: image ?? null, votes: 0 }) as OptionSondage,
+        ),
         statut: StatutSondage.BROUILLON,
         totalVotes: 0,
       }),
@@ -233,6 +246,18 @@ export class SondageService {
     if (sondage.statut === StatutSondage.CLOS) {
       throw new ConflictException(
         'Ce sondage est clos : son dépouillement ne se retouche plus.',
+      );
+    }
+
+    if (
+      dto.plusieursVotes !== undefined &&
+      dto.plusieursVotes !== sondage.plusieursVotes &&
+      sondage.statut !== StatutSondage.BROUILLON
+    ) {
+      // Changer la règle en cours de route : les premiers votants auraient
+      // répondu sous une autre règle que les suivants.
+      throw new ConflictException(
+        'Le nombre de votes autorisés ne se change plus une fois le sondage ouvert.',
       );
     }
 
@@ -315,6 +340,8 @@ export class SondageService {
     }
 
     await this.sondages.delete(id);
+    // La base d'abord : si elle échoue, les images servent encore.
+    await this.nettoyage.retirer(...sondage.options.map((o) => o.image));
   }
 
   // ──────────────────────────────  Vote  ────────────────────────────────
@@ -348,6 +375,7 @@ export class SondageService {
         await gestionnaire.insert(ParticipationSondage, {
           sondage: { id: sondage.id },
           user: { id: votant.id },
+          rang: await this.prochainRang(gestionnaire, sondage, votant.id),
         });
 
         const bulletin = await gestionnaire.save(
@@ -380,7 +408,11 @@ export class SondageService {
       });
     } catch (erreur) {
       if (this.estDoubleVote(erreur)) {
-        throw new ConflictException('Vous avez déjà voté à ce sondage.');
+        throw new ConflictException(
+          sondage.plusieursVotes
+            ? 'Un autre de vos votes est en cours d’enregistrement : réessayez.'
+            : 'Vous avez déjà voté à ce sondage.',
+        );
       }
       throw erreur;
     }
@@ -391,6 +423,38 @@ export class SondageService {
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
+
+  /** Numéro du bulletin : toujours 1 quand le vote est unique. */
+  private async prochainRang(
+    gestionnaire: EntityManager,
+    sondage: Sondage,
+    userId: string,
+  ): Promise<number> {
+    if (!sondage.plusieursVotes) {
+      return 1;
+    }
+    const deja = await gestionnaire.countBy(ParticipationSondage, {
+      sondage: { id: sondage.id },
+      user: { id: userId },
+    });
+    return deja + 1;
+  }
+
+  /**
+   * Refuse deux options de même titre.
+   *
+   * Elles répartiraient les voix d'un même choix sur deux lignes, et le
+   * dépouillement conclurait à l'inverse de l'intention. Comparées sans casse
+   * ni espaces : « Black tie » et « black tie  » sont le même choix.
+   */
+  private verifierTitresDistincts(titres: string[]): void {
+    const vus = new Set(titres.map((titre) => titre.trim().toLowerCase()));
+    if (vus.size !== titres.length) {
+      throw new BadRequestException(
+        'Deux options portent le même titre : chaque choix doit se distinguer.',
+      );
+    }
+  }
 
   private verifierOuvert(sondage: Sondage): void {
     if (sondage.statut !== StatutSondage.ACTIF) {

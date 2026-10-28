@@ -24,6 +24,14 @@ export const USAGES = {
     roles: [Role.ADMIN],
     mimesAutorises: null,
   },
+  /** Image d'une option de sondage : ce que le bureau soumet au vote. */
+  sondage: {
+    prefixe: 'sondages',
+    tailleMax: 5 * 1024 * 1024,
+    types: ['image'],
+    roles: [Role.ADMIN],
+    mimesAutorises: null,
+  },
   produit: {
     prefixe: 'produits',
     tailleMax: 5 * 1024 * 1024,
