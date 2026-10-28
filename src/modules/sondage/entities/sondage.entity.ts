@@ -68,17 +68,6 @@ export class Sondage extends BaseEntity {
   })
   statut: StatutSondage;
 
-  /**
-   * Si vrai, une même personne peut voter plusieurs fois (le « coup de cœur »
-   * du jour, un vote par semaine de campagne). Faux par défaut : c'est le
-   * comportement qu'attend un scrutin.
-   *
-   * Dans ce mode, `totalVotes` compte les **bulletins** déposés et non les
-   * personnes : les pourcentages restent des parts de bulletins.
-   */
-  @Column({ name: 'plusieurs_votes', default: false })
-  plusieursVotes: boolean;
-
   /** Dénormalisé pour le calcul des pourcentages sans agrégation. */
   @Column({ name: 'total_votes', type: 'int', default: 0 })
   totalVotes: number;

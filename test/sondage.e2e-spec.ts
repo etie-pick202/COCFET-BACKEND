@@ -263,7 +263,7 @@ describe('Sondages (e2e)', () => {
       ).toBe('sondages/2027/a.png');
     });
 
-    it('refuse un second vote par défaut, l’accepte si le sondage l’autorise', async () => {
+    it('refuse un second vote de la même personne', async () => {
       const unique = (await creer().expect(201)).body as { id: string };
       await activer(unique.id).expect(201);
       const un = (
@@ -271,37 +271,10 @@ describe('Sondages (e2e)', () => {
           .get(`${SONDAGES}/${unique.id}`)
           .set(etudiant.entetes)
           .expect(200)
-      ).body as { options: { id: string }[]; plusieursVotes: boolean };
-      expect(un.plusieursVotes).toBe(false);
+      ).body as { options: { id: string }[] };
       await voter(unique.id, etudiant, [un.options[0].id]).expect(201);
       await voter(unique.id, etudiant, [un.options[0].id]).expect(409);
-
-      const multiple = (await creer({ plusieursVotes: true }).expect(201))
-        .body as { id: string };
-      await activer(multiple.id).expect(201);
-      const plusieurs = (
-        await request(app.getHttpServer())
-          .get(`${SONDAGES}/${multiple.id}`)
-          .set(etudiant.entetes)
-          .expect(200)
-      ).body as { options: { id: string }[] };
-      await voter(multiple.id, etudiant, [plusieurs.options[0].id]).expect(201);
-      await voter(multiple.id, etudiant, [plusieurs.options[1].id]).expect(201);
-    });
-
-    it('ne change plus la règle des votes une fois le sondage ouvert', async () => {
-      const { id } = (await creer().expect(201)).body as { id: string };
-      await request(app.getHttpServer())
-        .patch(`${SONDAGES}/${id}`)
-        .set(admin.entetes)
-        .send({ plusieursVotes: true })
-        .expect(200);
-      await activer(id).expect(201);
-      await request(app.getHttpServer())
-        .patch(`${SONDAGES}/${id}`)
-        .set(admin.entetes)
-        .send({ plusieursVotes: false })
-        .expect(409);
+      await voter(unique.id, etudiant, [un.options[1].id]).expect(409);
     });
 
     it('refuse un sondage à option unique', async () => {

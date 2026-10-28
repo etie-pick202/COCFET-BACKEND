@@ -1,4 +1,4 @@
-import { Column, Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
+import { Entity, Index, JoinColumn, ManyToOne } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { User } from '../../user/entities/user.entity';
 import { Sondage } from './sondage.entity';
@@ -26,9 +26,7 @@ import { Sondage } from './sondage.entity';
 // Index et contraintes nommés explicitement, du même nom que dans la migration.
 // Laissés à TypeORM, ils porteraient un condensé calculé, et le contrôle de
 // dérive de l'intégration continue verrait un écart à chaque exécution.
-@Index('uq_participation_sondage_user_rang', ['sondage', 'user', 'rang'], {
-  unique: true,
-})
+@Index('uq_participation_sondage_user', ['sondage', 'user'], { unique: true })
 export class ParticipationSondage extends BaseEntity {
   // `nullable: false` : une participation sans sondage ni votant ne veut rien
   // dire, et une colonne nulle échapperait à l'index unique — c'est exactement
@@ -46,15 +44,4 @@ export class ParticipationSondage extends BaseEntity {
     foreignKeyConstraintName: 'FK_participation_user',
   })
   user: User;
-
-  /**
-   * Numéro du vote de cette personne à ce sondage, à partir de 1.
-   *
-   * Un sondage à vote unique n'a jamais que le rang 1, et l'index unique
-   * continue d'arrêter le double vote en base. Un sondage qui autorise
-   * plusieurs votes en dépose un par rang : l'index empêche alors deux
-   * requêtes simultanées de prendre le même numéro.
-   */
-  @Column({ type: 'int', default: 1 })
-  rang: number;
 }
