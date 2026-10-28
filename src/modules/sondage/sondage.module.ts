@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { FileModule } from '../file/file.module';
 import { NotificationModule } from '../notification/notification.module';
 import { UserModule } from '../user/user.module';
 import { OptionSondage } from './entities/option-sondage.entity';
@@ -18,6 +19,8 @@ import { SondageService } from './sondage.service';
       ParticipationSondage,
     ]),
     NotificationModule,
+    // Pour effacer les images d'un sondage supprimé avant son premier vote.
+    FileModule,
     // Pour recharger le votant : l'éligibilité au vote dépend de sa promotion,
     // que le jeton ne porte pas.
     UserModule,

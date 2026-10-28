@@ -4,7 +4,7 @@ import {
   PartialType,
   PickType,
 } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { plainToInstance, Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -16,8 +16,10 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   MaxLength,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import { PaginationDto } from '../../../common/pagination';
 import {
@@ -28,6 +30,54 @@ import {
 
 /** Au-delà, la liste devient illisible et le dépouillement sans intérêt. */
 export const MAX_OPTIONS = 20;
+
+/**
+ * Une option à voter : un titre, et éventuellement une image.
+ *
+ * Le titre reste obligatoire même avec une image : il est ce que lit un lecteur
+ * d'écran, ce qui s'affiche quand l'image tarde, et ce qui désigne le choix
+ * dans le dépouillement.
+ */
+export class OptionSondageDto {
+  @ApiProperty({ example: 'Afrofuturisme' })
+  @IsString()
+  @MinLength(1)
+  @MaxLength(300)
+  texte: string;
+
+  @ApiPropertyOptional({
+    example: 'sondages/2027/6b1f9c2e-4a1f-4b7c-9d3e-8f0a1b2c3d4e.png',
+    description:
+      'Clé renvoyée par POST /fichiers (usage « sondage »). Une clé du dossier ' +
+      '« sondages/ » seulement : une autre ferait pointer l’option vers le CV ' +
+      'ou le justificatif de quelqu’un.',
+  })
+  @IsString()
+  @MaxLength(500)
+  @Matches(/^sondages\/(?!.*\.\.)[\w\-./]+$/, {
+    message: 'L’image doit être un fichier envoyé pour un sondage.',
+  })
+  @IsOptional()
+  image?: string;
+}
+
+/**
+ * Accepte l'ancienne forme (un simple texte) comme la nouvelle (un objet).
+ *
+ * Les clients déjà déployés envoient encore des chaînes : les refuser
+ * casserait la création de sondage jusqu'à leur mise à jour.
+ */
+function normaliserOptions(options: unknown): unknown {
+  if (!Array.isArray(options)) {
+    return options;
+  }
+  return options.map((option: unknown) =>
+    plainToInstance(
+      OptionSondageDto,
+      typeof option === 'string' ? { texte: option } : option,
+    ),
+  );
+}
 
 export class CreerSondageDto {
   @ApiProperty({ example: 'Quel thème pour le gala des finissants ?' })
@@ -43,19 +93,25 @@ export class CreerSondageDto {
   description?: string;
 
   @ApiProperty({
-    example: ['Années folles', 'Afrofuturisme', 'Black tie'],
+    type: [OptionSondageDto],
+    example: [
+      { texte: 'Années folles' },
+      { texte: 'Afrofuturisme', image: 'sondages/2027/afrofuturisme.png' },
+    ],
     description:
-      'Deux options au minimum : un sondage à une seule réponse ne mesure rien.',
+      'Deux options au minimum : un sondage à une seule réponse ne mesure rien. ' +
+      'Chacune a un titre et peut avoir une image ; un simple texte reste accepté.',
   })
+  @Transform(({ obj }: { obj: { options?: unknown } }) =>
+    normaliserOptions(obj.options),
+  )
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(MAX_OPTIONS)
-  // Deux options identiques répartiraient les voix d'un même choix sur deux
-  // lignes, et le dépouillement conclurait à l'inverse de l'intention.
-  @ArrayUnique()
-  @IsString({ each: true })
-  @MaxLength(300, { each: true })
-  options: string[];
+  @ValidateNested({ each: true })
+  // L'unicité des titres se vérifie dans le service, qui sait les comparer sans
+  // tenir compte de la casse ni des espaces.
+  options: OptionSondageDto[];
 
   @ApiPropertyOptional({
     enum: TypeSondage,
@@ -93,6 +149,17 @@ export class CreerSondageDto {
   visibiliteResultats?: VisibiliteResultats;
 
   @ApiPropertyOptional({
+    default: false,
+    description:
+      'Vrai : une même personne peut voter plusieurs fois. Faux : un seul ' +
+      'bulletin par personne, ce qu’attend un scrutin. Modifiable tant que ' +
+      'le sondage est en brouillon.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  plusieursVotes?: boolean;
+
+  @ApiPropertyOptional({
     default: true,
     description:
       'Vrai : réservé aux membres du campus, reconnus à leur promotion. Un ' +
@@ -127,6 +194,7 @@ export class MettreAJourSondageDto extends PartialType(
     'deadline',
     'visibiliteResultats',
     'campusUniquement',
+    'plusieursVotes',
   ] as const),
 ) {
   /**
@@ -198,6 +266,12 @@ export class ResultatOption {
 
   @ApiProperty()
   texte: string;
+
+  @ApiProperty({
+    nullable: true,
+    description: 'Clé de l’image de l’option, nulle pour un texte seul.',
+  })
+  image: string | null;
 
   @ApiProperty({ description: 'Nul tant que les résultats sont masqués.' })
   votes: number | null;
