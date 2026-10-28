@@ -192,6 +192,118 @@ describe('Sondages (e2e)', () => {
       await creer({ options: ['Black tie', 'Black tie'] }).expect(400);
     });
 
+    it('garde l’image et le titre de chaque option', async () => {
+      const reponse = await creer({
+        options: [
+          { texte: 'Années folles', image: 'sondages/2027/a.png' },
+          { texte: 'Black tie' },
+        ],
+      }).expect(201);
+
+      const options = (
+        reponse.body as { options: { texte: string; image: string | null }[] }
+      ).options;
+      expect(options).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            texte: 'Années folles',
+            image: 'sondages/2027/a.png',
+          }),
+          expect.objectContaining({ texte: 'Black tie', image: null }),
+        ]),
+      );
+    });
+
+    it('refuse une image rangée hors du dossier des sondages', async () => {
+      // Sinon une option pourrait pointer vers le CV ou le justificatif de
+      // quelqu'un, que l'URL signée rendrait lisible à tous les votants.
+      await creer({
+        options: [
+          { texte: 'A', image: 'justificatifs/2027/secret.png' },
+          { texte: 'B' },
+        ],
+      }).expect(400);
+      await creer({
+        options: [
+          { texte: 'A', image: 'sondages/../cv/x.pdf' },
+          { texte: 'B' },
+        ],
+      }).expect(400);
+    });
+
+    it('refuse deux titres identiques, même avec des images différentes', async () => {
+      await creer({
+        options: [
+          { texte: 'Black tie', image: 'sondages/2027/a.png' },
+          { texte: ' black TIE', image: 'sondages/2027/b.png' },
+        ],
+      }).expect(400);
+    });
+
+    it('rend l’image dans le dépouillement', async () => {
+      const { id } = (
+        await creer({
+          options: [
+            { texte: 'A', image: 'sondages/2027/a.png' },
+            { texte: 'B' },
+          ],
+          visibiliteResultats: 'TOUJOURS',
+        }).expect(201)
+      ).body as { id: string };
+      await activer(id).expect(201);
+
+      const reponse = await request(app.getHttpServer())
+        .get(`${SONDAGES}/${id}/resultats`)
+        .set(etudiant.entetes)
+        .expect(200);
+      expect(
+        (
+          reponse.body as { options: { texte: string; image: string | null }[] }
+        ).options.find((o) => o.texte === 'A')?.image,
+      ).toBe('sondages/2027/a.png');
+    });
+
+    it('refuse un second vote par défaut, l’accepte si le sondage l’autorise', async () => {
+      const unique = (await creer().expect(201)).body as { id: string };
+      await activer(unique.id).expect(201);
+      const un = (
+        await request(app.getHttpServer())
+          .get(`${SONDAGES}/${unique.id}`)
+          .set(etudiant.entetes)
+          .expect(200)
+      ).body as { options: { id: string }[]; plusieursVotes: boolean };
+      expect(un.plusieursVotes).toBe(false);
+      await voter(unique.id, etudiant, [un.options[0].id]).expect(201);
+      await voter(unique.id, etudiant, [un.options[0].id]).expect(409);
+
+      const multiple = (await creer({ plusieursVotes: true }).expect(201))
+        .body as { id: string };
+      await activer(multiple.id).expect(201);
+      const plusieurs = (
+        await request(app.getHttpServer())
+          .get(`${SONDAGES}/${multiple.id}`)
+          .set(etudiant.entetes)
+          .expect(200)
+      ).body as { options: { id: string }[] };
+      await voter(multiple.id, etudiant, [plusieurs.options[0].id]).expect(201);
+      await voter(multiple.id, etudiant, [plusieurs.options[1].id]).expect(201);
+    });
+
+    it('ne change plus la règle des votes une fois le sondage ouvert', async () => {
+      const { id } = (await creer().expect(201)).body as { id: string };
+      await request(app.getHttpServer())
+        .patch(`${SONDAGES}/${id}`)
+        .set(admin.entetes)
+        .send({ plusieursVotes: true })
+        .expect(200);
+      await activer(id).expect(201);
+      await request(app.getHttpServer())
+        .patch(`${SONDAGES}/${id}`)
+        .set(admin.entetes)
+        .send({ plusieursVotes: false })
+        .expect(409);
+    });
+
     it('refuse un sondage à option unique', async () => {
       await creer({ options: ['Une seule'] }).expect(400);
     });
