@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DataSource, QueryFailedError, Repository } from 'typeorm';
 import { Role } from '../../common/enums/role.enum';
+import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
 import { NotificationService } from '../notification/notification.service';
 import { User } from '../user/entities/user.entity';
 import { OptionSondage } from './entities/option-sondage.entity';
@@ -124,6 +125,7 @@ describe('SondageService', () => {
           travail(gestionnaire),
       } as unknown as DataSource,
       { diffuser } as unknown as NotificationService,
+      { retirer: jest.fn() } as unknown as NettoyageFichiers,
     );
   });
 
@@ -375,7 +377,7 @@ describe('SondageService', () => {
     it('crée en brouillon, avec ses options', async () => {
       await service.creer({
         titre: 'Thème du gala',
-        options: ['A', 'B'],
+        options: [{ texte: 'A' }, { texte: 'B' }],
         deadline: DEMAIN.toISOString(),
       });
 
@@ -384,8 +386,8 @@ describe('SondageService', () => {
           statut: StatutSondage.BROUILLON,
           totalVotes: 0,
           options: [
-            { texte: 'A', votes: 0 },
-            { texte: 'B', votes: 0 },
+            { texte: 'A', image: null, votes: 0 },
+            { texte: 'B', image: null, votes: 0 },
           ],
         }),
       );
@@ -394,7 +396,7 @@ describe('SondageService', () => {
     it('rattache le sondage à un événement quand il est fourni', async () => {
       await service.creer({
         titre: 'Thème du gala',
-        options: ['A', 'B'],
+        options: [{ texte: 'A' }, { texte: 'B' }],
         deadline: DEMAIN.toISOString(),
         evenementId: EVENEMENT,
       });
@@ -407,7 +409,7 @@ describe('SondageService', () => {
     it('laisse le sondage sans événement quand aucun n’est fourni', async () => {
       await service.creer({
         titre: 'Thème du gala',
-        options: ['A', 'B'],
+        options: [{ texte: 'A' }, { texte: 'B' }],
         deadline: DEMAIN.toISOString(),
       });
 
@@ -434,7 +436,7 @@ describe('SondageService', () => {
       await expect(
         service.creer({
           titre: 'Thème',
-          options: ['A', 'B'],
+          options: [{ texte: 'A' }, { texte: 'B' }],
           deadline: 'pas-une-date',
         }),
       ).rejects.toThrow(BadRequestException);
