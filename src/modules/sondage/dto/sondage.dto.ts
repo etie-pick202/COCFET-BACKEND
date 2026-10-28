@@ -149,17 +149,6 @@ export class CreerSondageDto {
   visibiliteResultats?: VisibiliteResultats;
 
   @ApiPropertyOptional({
-    default: false,
-    description:
-      'Vrai : une même personne peut voter plusieurs fois. Faux : un seul ' +
-      'bulletin par personne, ce qu’attend un scrutin. Modifiable tant que ' +
-      'le sondage est en brouillon.',
-  })
-  @IsBoolean()
-  @IsOptional()
-  plusieursVotes?: boolean;
-
-  @ApiPropertyOptional({
     default: true,
     description:
       'Vrai : réservé aux membres du campus, reconnus à leur promotion. Un ' +
@@ -194,7 +183,6 @@ export class MettreAJourSondageDto extends PartialType(
     'deadline',
     'visibiliteResultats',
     'campusUniquement',
-    'plusieursVotes',
   ] as const),
 ) {
   /**

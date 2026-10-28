@@ -12,13 +12,12 @@ import { OptionSondage } from './option-sondage.entity';
 import { Sondage } from './sondage.entity';
 
 /**
- * L'index sert à retrouver les bulletins d'une personne. Il n'est **pas
- * unique** : un sondage peut autoriser plusieurs votes par personne, et le
- * double vote des autres est arrêté par l'index unique des participations,
- * seule table dont le lien avec la personne existe sur un sondage anonyme.
+ * L'index unique (sondage, user) empêche le double vote. Il n'a pas d'effet sur
+ * les sondages anonymes, dont les votes ont un `user` nul — le contrôle
+ * d'unicité y relève alors de la couche applicative.
  */
 @Entity('votes')
-@Index(['sondage', 'user'])
+@Index(['sondage', 'user'], { unique: true })
 export class Vote extends BaseEntity {
   @ManyToOne(() => Sondage, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'sondage_id' })

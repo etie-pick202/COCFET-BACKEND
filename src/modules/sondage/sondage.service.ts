@@ -7,13 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import {
-  DataSource,
-  EntityManager,
-  In,
-  QueryFailedError,
-  Repository,
-} from 'typeorm';
+import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
 import { Role, estAdministrateur } from '../../common/enums/role.enum';
 import { paginer, ResultatPagine, triAutorise } from '../../common/pagination';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
@@ -249,18 +243,6 @@ export class SondageService {
       );
     }
 
-    if (
-      dto.plusieursVotes !== undefined &&
-      dto.plusieursVotes !== sondage.plusieursVotes &&
-      sondage.statut !== StatutSondage.BROUILLON
-    ) {
-      // Changer la règle en cours de route : les premiers votants auraient
-      // répondu sous une autre règle que les suivants.
-      throw new ConflictException(
-        'Le nombre de votes autorisés ne se change plus une fois le sondage ouvert.',
-      );
-    }
-
     const { evenementId, ...reste } = dto;
 
     await this.sondages.update(id, {
@@ -375,7 +357,6 @@ export class SondageService {
         await gestionnaire.insert(ParticipationSondage, {
           sondage: { id: sondage.id },
           user: { id: votant.id },
-          rang: await this.prochainRang(gestionnaire, sondage, votant.id),
         });
 
         const bulletin = await gestionnaire.save(
@@ -408,11 +389,7 @@ export class SondageService {
       });
     } catch (erreur) {
       if (this.estDoubleVote(erreur)) {
-        throw new ConflictException(
-          sondage.plusieursVotes
-            ? 'Un autre de vos votes est en cours d’enregistrement : réessayez.'
-            : 'Vous avez déjà voté à ce sondage.',
-        );
+        throw new ConflictException('Vous avez déjà voté à ce sondage.');
       }
       throw erreur;
     }
@@ -423,22 +400,6 @@ export class SondageService {
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
-
-  /** Numéro du bulletin : toujours 1 quand le vote est unique. */
-  private async prochainRang(
-    gestionnaire: EntityManager,
-    sondage: Sondage,
-    userId: string,
-  ): Promise<number> {
-    if (!sondage.plusieursVotes) {
-      return 1;
-    }
-    const deja = await gestionnaire.countBy(ParticipationSondage, {
-      sondage: { id: sondage.id },
-      user: { id: userId },
-    });
-    return deja + 1;
-  }
 
   /**
    * Refuse deux options de même titre.
