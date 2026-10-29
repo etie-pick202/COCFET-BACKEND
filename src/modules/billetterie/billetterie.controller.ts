@@ -11,6 +11,7 @@ import {
   Post,
   Query,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiAcceptedResponse,
@@ -35,6 +36,9 @@ import {
 } from '../../common/swagger';
 import { LimiteDebit } from '../../common/guards/limite-debit.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
+import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
+import { Privilege } from '../bureau/privileges';
 import { RechercheProcheDto } from '../user/dto/user.dto';
 import { UserService } from '../user/user.service';
 import {
@@ -50,6 +54,7 @@ import {
   InscrireGroupeDto,
   ScannerBilletDto,
   SInscrireDto,
+  TransfererBilletDto,
 } from './dto/billetterie.dto';
 import { Inscription } from './entities/inscription.entity';
 
@@ -316,6 +321,43 @@ export class BilletterieController {
     @Req() requete: Requete,
   ): Promise<Inscription> {
     return this.billetterieService.remettre(id, requete.user);
+  }
+
+  @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.TRANSFERT_BILLETS)
+  @Post('billets/:id/transfert')
+  @ApiOperation({
+    summary: 'Transférer le billet payé d’un inscrit à une autre personne',
+    description:
+      'Pour les inscrits qui ont payé mais ne viendront pas. Le billet garde ' +
+      'sa place, son paiement et ses choix : seul son titulaire change, et ' +
+      'son code d’entrée est renouvelé — l’ancien QR cesse de fonctionner. ' +
+      'Seul l’ancien titulaire est averti du transfert ; le nouveau reçoit ' +
+      'son billet comme après une inscription ordinaire. Réservé aux postes ' +
+      'habilités.',
+  })
+  @ApiCreatedResponse({
+    description: 'Le billet transféré.',
+    type: Inscription,
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'Billet annulé, impayé, déjà utilisé ou remis, événement terminé, ou ' +
+      'bénéficiaire déjà inscrit.',
+    type: ReponseErreurDto,
+  })
+  transferer(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TransfererBilletDto,
+    @Req() requete: Requete,
+  ): Promise<Inscription> {
+    return this.billetterieService.transferer(
+      id,
+      dto.beneficiaireId,
+      requete.user.id,
+    );
   }
 
   @Roles(Role.ADMIN)

@@ -317,6 +317,8 @@ export class BureauService {
         accedeTresorerie:
           cumul.accedeTresorerie || membre.poste.accedeTresorerie,
         autoriseRetrait: cumul.autoriseRetrait || membre.poste.autoriseRetrait,
+        transfereBillets:
+          cumul.transfereBillets || membre.poste.transfereBillets,
       }),
       { ...AUCUN_PRIVILEGE },
     );

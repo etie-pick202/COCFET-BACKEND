@@ -76,4 +76,15 @@ export class PosteBureau extends BaseEntity {
     description: 'Autorise à initier un retrait vers un compte Mobile Money.',
   })
   autoriseRetrait: boolean;
+
+  /**
+   * Poste dont le titulaire peut transférer un billet payé à quelqu'un
+   * d'autre : la personne inscrite ne viendra pas, une autre prend sa place.
+   */
+  @Column({ name: 'transfere_billets', default: false })
+  @ApiProperty({
+    description:
+      'Autorise à transférer le billet d’un inscrit à une autre personne.',
+  })
+  transfereBillets: boolean;
 }

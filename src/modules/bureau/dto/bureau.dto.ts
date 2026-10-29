@@ -82,6 +82,15 @@ export class CreerPosteDto {
   @IsBoolean()
   @IsOptional()
   autoriseRetrait?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Le titulaire peut transférer le billet payé d’un inscrit à une autre ' +
+      'personne. Aucun argent ne bouge : seul le titulaire du billet change.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  transfereBillets?: boolean;
 }
 
 export class MettreAJourPosteDto extends PartialType(CreerPosteDto) {}
