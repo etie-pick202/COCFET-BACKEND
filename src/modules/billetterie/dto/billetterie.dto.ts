@@ -165,3 +165,14 @@ export class AffecterScannerDto {
   @IsUUID()
   userId: string;
 }
+
+export class TransfererBilletDto {
+  @ApiProperty({
+    format: 'uuid',
+    description:
+      'Compte qui reçoit le billet. Il doit être actif, avoir vérifié son ' +
+      'email, et ne pas déjà être inscrit à cet événement.',
+  })
+  @IsUUID()
+  beneficiaireId: string;
+}
