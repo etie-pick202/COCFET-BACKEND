@@ -10,6 +10,14 @@ import { PRIVILEGE_KEY } from '../decorators/privilege.decorator';
 import { detient, Privilege } from '../privileges';
 import { Role } from '../../../common/enums/role.enum';
 
+const MESSAGES_REFUS: Record<Privilege, string> = {
+  [Privilege.TRESORERIE]:
+    'Les chiffres de la trésorerie sont réservés aux postes qui en ont la charge.',
+  [Privilege.RETRAIT]: 'Seuls les postes habilités peuvent initier un retrait.',
+  [Privilege.TRANSFERT_BILLETS]:
+    'Seuls les postes habilités peuvent transférer le billet d’un inscrit.',
+};
+
 /**
  * Applique les privilèges de poste, **côté serveur**.
  *
@@ -60,11 +68,7 @@ export class PrivilegeGuard implements CanActivate {
       // l'existence doit rester secrète, ici la personne est légitimement
       // dans le bureau. Lui dire quel poste ouvre ce droit lui évite de
       // chercher une panne là où il n'y a qu'une règle.
-      throw new ForbiddenException(
-        requis === Privilege.TRESORERIE
-          ? 'Les chiffres de la trésorerie sont réservés aux postes qui en ont la charge.'
-          : 'Seuls les postes habilités peuvent initier un retrait.',
-      );
+      throw new ForbiddenException(MESSAGES_REFUS[requis]);
     }
 
     return true;

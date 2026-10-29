@@ -1,5 +1,6 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BureauModule } from '../bureau/bureau.module';
 import { EvenementModule } from '../evenement/evenement.module';
 import { MailModule } from '../mail/mail.module';
 import { NotificationModule } from '../notification/notification.module';
@@ -17,6 +18,7 @@ import { PurgeTracesScanService } from './purge-traces-scan.service';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Inscription, AffectationScanner, Evenement]),
+    BureauModule,
     EvenementModule,
     MailModule,
     NotificationModule,
