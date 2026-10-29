@@ -655,6 +655,19 @@ describe('Bureau COCFET (e2e)', () => {
       });
     });
 
+    it('ferme le transfert de billets par defaut, et l ouvre a la demande', async () => {
+      const ferme = await creerPoste('Charge des activites').expect(201);
+      expect(ferme.body).toMatchObject({ transfereBillets: false });
+
+      const ouvert = await creerPoste('Secretaire generale', {
+        transfereBillets: true,
+      }).expect(201);
+      expect(ouvert.body).toMatchObject({
+        transfereBillets: true,
+        accedeTresorerie: false,
+      });
+    });
+
     it('les regle aussi apres coup', async () => {
       const poste = idDe(
         await creerPoste('Commissaire aux comptes').expect(201),

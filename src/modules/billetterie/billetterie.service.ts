@@ -875,6 +875,161 @@ export class BilletterieService {
     }
   }
 
+  /**
+   * Passe un billet payé à quelqu'un d'autre.
+   *
+   * Le cas : une personne a payé et ne viendra pas, une autre prend sa place.
+   * Rien n'est annulé ni recréé — la place, le paiement et les choix (taille de
+   * T-shirt) restent attachés au billet, si bien que le compteur de places ne
+   * bouge pas et que le bureau voit simplement un inscrit à la place d'un
+   * autre.
+   *
+   * Trois choses sont réglées avec soin :
+   * - **le code d'entrée est renouvelé.** Sans cela, l'ancien titulaire
+   *   garderait un QR valide et pourrait le céder ou le revendre. L'ancienne
+   *   référence est conservée comme référence de paiement, pour que le
+   *   rapprochement avec la transaction (et une notification tardive du
+   *   prestataire) retrouve toujours le billet ;
+   * - **la facture reste à celui qui a payé.** Quand le billet n'avait pas été
+   *   offert, l'ancien titulaire devient le payeur : le reçu et un éventuel
+   *   remboursement lui reviennent, pas à celui qui reçoit le billet ;
+   * - **le transfert est une mise à jour conditionnelle.** Un scan ou une
+   *   remise de lot qui passe en même temps ne se fait pas écraser.
+   *
+   * Seul l'ancien titulaire est averti. Le nouveau reçoit son billet par la
+   * voie ordinaire, comme après une inscription.
+   */
+  async transferer(
+    inscriptionId: string,
+    beneficiaireId: string,
+    adminId: string,
+  ): Promise<Inscription> {
+    const inscription = await this.inscriptions.findOne({
+      where: { id: inscriptionId },
+      relations: { user: true, evenement: true, payeur: true },
+    });
+
+    if (!inscription) {
+      throw new NotFoundException("Ce billet n'existe pas.");
+    }
+    this.verifierTransferable(inscription);
+
+    const ancien = inscription.user;
+    if (ancien.id === beneficiaireId) {
+      throw new BadRequestException('Cette personne détient déjà ce billet.');
+    }
+
+    const nouveau = await this.beneficiaire(beneficiaireId);
+    await this.verifierPasDejaInscrit(
+      inscription.evenement.id,
+      nouveau.id,
+      nouveau,
+    );
+
+    const ancienCode = inscription.codeBillet;
+    const mis = await this.inscriptions
+      .createQueryBuilder()
+      .update(Inscription)
+      .set({
+        user: { id: nouveau.id },
+        codeBillet: this.genererCodeBillet(),
+        qrCode: null,
+        groupePaiement: inscription.groupePaiement ?? ancienCode,
+        payeur: inscription.prix > 0 ? (inscription.payeur ?? ancien) : null,
+      })
+      .where(
+        'id = :id AND user_id = :ancien AND statut = :statut AND remis_le IS NULL',
+        {
+          id: inscription.id,
+          ancien: ancien.id,
+          statut: StatutInscription.CONFIRMEE,
+        },
+      )
+      .execute();
+
+    if (mis.affected !== 1) {
+      throw new ConflictException(
+        'Ce billet vient de changer d’état : rechargez la liste et réessayez.',
+      );
+    }
+
+    const transfere = await this.inscriptions.findOneOrFail({
+      where: { id: inscription.id },
+      relations: { user: true, evenement: true, payeur: true },
+    });
+
+    await this.prevenirApresTransfert(ancien, nouveau, transfere, adminId);
+    await this.notifierInscription(nouveau, transfere.evenement, transfere);
+    await this.emettreBillet(transfere);
+
+    return this.inscriptions.findOneOrFail({
+      where: { id: inscription.id },
+      relations: { evenement: true },
+    });
+  }
+
+  private verifierTransferable(inscription: Inscription): void {
+    if (inscription.statut === StatutInscription.ANNULEE) {
+      throw new ConflictException('Ce billet est annulé.');
+    }
+    if (inscription.statut === StatutInscription.UTILISEE) {
+      throw new ConflictException(
+        'Ce billet a déjà servi à l’entrée : il ne peut plus changer de titulaire.',
+      );
+    }
+    if (inscription.statut === StatutInscription.EN_ATTENTE) {
+      throw new ConflictException(
+        'Ce billet n’est pas encore payé : il n’y a rien à transférer.',
+      );
+    }
+    if (inscription.remisLe) {
+      throw new ConflictException(
+        'Le lot de ce billet a déjà été remis : il ne peut plus changer de titulaire.',
+      );
+    }
+    const fin =
+      inscription.evenement.dateFin ?? inscription.evenement.dateDebut;
+    if (fin.getTime() <= Date.now()) {
+      throw new ConflictException('Cet événement est terminé.');
+    }
+  }
+
+  /** Prévient l'ancien titulaire — et lui seul — puis trace l'opération. */
+  private async prevenirApresTransfert(
+    ancien: User,
+    nouveau: User,
+    billet: Inscription,
+    adminId: string,
+  ): Promise<void> {
+    const { evenement } = billet;
+
+    await this.notificationService.notifier({
+      destinataire: ancien,
+      type: TypeNotification.EVENEMENT,
+      titre: 'Votre billet a été transféré',
+      message:
+        `Votre billet pour « ${evenement.titre} » a été transféré à une autre ` +
+        'personne par le bureau. Il n’est plus valable à votre nom.',
+      lien: '/mon-espace/evenements',
+      libelleLien: 'Voir mes événements',
+    });
+
+    const admin = await this.userService.findById(adminId);
+    await this.activiteService.journaliser({
+      type: TypeActivite.INSCRIPTION,
+      message:
+        `Billet « ${evenement.titre} » transféré de ${ancien.firstName} ${ancien.lastName} ` +
+        `à ${nouveau.firstName} ${nouveau.lastName}.`,
+      auteur: admin ?? undefined,
+      metadata: {
+        inscriptionId: billet.id,
+        evenementId: evenement.id,
+        ancienTitulaireId: ancien.id,
+        nouveauTitulaireId: nouveau.id,
+      },
+    });
+  }
+
   /** Qui a payé ce billet à la place de son titulaire, le cas échéant. */
   private async payeurDuBillet(inscriptionId: string): Promise<User | null> {
     const avecPayeur = await this.inscriptions.findOne({
