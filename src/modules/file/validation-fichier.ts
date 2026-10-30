@@ -12,6 +12,7 @@ export const USAGES = {
   /** Sa propre photo : tout compte authentifie y a droit. */
   avatar: {
     prefixe: 'avatars',
+    proprietaire: true,
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
     roles: null,
@@ -19,6 +20,7 @@ export const USAGES = {
   },
   evenement: {
     prefixe: 'evenements',
+    proprietaire: false,
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
@@ -27,6 +29,7 @@ export const USAGES = {
   /** Image d'une option de sondage : ce que le bureau soumet au vote. */
   sondage: {
     prefixe: 'sondages',
+    proprietaire: false,
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
@@ -34,6 +37,7 @@ export const USAGES = {
   },
   produit: {
     prefixe: 'produits',
+    proprietaire: false,
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
@@ -42,6 +46,7 @@ export const USAGES = {
   /** Le partenaire depose son logo ; le bureau peut le faire pour lui. */
   sponsor: {
     prefixe: 'sponsors',
+    proprietaire: true,
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
     roles: [Role.SPONSOR, Role.ADMIN],
@@ -49,6 +54,7 @@ export const USAGES = {
   },
   article: {
     prefixe: 'articles',
+    proprietaire: false,
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
@@ -67,6 +73,7 @@ export const USAGES = {
    */
   'article-video': {
     prefixe: 'videos',
+    proprietaire: false,
     tailleMax: 40 * 1024 * 1024,
     types: ['video'],
     roles: [Role.ADMIN],
@@ -84,6 +91,7 @@ export const USAGES = {
    */
   logo: {
     prefixe: 'logos',
+    proprietaire: false,
     tailleMax: 2 * 1024 * 1024,
     types: ['image'],
     roles: [Role.ADMIN],
@@ -99,6 +107,7 @@ export const USAGES = {
    */
   justificatif: {
     prefixe: 'justificatifs',
+    proprietaire: true,
     tailleMax: 5 * 1024 * 1024,
     types: ['image'],
     roles: null,
@@ -114,6 +123,7 @@ export const USAGES = {
    */
   cv: {
     prefixe: 'cv',
+    proprietaire: true,
     tailleMax: 5 * 1024 * 1024,
     types: ['pdf'],
     roles: [Role.STUDENT, Role.ADMIN],
@@ -160,6 +170,8 @@ export interface FichierValide {
   prefixe: string;
   /** Type réellement détecté, à stocker de préférence à celui annoncé. */
   mimeReel: string;
+  /** Vrai : la clé portera l'identifiant de son auteur (fichier personnel). */
+  proprietaire: boolean;
 }
 
 /**
@@ -223,7 +235,11 @@ export function validerFichier(
     );
   }
 
-  return { prefixe: regles.prefixe, mimeReel };
+  return {
+    prefixe: regles.prefixe,
+    mimeReel,
+    proprietaire: regles.proprietaire,
+  };
 }
 
 function detecterType(

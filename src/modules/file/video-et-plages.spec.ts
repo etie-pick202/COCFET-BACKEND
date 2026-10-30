@@ -29,6 +29,7 @@ describe('vidéos d’actualité', () => {
       {
         prefixe: 'videos',
         mimeReel: 'video/mp4',
+        proprietaire: false,
       },
     );
   });

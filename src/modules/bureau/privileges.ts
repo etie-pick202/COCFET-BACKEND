@@ -31,6 +31,16 @@ export enum Privilege {
    * veut, poste par poste.
    */
   TRANSFERT_BILLETS = 'TRANSFERT_BILLETS',
+
+  /**
+   * Décider qui administre : nommer ou retirer un administrateur, créer les
+   * postes et leurs droits, placer les membres du bureau, changer de mandat.
+   *
+   * Sans lui, chaque administrateur pouvait se créer un poste « trésorerie »
+   * et s'y nommer : les autres privilèges ne cloisonnaient rien. Réservé par
+   * défaut à la présidence.
+   */
+  GESTION_ACCES = 'GESTION_ACCES',
 }
 
 /** Ce dont dispose un membre du bureau pour le mandat en cours. */
@@ -38,6 +48,7 @@ export interface PrivilegesMembre {
   accedeTresorerie: boolean;
   autoriseRetrait: boolean;
   transfereBillets: boolean;
+  gereAcces: boolean;
 }
 
 /** Aucun privilège : la réponse pour qui ne siège pas au bureau actif. */
@@ -45,6 +56,7 @@ export const AUCUN_PRIVILEGE: PrivilegesMembre = {
   accedeTresorerie: false,
   autoriseRetrait: false,
   transfereBillets: false,
+  gereAcces: false,
 };
 
 export function detient(
@@ -58,5 +70,7 @@ export function detient(
       return privileges.autoriseRetrait;
     case Privilege.TRANSFERT_BILLETS:
       return privileges.transfereBillets;
+    case Privilege.GESTION_ACCES:
+      return privileges.gereAcces;
   }
 }

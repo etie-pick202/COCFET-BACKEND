@@ -11,6 +11,7 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -31,7 +32,10 @@ import {
 } from '../../common/swagger';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { ExigePrivilege } from '../bureau/decorators/privilege.decorator';
 import { DesignerLogoDto } from '../bureau/dto/bureau.dto';
+import { PrivilegeGuard } from '../bureau/guards/privilege.guard';
+import { Privilege } from '../bureau/privileges';
 import {
   CleLogoDto,
   CreerGenerationDto,
@@ -252,6 +256,8 @@ export class GenerationController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Post(':id/activer')
   @ApiOperation({
     summary: 'Activer une génération',
@@ -285,6 +291,8 @@ export class GenerationController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Post(':id/archiver')
   @ApiOperation({
     summary: 'Archiver une génération',

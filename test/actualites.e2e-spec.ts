@@ -213,12 +213,22 @@ describe('Actualités (e2e)', () => {
       }
     });
 
-    it('les délivre à un compte connecté', async () => {
+    it('délivre les photos de profil à un compte connecté', async () => {
       await request(app.getHttpServer())
         .get(`${FICHIERS}/url-signee`)
-        .query({ cle: 'justificatifs/preuve.png' })
+        .query({ cle: 'avatars/moi.png' })
         .set(lecteur.entetes)
         .expect(200);
+    });
+
+    it('ne délivre pas pour autant le CV ou le justificatif d’un autre', async () => {
+      for (const cle of ['justificatifs/preuve.png', 'cv/cv.pdf']) {
+        await request(app.getHttpServer())
+          .get(`${FICHIERS}/url-signee`)
+          .query({ cle })
+          .set(lecteur.entetes)
+          .expect(404);
+      }
     });
   });
 

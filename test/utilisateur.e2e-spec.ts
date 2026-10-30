@@ -98,17 +98,20 @@ describe('Utilisateurs et profils (e2e)', () => {
       expect(corps).not.toHaveProperty('emailVerifieLe');
     });
 
+    /** Une photo déposée par l'étudiant : sa clé porte son identifiant. */
+    const photo = () => `avatars/${etudiant.user.id}_x.png`;
+
     it('modifie prénom, nom et photo', async () => {
       const reponse = await request(app.getHttpServer())
         .patch(MOI)
         .set(etudiant.entetes)
-        .send({ prenom: 'Étienne', nom: 'Mayack', avatar: 'avatars/x.png' })
+        .send({ prenom: 'Étienne', nom: 'Mayack', avatar: photo() })
         .expect(200);
 
       expect(reponse.body).toMatchObject({
         prenom: 'Étienne',
         nom: 'Mayack',
-        avatar: 'avatars/x.png',
+        avatar: photo(),
       });
     });
 
@@ -243,9 +246,14 @@ describe('Utilisateurs et profils (e2e)', () => {
     });
 
     it('change le rôle d’un compte', async () => {
+      // Nommer un administrateur relève des postes qui gèrent les accès ;
+      // l'exploitation les franchit sans siéger.
+      const exploitation = await creerCompteAuthentifie(app, {
+        role: Role.SUPER_ADMIN,
+      });
       const reponse = await request(app.getHttpServer())
         .patch(`${UTILISATEURS}/${etudiant.user.id}`)
-        .set(admin.entetes)
+        .set(exploitation.entetes)
         .send({ role: Role.ADMIN })
         .expect(200);
 
@@ -293,10 +301,13 @@ describe('Utilisateurs et profils (e2e)', () => {
       // Sans ce garde-fou, il resterait zéro administrateur et la seule sortie
       // serait une intervention directe en base.
       const second = await creerCompteAuthentifie(app, { role: Role.ADMIN });
+      const exploitation = await creerCompteAuthentifie(app, {
+        role: Role.SUPER_ADMIN,
+      });
 
       await request(app.getHttpServer())
         .patch(`${UTILISATEURS}/${second.user.id}`)
-        .set(admin.entetes)
+        .set(exploitation.entetes)
         .send({ role: Role.STUDENT, promotion: 2027 })
         .expect(200);
 

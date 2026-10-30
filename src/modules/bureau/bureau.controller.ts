@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -31,6 +32,9 @@ import {
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { BureauService } from './bureau.service';
+import { ExigePrivilege } from './decorators/privilege.decorator';
+import { PrivilegeGuard } from './guards/privilege.guard';
+import { Privilege } from './privileges';
 import {
   AffecterMembreDto,
   BureauPublic,
@@ -133,6 +137,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Post('postes')
   @ApiOperation({
     summary: 'Créer un poste',
@@ -152,6 +158,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Patch('postes/:id')
   @ApiOperation({ summary: 'Modifier un poste' })
   @ApiOkResponse({ description: 'Le poste mis à jour.', type: PosteBureau })
@@ -173,6 +181,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Delete('postes/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
@@ -223,6 +233,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Post(':generationId/membres')
   @ApiOperation({
     summary: 'Désigner le titulaire d’un poste',
@@ -256,6 +268,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Patch('membres/:id')
   @ApiOperation({ summary: 'Modifier la présentation d’un membre' })
   @ApiOkResponse({ description: 'Le membre mis à jour.', type: MembreExpose })
@@ -272,6 +286,8 @@ export class BureauController {
 
   @ApiBearerAuth()
   @Roles(Role.ADMIN)
+  @UseGuards(PrivilegeGuard)
+  @ExigePrivilege(Privilege.GESTION_ACCES)
   @Delete('membres/:id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Retirer un membre du bureau' })

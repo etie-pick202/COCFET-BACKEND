@@ -16,6 +16,8 @@ const MESSAGES_REFUS: Record<Privilege, string> = {
   [Privilege.RETRAIT]: 'Seuls les postes habilités peuvent initier un retrait.',
   [Privilege.TRANSFERT_BILLETS]:
     'Seuls les postes habilités peuvent transférer le billet d’un inscrit.',
+  [Privilege.GESTION_ACCES]:
+    'Seuls les postes qui gèrent les accès peuvent nommer les administrateurs, régler les postes et placer les membres du bureau.',
 };
 
 /**

@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Stockage } from './ports/stockage';
+import { estDansDossier } from './propriete-fichier';
 import { STOCKAGE } from './ports/stockage';
 
 /**
@@ -38,12 +39,44 @@ export class NettoyageFichiers {
   async remplacer(
     ancienne: string | null | undefined,
     nouvelle: string | null | undefined,
+    dossier?: string,
   ): Promise<void> {
     if (!ancienne || nouvelle === undefined || ancienne === nouvelle) {
       return;
     }
 
+    if (dossier) {
+      await this.retirerDuDossier(dossier, ancienne);
+      return;
+    }
     await this.retirer(ancienne);
+  }
+
+  /**
+   * Retire un fichier personnel, à condition qu'il soit rangé là où il doit
+   * l'être.
+   *
+   * Garde-fou en plus du contrôle à l'écriture : une valeur enregistrée avant
+   * ce contrôle pourrait désigner le fichier de quelqu'un d'autre. Hors de son
+   * dossier, la clé est laissée en place — mieux vaut un fichier orphelin que
+   * l'effacement du logo du mandat.
+   */
+  async retirerDuDossier(
+    dossier: string,
+    cle: string | null | undefined,
+  ): Promise<void> {
+    if (!cle) {
+      return;
+    }
+    const designee: string = cle;
+    if (!estDansDossier(cle, dossier)) {
+      this.logger.warn(
+        `Fichier « ${designee} » laissé en place : il n'est pas rangé dans « ${dossier} ».`,
+      );
+      return;
+    }
+
+    await this.retirer(designee);
   }
 
   /**

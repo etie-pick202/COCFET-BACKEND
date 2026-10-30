@@ -13,6 +13,7 @@ import {
   FichierATeleverser,
   Stockage,
 } from '../ports/stockage';
+import { segmentProprietaire } from '../propriete-fichier';
 
 /** Stockage sur Cloudflare R2 (compatible S3). Utilisé en staging et en production. */
 @Injectable()
@@ -35,8 +36,9 @@ export class StockageR2 implements Stockage {
   async televerser(
     fichier: FichierATeleverser,
     prefixe = 'uploads',
+    proprietaireId?: string,
   ): Promise<string> {
-    const cle = `${prefixe}/${randomUUID()}-${assainirNomFichier(fichier.originalname)}`;
+    const cle = `${prefixe}/${segmentProprietaire(proprietaireId)}${randomUUID()}-${assainirNomFichier(fichier.originalname)}`;
 
     await this.client.send(
       new PutObjectCommand({

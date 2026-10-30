@@ -17,6 +17,7 @@ import type { Stockage } from '../file/ports/stockage';
 import { STOCKAGE } from '../file/ports/stockage';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
 import { GenerationService } from '../generation/generation.service';
+import { BureauService } from '../bureau/bureau.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
 import { PeriodeDto } from '../tableau-de-bord/dto/tableau-de-bord.dto';
 import { TresorerieService } from '../tableau-de-bord/tresorerie.service';
@@ -91,6 +92,7 @@ export class DocumentService {
     private readonly identiteVisuelle: IdentiteVisuelleService,
     private readonly generationService: GenerationService,
     private readonly tresorerieService: TresorerieService,
+    private readonly bureau: BureauService,
   ) {}
 
   // ────────────────────────────  Émission  ─────────────────────────────
@@ -361,7 +363,11 @@ export class DocumentService {
       throw new NotFoundException('Document introuvable.');
     }
 
-    this.verifierAcces(document.user?.id ?? null, demandeur);
+    if (document.user) {
+      this.verifierAcces(document.user.id, demandeur);
+    } else {
+      await this.verifierAccesTresorerie(demandeur);
+    }
 
     if (document.cle) {
       try {
@@ -628,6 +634,25 @@ export class DocumentService {
    * Un titulaire nul désigne une pièce du bureau — un rapport — que seul un
    * administrateur consulte.
    */
+  /**
+   * Une pièce sans titulaire est une pièce du bureau — le rapport de
+   * trésorerie. Être administrateur ne suffit pas à la lire : il faut le
+   * poste qui ouvre les comptes, comme pour l'émettre.
+   */
+  private async verifierAccesTresorerie(demandeur: Demandeur): Promise<void> {
+    if (demandeur.role === Role.SUPER_ADMIN) {
+      return;
+    }
+    if (
+      !estAdministrateur(demandeur.role) ||
+      !(await this.bureau.privilegesDe(demandeur.id)).accedeTresorerie
+    ) {
+      throw new ForbiddenException(
+        'Les chiffres de la trésorerie sont réservés aux postes qui en ont la charge.',
+      );
+    }
+  }
+
   private verifierAcces(
     proprietaire: string | null,
     demandeur: Demandeur,
