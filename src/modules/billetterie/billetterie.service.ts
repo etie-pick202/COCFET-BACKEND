@@ -1241,21 +1241,31 @@ export class BilletterieService {
       inscription.evenement.dateDebut,
       inscription.evenement.dateFin,
     );
+    const autorise = await this.peutScanner(inscription.evenement.id, portier);
+    // Le nom du titulaire accompagne chaque refus : le portier doit savoir à
+    // qui il parle. Il n'est donné qu'à ceux qui tiennent cette porte — à
+    // quiconque d'autre, un code deviendrait un moyen d'identifier quelqu'un.
+    const titulaire = `${inscription.user.firstName} ${inscription.user.lastName}`;
+    const refus = (motif: string) =>
+      new ConflictException(`Billet de ${titulaire} : ${motif}`);
+
     if (etat !== EtatFenetre.OUVERTE) {
-      throw new ConflictException(motifRefus(etat));
+      throw autorise
+        ? refus(motifRefus(etat))
+        : new ConflictException(motifRefus(etat));
     }
 
-    if (!(await this.peutScanner(inscription.evenement.id, portier))) {
+    if (!autorise) {
       throw new ForbiddenException(
         'Vous n’êtes pas affecté au contrôle de cet événement.',
       );
     }
 
     if (inscription.statut === StatutInscription.ANNULEE) {
-      throw new ConflictException('Ce billet a été annulé.');
+      throw refus('il a été annulé.');
     }
     if (inscription.statut === StatutInscription.EN_ATTENTE) {
-      throw new ConflictException("Ce billet n'est pas payé.");
+      throw refus("il n'est pas payé.");
     }
 
     const resultat = await this.inscriptions
@@ -1275,10 +1285,10 @@ export class BilletterieService {
       .execute();
 
     if (resultat.affected !== 1) {
-      throw new ConflictException(
-        `Ce billet a déjà été scanné${
+      throw refus(
+        `déjà scanné${
           inscription.scannedAt
-            ? ` le ${inscription.scannedAt.toLocaleString('fr-FR')}`
+            ? ` le ${inscription.scannedAt.toLocaleString('fr-FR', { timeZone: 'Africa/Douala' })}`
             : ''
         }.`,
       );
