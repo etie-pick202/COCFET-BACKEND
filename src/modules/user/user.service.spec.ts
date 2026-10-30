@@ -31,8 +31,18 @@ function creer(compte: {
       getOne: jest.fn().mockResolvedValue(compte),
     }),
   };
-  const nettoyage = { retirer: jest.fn().mockResolvedValue(undefined) };
-  const service = new UserService(depot as never, nettoyage as never);
+  const nettoyage = {
+    retirer: jest.fn().mockResolvedValue(undefined),
+    retirerDuDossier: jest.fn().mockResolvedValue(undefined),
+  };
+  const bureau = {
+    privilegesDe: jest.fn().mockResolvedValue({ gereAcces: true }),
+  };
+  const service = new UserService(
+    depot as never,
+    nettoyage as never,
+    bureau as never,
+  );
   return { service, depot, nettoyage };
 }
 
@@ -42,13 +52,16 @@ describe('UserService', () => {
       const { service, depot, nettoyage } = creer({
         id: 'u1',
         role: Role.SPONSOR,
-        avatar: 'a/1.png',
+        avatar: 'avatars/1.png',
       });
 
       await service.supprimer('u1');
 
       expect(depot.delete).toHaveBeenCalledWith('u1');
-      expect(nettoyage.retirer).toHaveBeenCalledWith('a/1.png');
+      expect(nettoyage.retirerDuDossier).toHaveBeenCalledWith(
+        'avatars',
+        'avatars/1.png',
+      );
     });
 
     it('refuse de supprimer un super administrateur sans acteur', async () => {

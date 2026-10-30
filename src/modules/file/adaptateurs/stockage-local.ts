@@ -9,6 +9,7 @@ import {
   MOTIF_CLE,
   Stockage,
 } from '../ports/stockage';
+import { segmentProprietaire } from '../propriete-fichier';
 
 /**
  * Stockage sur disque, pour développer sans compte Cloudflare.
@@ -42,8 +43,9 @@ export class StockageLocal implements Stockage {
   async televerser(
     fichier: FichierATeleverser,
     prefixe = 'uploads',
+    proprietaireId?: string,
   ): Promise<string> {
-    const cle = `${assainirNomFichier(prefixe).toLowerCase()}/${randomUUID()}-${assainirNomFichier(fichier.originalname)}`;
+    const cle = `${assainirNomFichier(prefixe).toLowerCase()}/${segmentProprietaire(proprietaireId)}${randomUUID()}-${assainirNomFichier(fichier.originalname)}`;
     const chemin = this.chemin(cle);
 
     await mkdir(dirname(chemin), { recursive: true });

@@ -87,4 +87,16 @@ export class PosteBureau extends BaseEntity {
       'Autorise à transférer le billet d’un inscrit à une autre personne.',
   })
   transfereBillets: boolean;
+
+  /**
+   * Poste qui décide de qui administre : nomination des administrateurs,
+   * postes et droits, membres du bureau, changement de mandat.
+   */
+  @Column({ name: 'gere_acces', default: false })
+  @ApiProperty({
+    description:
+      'Autorise à nommer les administrateurs, régler les postes et leurs ' +
+      'droits, placer les membres et changer de mandat.',
+  })
+  gereAcces: boolean;
 }

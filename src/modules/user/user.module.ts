@@ -4,6 +4,7 @@ import { FileModule } from '../file/file.module';
 import { AuthModule } from '../auth/auth.module';
 import { User } from './entities/user.entity';
 import { PurgeComptesService } from './purge-comptes.service';
+import { BureauModule } from '../bureau/bureau.module';
 import { UserController } from './user.controller';
 import { UserService } from './user.service';
 
@@ -12,6 +13,7 @@ import { UserService } from './user.service';
     TypeOrmModule.forFeature([User]),
     forwardRef(() => AuthModule),
     FileModule,
+    BureauModule,
   ],
   controllers: [UserController],
   providers: [UserService, PurgeComptesService],

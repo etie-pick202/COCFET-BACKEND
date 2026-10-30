@@ -9,7 +9,11 @@
  */
 export interface Stockage {
   /** Renvoie la clé de l'objet, seule valeur à conserver en base. */
-  televerser(fichier: FichierATeleverser, prefixe?: string): Promise<string>;
+  televerser(
+    fichier: FichierATeleverser,
+    prefixe?: string,
+    proprietaireId?: string,
+  ): Promise<string>;
 
   urlSignee(cle: string, expirationSecondes?: number): Promise<string>;
 

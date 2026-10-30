@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID, timingSafeEqual } from 'node:crypto';
+import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { StatutPaiement } from '../enums/paiement.enum';
 import {
   DemandePaiement,
@@ -74,10 +74,17 @@ export class PasserellePaiementFactice implements PasserellePaiement {
   private readonly intentions = new Map<string, ResultatPaiement>();
 
   constructor(config: ConfigService) {
-    this.secretWebhook = config.get<string>(
-      'FAPSHI_WEBHOOK_SECRET',
-      'secret-de-developpement',
-    );
+    // Le secret connu ne vaut que sur un poste de développement ou en test.
+    // Ailleurs, une passerelle factice démarrée par oubli accepterait sinon
+    // des notifications signées d'un secret que tout le dépôt connaît.
+    const environnement = config.get<string>('NODE_ENV');
+    const local =
+      !environnement ||
+      environnement === 'development' ||
+      environnement === 'test';
+    this.secretWebhook =
+      config.get<string>('FAPSHI_WEBHOOK_SECRET') ||
+      (local ? 'secret-de-developpement' : randomBytes(32).toString('hex'));
   }
 
   // `async` et non un simple `Promise` de retour : une méthode asynchrone qui

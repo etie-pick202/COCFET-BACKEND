@@ -1,5 +1,6 @@
 import { Logger, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AccesFichiers } from './acces-fichiers.service';
 import { NettoyageFichiers } from './nettoyage-fichiers.service';
 import { StockageLocal } from './adaptateurs/stockage-local';
 import { StockageR2 } from './adaptateurs/stockage-r2';
@@ -25,6 +26,7 @@ const VARIABLES_R2 = [
   controllers: [FileController],
   providers: [
     NettoyageFichiers,
+    AccesFichiers,
     {
       provide: STOCKAGE,
       inject: [ConfigService],

@@ -37,7 +37,9 @@ const ANNEE = 2027;
 /** Le numéro que la passerelle factice laisse en attente de règlement. */
 const PAIEMENT_EN_ATTENTE = '+237677123456';
 
-const CLE = 'justificatifs/capture-momo.png';
+/** Une capture déposée par `compte` : sa clé porte son identifiant. */
+const cleDe = (compte: CompteDeTest) =>
+  `justificatifs/${compte.user.id}_capture-momo.png`;
 
 /**
  * Preuves de paiement remises hors de la plateforme.
@@ -114,7 +116,7 @@ describe('Justificatifs de paiement (e2e)', () => {
     request(app.getHttpServer())
       .post(JUSTIFS)
       .set(compte.entetes)
-      .send({ reference, cle: CLE, montantDeclare });
+      .send({ reference, cle: cleDe(compte), montantDeclare });
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -552,7 +554,7 @@ describe('Justificatifs de paiement (e2e)', () => {
           .send({
             participationId,
             ordreTranche: 1,
-            cle: CLE,
+            cle: cleDe(finissant),
             montantDeclare: montant,
           })
           .expect(201);
@@ -633,7 +635,7 @@ describe('Justificatifs de paiement (e2e)', () => {
           .send({
             participationId,
             ordreTranche: null,
-            cle: CLE,
+            cle: cleDe(finissant),
             montantDeclare: 30_000,
           })
           .expect(201);

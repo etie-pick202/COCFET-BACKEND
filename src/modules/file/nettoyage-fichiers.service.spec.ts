@@ -39,6 +39,24 @@ describe('NettoyageFichiers', () => {
       expect(supprimer).not.toHaveBeenCalled();
     });
 
+    it('efface l’ancienne clé rangée dans le dossier attendu', async () => {
+      await nettoyage.remplacer('avatars/avant.png', null, 'avatars');
+
+      expect(supprimer).toHaveBeenCalledWith('avatars/avant.png');
+    });
+
+    it('laisse en place une ancienne clé hors du dossier attendu', async () => {
+      // Une photo qui désignait le logo du mandat : la remplacer ne doit pas
+      // effacer le logo.
+      await nettoyage.remplacer(
+        'logos/mandat.png',
+        'avatars/apres.png',
+        'avatars',
+      );
+
+      expect(supprimer).not.toHaveBeenCalled();
+    });
+
     it('ne fait rien quand il n’y avait pas de fichier', async () => {
       await nettoyage.remplacer(null, 'avatars/apres.png');
 

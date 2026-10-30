@@ -20,7 +20,9 @@ import {
   MettreAJourUtilisateurDto,
 } from './dto/user.dto';
 import { User } from './entities/user.entity';
+import { BureauService } from '../bureau/bureau.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import { exigerFichierDe } from '../file/propriete-fichier';
 
 const TRIS_AUTORISES = ['createdAt', 'lastName', 'promotion', 'role'] as const;
 
@@ -35,6 +37,7 @@ export class UserService {
     @InjectRepository(User)
     private readonly users: Repository<User>,
     private readonly nettoyage: NettoyageFichiers,
+    private readonly bureau: BureauService,
   ) {}
 
   findById(id: string): Promise<User | null> {
@@ -106,7 +109,7 @@ export class UserService {
 
     // Le compte parti, sa photo ne sert plus personne et ne peut plus etre
     // retrouvee : c'est le dernier moment ou l'on connait sa cle.
-    await this.nettoyage.retirer(user?.avatar);
+    await this.nettoyage.retirerDuDossier('avatars', user?.avatar);
   }
 
   async setRefreshTokenHash(id: string, hash: string | null): Promise<void> {
@@ -148,6 +151,7 @@ export class UserService {
     dto: MettreAJourProfilDto,
   ): Promise<User> {
     const avant = await this.trouverOuEchouer(id);
+    exigerFichierDe(id, 'avatars', dto.avatar, avant.avatar);
 
     const misAJour = await this.update(id, {
       ...(dto.prenom !== undefined ? { firstName: dto.prenom } : {}),
@@ -157,7 +161,7 @@ export class UserService {
 
     // Apres l'ecriture : une photo effacee avant l'echec de la mise a jour
     // laisserait le compte pointant vers une image disparue.
-    await this.nettoyage.remplacer(avant.avatar, dto.avatar);
+    await this.nettoyage.remplacer(avant.avatar, dto.avatar, 'avatars');
 
     return misAJour;
   }
@@ -273,6 +277,8 @@ export class UserService {
       );
     }
 
+    await this.verifierGestionDesAcces(cible, dto, demandeurId, demandeurRole);
+
     if (id === demandeurId) {
       if (dto.role !== undefined && !estAdministrateur(dto.role)) {
         throw new ForbiddenException(
@@ -317,6 +323,38 @@ export class UserService {
     this.logger.log(`Compte ${id} modifié par ${demandeurId}.`);
 
     return misAJour;
+  }
+
+  /**
+   * Nommer, retirer ou désactiver un administrateur relève des postes qui
+   * gèrent les accès.
+   *
+   * Sans cette règle, n'importe quel administrateur faisait d'un complice un
+   * administrateur, et le cloisonnement des postes ne tenait plus. Les autres
+   * corrections d'un compte (passer étudiant, corriger une promotion)
+   * restent ouvertes à toute l'administration.
+   */
+  private async verifierGestionDesAcces(
+    cible: User,
+    dto: MettreAJourUtilisateurDto,
+    demandeurId: string,
+    demandeurRole?: Role,
+  ): Promise<void> {
+    const etaitAdmin = estAdministrateur(cible.role);
+    const devientAdmin =
+      dto.role !== undefined ? estAdministrateur(dto.role) : etaitAdmin;
+    const toucheAuxAcces =
+      etaitAdmin !== devientAdmin || (etaitAdmin && dto.isActive === false);
+
+    if (!toucheAuxAcces || demandeurRole === Role.SUPER_ADMIN) {
+      return;
+    }
+
+    if (!(await this.bureau.privilegesDe(demandeurId)).gereAcces) {
+      throw new ForbiddenException(
+        'Nommer, retirer ou désactiver un administrateur est réservé aux postes qui gèrent les accès.',
+      );
+    }
   }
 
   /**
@@ -413,7 +451,7 @@ export class UserService {
                OR u.last_name ILIKE $3
                OR (u.first_name || ' ' || u.last_name) ILIKE $3
                OR (u.last_name || ' ' || u.first_name) ILIKE $3
-               OR u.email ILIKE $3)
+               OR lower(u.email) = lower($5))
           AND ($4::uuid IS NULL OR NOT EXISTS (
                 SELECT 1 FROM inscriptions i
                  WHERE i.user_id = u.id
