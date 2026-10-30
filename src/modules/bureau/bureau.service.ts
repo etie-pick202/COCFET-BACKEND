@@ -319,6 +319,7 @@ export class BureauService {
         autoriseRetrait: cumul.autoriseRetrait || membre.poste.autoriseRetrait,
         transfereBillets:
           cumul.transfereBillets || membre.poste.transfereBillets,
+        gereAcces: cumul.gereAcces || membre.poste.gereAcces,
       }),
       { ...AUCUN_PRIVILEGE },
     );

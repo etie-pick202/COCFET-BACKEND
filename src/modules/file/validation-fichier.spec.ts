@@ -45,6 +45,7 @@ describe('validerFichier', () => {
       expect(validerFichier('avatar', fichier(octets), ADMIN)).toEqual({
         prefixe: 'avatars',
         mimeReel: attendu,
+        proprietaire: true,
       });
     });
 

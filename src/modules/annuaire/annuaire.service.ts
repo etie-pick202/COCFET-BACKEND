@@ -16,6 +16,7 @@ import {
 } from '../activite/entities/journal-activite.entity';
 import type { Stockage } from '../file/ports/stockage';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import { exigerFichierDe } from '../file/propriete-fichier';
 import { STOCKAGE } from '../file/ports/stockage';
 import { Sponsor } from '../sponsor/entities/sponsor.entity';
 import { User } from '../user/entities/user.entity';
@@ -84,6 +85,11 @@ export class AnnuaireService {
     const existant = await this.profils.findOne({
       where: { user: { id: userId } },
     });
+    // La photo et le CV doivent avoir été déposés par la personne elle-même :
+    // sinon une fiche pourrait présenter le fichier d'un autre, et le
+    // remplacer ensuite l'effacerait.
+    exigerFichierDe(userId, 'avatars', dto.photo, existant?.photo);
+    exigerFichierDe(userId, 'cv', dto.cvUrl, existant?.cvUrl);
 
     if (!existant) {
       if (!dto.filiere) {
@@ -110,8 +116,8 @@ export class AnnuaireService {
 
     // Remplacer une pièce supprime la précédente : sans cela, chaque
     // remplacement laisserait un objet orphelin, facturé et inaccessible.
-    await this.nettoyage.remplacer(existant.photo, dto.photo);
-    await this.nettoyage.remplacer(existant.cvUrl, dto.cvUrl);
+    await this.nettoyage.remplacer(existant.photo, dto.photo, 'avatars');
+    await this.nettoyage.remplacer(existant.cvUrl, dto.cvUrl, 'cv');
 
     await this.profils.update(existant.id, {
       ...(dto.filiere !== undefined ? { filiere: dto.filiere } : {}),
@@ -167,8 +173,8 @@ export class AnnuaireService {
   async supprimerSonProfil(userId: string): Promise<void> {
     const profil = await this.sonProfil(userId);
 
-    await this.nettoyage.remplacer(profil.photo, null);
-    await this.nettoyage.remplacer(profil.cvUrl, null);
+    await this.nettoyage.remplacer(profil.photo, null, 'avatars');
+    await this.nettoyage.remplacer(profil.cvUrl, null, 'cv');
     await this.profils.delete(profil.id);
   }
 

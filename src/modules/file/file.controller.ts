@@ -41,6 +41,7 @@ import {
 import { AuthOptionnelle } from '../auth/decorators/auth-optionnelle.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { AccesFichiers } from './acces-fichiers.service';
 import { StockageLocal } from './adaptateurs/stockage-local';
 import { FichierTeleverseDto, UrlSigneeDto } from './dto/fichier.dto';
 // `Stockage` est une interface : elle disparaît à la compilation, et
@@ -78,37 +79,7 @@ const TYPES_AFFICHABLES: Record<string, string> = {
   '.webm': 'video/webm',
 };
 
-/**
- * Dossiers dont l'URL de lecture se délivre sans connexion.
- *
- * Ce sont les médias de pages elles-mêmes publiques : une actualité, une fiche
- * d'événement ou de produit, un logo de partenaire. Sans cette ouverture, un
- * visiteur non connecté voyait des pages sans images. Tout le reste — CV,
- * justificatifs, photos de profil — exige un compte, comme avant.
- */
-const PREFIXES_PUBLICS = [
-  'articles',
-  'videos',
-  'evenements',
-  'produits',
-  'sponsors',
-  'logos',
-] as const;
-
-/** Vrai quand la clé désigne un média de page publique. */
-export function estCleDePagePublique(cle: unknown): boolean {
-  // Un paramètre répété (« ?cle=a&cle=b ») arrive en tableau : ce n'est pas une clé.
-  if (typeof cle !== 'string') {
-    return false;
-  }
-
-  const [prefixe, ...reste] = cle.split('/');
-  return (
-    reste.length > 0 &&
-    !cle.includes('..') &&
-    (PREFIXES_PUBLICS as readonly string[]).includes(prefixe)
-  );
-}
+export { estCleDePagePublique } from './acces-fichiers.service';
 
 /**
  * Sert les objets du stockage local en développement.
@@ -120,7 +91,10 @@ export function estCleDePagePublique(cle: unknown): boolean {
 @ApiErreursAuthentification()
 @Controller('fichiers')
 export class FileController {
-  constructor(@Inject(STOCKAGE) private readonly stockage: Stockage) {}
+  constructor(
+    @Inject(STOCKAGE) private readonly stockage: Stockage,
+    private readonly acces: AccesFichiers,
+  ) {}
 
   // Route publique : la signature de l'URL tient lieu d'autorisation, comme
   // pour une URL présignée R2.
@@ -229,7 +203,7 @@ export class FileController {
       );
     }
 
-    return this.enregistrer(usage, fichier, requete.user.role);
+    return this.enregistrer(usage, fichier, requete.user);
   }
 
   @ApiBearerAuth()
@@ -268,21 +242,28 @@ export class FileController {
       throw new BadRequestException('Aucun fichier reçu (champ « fichier »).');
     }
 
-    return this.enregistrer('article-video', fichier, requete.user.role);
+    return this.enregistrer('article-video', fichier, requete.user);
   }
 
   private async enregistrer(
     usage: Usage,
     fichier: Express.Multer.File,
-    role: Role,
+    auteur: { id: string; role: Role },
   ): Promise<FichierTeleverseDto> {
-    const { prefixe, mimeReel } = validerFichier(usage, fichier, role);
+    const { prefixe, mimeReel, proprietaire } = validerFichier(
+      usage,
+      fichier,
+      auteur.role,
+    );
 
     const cle = await this.stockage.televerser(
       // Le type detecte remplace celui annonce : c'est lui qui sera renvoye
       // au telechargement, et il doit decrire le contenu reel.
       { ...fichier, mimetype: mimeReel },
       prefixe,
+      // Un fichier personnel porte son auteur dans sa clé : c'est ce qui
+      // permet ensuite de refuser qu'un autre compte le présente comme sien.
+      proprietaire ? auteur.id : undefined,
     );
 
     return { cle, url: await this.stockage.urlSignee(cle), type: mimeReel };
@@ -296,7 +277,10 @@ export class FileController {
       "L'URL expire : un lien de photo de finissant qui ne perimerait pas " +
       'resterait valable apres la fin du mandat, et se partagerait hors de ' +
       "l'application. Sans connexion, seuls les médias de pages publiques " +
-      '(actualités, événements, boutique, partenaires) sont délivrés.',
+      '(actualités, événements, boutique, partenaires) sont délivrés ; ' +
+      'connecté, les photos de profil aussi. Un CV ne se lit que par son ' +
+      'auteur et le bureau, un justificatif que par son auteur et la ' +
+      'trésorerie : une clé qui circule ne suffit plus.',
   })
   @ApiQuery({
     name: 'cle',
@@ -314,12 +298,12 @@ export class FileController {
   })
   async urlSignee(
     @Query('cle') cle: string,
-    @Req() requete: Request & { user?: { id: string } },
+    @Req() requete: Request & { user?: { id: string; role: Role } },
   ): Promise<UrlSigneeDto> {
     if (typeof cle !== 'string' || !cle) {
       throw new BadRequestException('Le paramètre « cle » est requis.');
     }
-    if (!requete.user && !estCleDePagePublique(cle)) {
+    if (!(await this.acces.peutLire(cle, requete.user))) {
       // 404 et non 403 : ne pas confirmer qu'un CV ou un justificatif existe.
       throw new NotFoundException('Fichier introuvable.');
     }

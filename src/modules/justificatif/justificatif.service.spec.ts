@@ -286,7 +286,7 @@ describe('JustificatifService', () => {
         {
           participationId: 'p1',
           ordreTranche: 1,
-          cle: 'justificatifs/a.png',
+          cle: 'justificatifs/u1_a.png',
           montantDeclare: 10_000,
         },
       );
@@ -321,13 +321,32 @@ describe('JustificatifService', () => {
   it('dépose encore par référence, pour un billet ou une commande', async () => {
     await service.soumettre(
       { id: 'u1' },
-      { reference: 'COT-1', cle: 'justificatifs/a.png', montantDeclare: 500 },
+      {
+        reference: 'COT-1',
+        cle: 'justificatifs/u1_a.png',
+        montantDeclare: 500,
+      },
     );
 
     expect(cotisations.preparerJustificatif).not.toHaveBeenCalled();
     expect(justificatifs.save).toHaveBeenCalledWith(
       expect.objectContaining({ reference: 'COT-1', libelle: null }),
     );
+  });
+
+  it('refuse la pièce déposée par quelqu’un d’autre', async () => {
+    await expect(
+      service.soumettre(
+        { id: 'u1' },
+        {
+          reference: 'COT-1',
+          cle: 'justificatifs/u2_capture.png',
+          montantDeclare: 500,
+        },
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(justificatifs.save).not.toHaveBeenCalled();
   });
 
   it('certifie le montant reçu, sans frais, avant de répercuter', async () => {

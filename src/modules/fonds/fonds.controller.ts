@@ -129,6 +129,7 @@ export class FondsController {
     return this.fonds.abandonnerDepot(id);
   }
 
+  @ExigePrivilege(Privilege.RETRAIT)
   @Patch('retraits/:id')
   @ApiOperation({
     summary: 'Dire entre les mains de qui un retrait a atterri',

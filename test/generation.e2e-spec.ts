@@ -81,7 +81,9 @@ describe('Générations (e2e)', () => {
     await generations.createQueryBuilder().delete().execute();
     await purgerUtilisateurs(app);
 
-    admin = await creerCompteAuthentifie(app, { role: Role.ADMIN });
+    // Changer de mandat relève des postes qui gèrent les accès : l'exploitation
+    // les franchit sans siéger, ce qui garde ces tests indépendants du bureau.
+    admin = await creerCompteAuthentifie(app, { role: Role.SUPER_ADMIN });
     etudiant = await creerCompteAuthentifie(app, { promotion: 2027 });
   });
 

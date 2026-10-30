@@ -16,6 +16,7 @@ import { TypeNotification } from '../notification/entities/notification.entity';
 import { NotificationService } from '../notification/notification.service';
 import { AlerteTresorerieService } from '../notification/alerte-tresorerie.service';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import { exigerFichierDe } from '../file/propriete-fichier';
 import { OrigineTransaction } from '../paiement/entities/transaction.entity';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
 import {
@@ -121,6 +122,10 @@ export class JustificatifService {
     dto: Pick<SoumettreJustificatifDto, 'cle' | 'montantDeclare'>,
     libelle: string | null,
   ): Promise<JustificatifPaiement> {
+    // La pièce doit avoir été déposée par la personne qui la présente : la
+    // capture d'un autre payeur ne prouve rien de ce règlement-ci.
+    exigerFichierDe(user.id, 'justificatifs', dto.cle);
+
     const transaction = await this.transactionService.trouver(reference);
 
     if (!transaction) {
