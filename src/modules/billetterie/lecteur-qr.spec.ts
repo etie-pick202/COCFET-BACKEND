@@ -344,8 +344,58 @@ describe('Lecteur QR — portiers', () => {
 
       await expect(
         service.scanner('COCFET-ABCDEF', MEMBRE_BUREAU),
-      ).rejects.toThrow(/déjà été scanné/);
+      ).rejects.toThrow(/déjà scanné/);
       expect(journaliser).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('le nom du titulaire dans les refus', () => {
+    it('nomme le titulaire d’un billet déjà passé', async () => {
+      affectees = 0;
+
+      await expect(
+        service.scanner('COCFET-ABCDEF', MEMBRE_BUREAU),
+      ).rejects.toThrow('Billet de Awa Ndiaye : déjà scanné.');
+    });
+
+    it('nomme le titulaire d’un billet impayé', async () => {
+      inscriptions.findOne.mockResolvedValue(
+        billet({ statut: StatutInscription.EN_ATTENTE }),
+      );
+
+      await expect(
+        service.scanner('COCFET-ABCDEF', MEMBRE_BUREAU),
+      ).rejects.toThrow(/^Billet de Awa Ndiaye : /);
+    });
+
+    it('nomme le titulaire au portier arrivé trop tôt', async () => {
+      affectations.existsBy.mockResolvedValue(true);
+      inscriptions.findOne.mockResolvedValue(
+        billet({
+          evenement: evenement({
+            dateDebut: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          }),
+        }),
+      );
+
+      await expect(service.scanner('COCFET-ABCDEF', PORTIERE)).rejects.toThrow(
+        /^Billet de Awa Ndiaye : .*pas encore commencé/,
+      );
+    });
+
+    it('tait le nom à qui ne tient pas cette porte', async () => {
+      inscriptions.findOne.mockResolvedValue(
+        billet({
+          evenement: evenement({
+            dateDebut: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          }),
+        }),
+      );
+
+      const refus = service.scanner('COCFET-ABCDEF', PORTIERE);
+
+      await expect(refus).rejects.toThrow(/pas encore commencé/);
+      await expect(refus).rejects.not.toThrow(/Awa|Ndiaye/);
     });
   });
 
