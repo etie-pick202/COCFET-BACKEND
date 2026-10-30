@@ -12,6 +12,7 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 import { Request } from 'express';
 import { normaliserEmail } from '../identite/identite-campus';
+import { LimiteurMemoire } from './limiteur-memoire';
 import {
   LIMITE_DEBIT_KEY,
   OptionsLimiteDebit,
@@ -42,6 +43,16 @@ export class RateLimitGuard implements CanActivate {
 
   /** Un limiteur par plafond distinct, construit à la demande. */
   private readonly limiteurs = new Map<string, Ratelimit>();
+
+  /** Le secours, quand Upstash ne répond plus. */
+  private readonly memoire = new LimiteurMemoire();
+
+  /**
+   * Jusqu'à quand Upstash est laissé de côté après une erreur. Sans cette
+   * pause, chaque requête retenterait un service saturé et paierait son délai
+   * de réponse avant de basculer.
+   */
+  private upstashSuspenduJusqua = 0;
 
   constructor(
     config: ConfigService,
@@ -109,9 +120,7 @@ export class RateLimitGuard implements CanActivate {
     }
 
     for (const compteur of compteurs) {
-      const { success } = await this.limiteur(options).limit(
-        `${route}|${compteur}`,
-      );
+      const success = await this.autoriser(options, `${route}|${compteur}`);
 
       if (!success) {
         this.logger.warn(`Plafond atteint sur ${route} (${compteur}).`);
@@ -125,6 +134,43 @@ export class RateLimitGuard implements CanActivate {
     return true;
   }
 
+  /**
+   * Interroge Upstash, ou le compteur local quand Upstash fait défaut.
+   *
+   * Une erreur d'Upstash — le quota mensuel épuisé a mis tout le site à terre
+   * le 30 octobre 2026 — ne doit jamais devenir une erreur 500 : la limitation
+   * bascule sur la mémoire pendant une minute, puis Upstash est retenté.
+   */
+  private async autoriser(
+    options: OptionsLimiteDebit,
+    cle: string,
+  ): Promise<boolean> {
+    const maintenant = Date.now();
+
+    if (maintenant >= this.upstashSuspenduJusqua) {
+      try {
+        return (await this.limiteur(options).limit(cle)).success;
+      } catch (erreur) {
+        this.upstashSuspenduJusqua =
+          maintenant + RateLimitGuard.PAUSE_UPSTASH_MS;
+        this.logger.error(
+          `Upstash injoignable, limitation en mémoire pendant une minute : ${
+            erreur instanceof Error ? erreur.message : String(erreur)
+          }`,
+        );
+      }
+    }
+
+    return this.memoire.autoriser(
+      cle,
+      options.requetes,
+      options.fenetreSecondes,
+      maintenant,
+    );
+  }
+
+  private static readonly PAUSE_UPSTASH_MS = 60_000;
+
   private limiteur(options: OptionsLimiteDebit): Ratelimit {
     const cle = `${options.requetes}/${options.fenetreSecondes}`;
     let limiteur = this.limiteurs.get(cle);
@@ -136,7 +182,9 @@ export class RateLimitGuard implements CanActivate {
           options.requetes,
           `${options.fenetreSecondes} s`,
         ),
-        analytics: true,
+        // Désactivées : elles ajoutaient des commandes à chaque requête, et ont
+        // contribué à épuiser le quota mensuel d'Upstash.
+        analytics: false,
         prefix: 'cocfet',
       });
       this.limiteurs.set(cle, limiteur);
