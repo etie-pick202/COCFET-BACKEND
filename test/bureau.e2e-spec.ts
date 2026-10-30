@@ -35,6 +35,12 @@ describe('Bureau COCFET (e2e)', () => {
   let users: Repository<User>;
 
   let admin: CompteDeTest;
+  /**
+   * Postes, membres et mandats relèvent des postes qui gèrent les accès.
+   * L'exploitation les franchit sans siéger : ces tests éprouvent la
+   * mécanique du bureau, pas la répartition des droits.
+   */
+  let gestion: CompteDeTest;
   let sortant: CompteDeTest;
   let entrant: CompteDeTest;
 
@@ -54,25 +60,25 @@ describe('Bureau COCFET (e2e)', () => {
   const creerPoste = (nom: string, surcharge: Record<string, unknown> = {}) =>
     request(app.getHttpServer())
       .post(`${BUREAU}/postes`)
-      .set(admin.entetes)
+      .set(gestion.entetes)
       .send({ nom, ...surcharge });
 
   const creerGeneration = (annee: number, nom: string) =>
     request(app.getHttpServer())
       .post(GENERATIONS)
-      .set(admin.entetes)
+      .set(gestion.entetes)
       .send({ annee, nom });
 
   const affecter = (generationId: string, posteId: string, userId: string) =>
     request(app.getHttpServer())
       .post(`${BUREAU}/${generationId}/membres`)
-      .set(admin.entetes)
+      .set(gestion.entetes)
       .send({ posteId, userId });
 
   const activer = (id: string) =>
     request(app.getHttpServer())
       .post(`${GENERATIONS}/${id}/activer`)
-      .set(admin.entetes);
+      .set(gestion.entetes);
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -112,6 +118,10 @@ describe('Bureau COCFET (e2e)', () => {
       role: Role.ADMIN,
       promotion: null,
     });
+    gestion = await creerCompteAuthentifie(app, {
+      role: Role.SUPER_ADMIN,
+      promotion: null,
+    });
     sortant = await creerCompteAuthentifie(app, { promotion: 2026 });
     entrant = await creerCompteAuthentifie(app, { promotion: 2027 });
   });
@@ -130,7 +140,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       const reponse = await request(app.getHttpServer())
         .get(`${BUREAU}/postes`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(200);
 
       expect(reponse.body as unknown[]).toHaveLength(1);
@@ -149,7 +159,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/postes/${poste}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(409);
     });
 
@@ -158,7 +168,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/postes/${poste}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(204);
     });
 
@@ -237,7 +247,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/membres/${membre}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(204);
 
       await expect(membres.count()).resolves.toBe(0);
@@ -258,7 +268,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       const reponse = await request(app.getHttpServer())
         .get(`${BUREAU}/${generation}/membres`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(200);
 
       const corps = reponse.body as Record<string, unknown>[];
@@ -288,7 +298,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       const modification = await request(app.getHttpServer())
         .patch(`${BUREAU}/membres/${idDe(creation)}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ presentation: 'Chargé de la cérémonie.' })
         .expect(200);
 
@@ -675,7 +685,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       const reponse = await request(app.getHttpServer())
         .patch(`${BUREAU}/postes/${poste}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ accedeTresorerie: true })
         .expect(200);
 
@@ -720,7 +730,7 @@ describe('Bureau COCFET (e2e)', () => {
       // Sans ce refus, une administration se l'attribuerait elle-meme.
       await request(app.getHttpServer())
         .patch(`/api/v1/utilisateurs/${entrant.user.id}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ role: Role.SUPER_ADMIN })
         .expect(400);
     });
@@ -785,7 +795,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/membres/${membre}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(204);
 
       await expect(roleDe(entrant.user.id)).resolves.toBe(Role.STUDENT);
@@ -805,7 +815,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/membres/${premier}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(204);
 
       await expect(roleDe(entrant.user.id)).resolves.toBe(Role.ADMIN);
@@ -822,7 +832,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${BUREAU}/membres/${membre}`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(204);
 
       await expect(roleDe(admin.user.id)).resolves.toBe(Role.ADMIN);
@@ -836,7 +846,7 @@ describe('Bureau COCFET (e2e)', () => {
     const rattacher = (generation: string, logo: string) =>
       request(app.getHttpServer())
         .post(`${GENERATIONS}/${generation}/logos`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ logo });
 
     it('n’accepte que des clés déposées avec l’usage logo', async () => {
@@ -872,13 +882,13 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ logo: 'logos/inexistant.png' })
         .expect(400);
 
       const reponse = await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ logo: 'logos/sombre.png' })
         .expect(200);
 
@@ -891,14 +901,14 @@ describe('Bureau COCFET (e2e)', () => {
       await rattacher(generation, 'logos/sombre.png').expect(201);
       await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ logo: 'logos/sombre.png' })
         .expect(200);
 
       const reponse = await request(app.getHttpServer())
         .delete(`${GENERATIONS}/${generation}/logos`)
         .query({ logo: 'logos/clair.png' })
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(200);
 
       expect(reponse.body).toMatchObject({
@@ -914,14 +924,14 @@ describe('Bureau COCFET (e2e)', () => {
       await rattacher(generation, 'logos/clair.png').expect(201);
       await request(app.getHttpServer())
         .patch(`${GENERATIONS}/${generation}/logo`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .send({ logo: 'logos/clair.png' })
         .expect(200);
 
       const reponse = await request(app.getHttpServer())
         .delete(`${GENERATIONS}/${generation}/logos`)
         .query({ logo: 'logos/clair.png' })
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(200);
 
       expect(reponse.body).toMatchObject({ logos: [], logo: null });
@@ -934,7 +944,7 @@ describe('Bureau COCFET (e2e)', () => {
 
       await request(app.getHttpServer())
         .delete(`${GENERATIONS}/${generation}/logos`)
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(400);
     });
 
@@ -944,7 +954,7 @@ describe('Bureau COCFET (e2e)', () => {
       await request(app.getHttpServer())
         .delete(`${GENERATIONS}/${generation}/logos`)
         .query({ logo: 'logos/jamais-vue.png' })
-        .set(admin.entetes)
+        .set(gestion.entetes)
         .expect(404);
     });
   });

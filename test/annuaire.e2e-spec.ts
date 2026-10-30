@@ -105,12 +105,15 @@ describe('Annuaire des finissants (e2e)', () => {
     return { ...compte, sponsor };
   };
 
+  /** Un CV déposé par le finissant : sa clé porte son identifiant. */
+  const cvDe = (nom: string) => `cv/${finissant.user.id}_${nom}.pdf`;
+
   /** Publie une fiche pour le finissant, avec un CV. */
   const publierFiche = async (avecCv = true): Promise<string> => {
     const reponse = await request(app.getHttpServer())
       .put(MOI)
       .set(finissant.entetes)
-      .send({ ...FICHE, ...(avecCv ? { cvUrl: 'cv/exemple.pdf' } : {}) })
+      .send({ ...FICHE, ...(avecCv ? { cvUrl: cvDe('exemple') } : {}) })
       .expect(200);
 
     return (reponse.body as { id: string }).id;
@@ -751,10 +754,10 @@ describe('Annuaire des finissants (e2e)', () => {
       const reponse = await request(app.getHttpServer())
         .put(MOI)
         .set(finissant.entetes)
-        .send({ cvUrl: 'cv/nouveau.pdf' })
+        .send({ cvUrl: cvDe('nouveau') })
         .expect(200);
 
-      expect(reponse.body).toMatchObject({ cvUrl: 'cv/nouveau.pdf' });
+      expect(reponse.body).toMatchObject({ cvUrl: cvDe('nouveau') });
     });
   });
 });

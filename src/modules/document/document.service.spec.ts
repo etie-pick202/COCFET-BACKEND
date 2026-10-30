@@ -11,6 +11,7 @@ import {
   ModeReglement,
   ReglementCotisation,
 } from '../cotisation/entities/reglement-cotisation.entity';
+import { BureauService } from '../bureau/bureau.service';
 import { GenerationService } from '../generation/generation.service';
 import { IdentiteVisuelleService } from '../generation/identite-visuelle.service';
 import { StatutPaiement } from '../paiement/enums/paiement.enum';
@@ -25,6 +26,7 @@ const TRESORIERE = { id: 'user-2', role: Role.ADMIN };
 
 describe('DocumentService', () => {
   let service: DocumentService;
+  let privilegesDe: jest.Mock;
 
   let documents: {
     findOne: jest.Mock;
@@ -133,6 +135,8 @@ describe('DocumentService', () => {
       urlSignee: jest.fn(),
     };
 
+    privilegesDe = jest.fn().mockResolvedValue({ accedeTresorerie: true });
+
     service = new DocumentService(
       documents as unknown as Repository<Document>,
       commandes as unknown as Repository<Commande>,
@@ -154,6 +158,7 @@ describe('DocumentService', () => {
       } as unknown as IdentiteVisuelleService,
       generations as unknown as GenerationService,
       tresorerie as unknown as TresorerieService,
+      { privilegesDe } as unknown as BureauService,
     );
   });
 
@@ -486,6 +491,42 @@ describe('DocumentService', () => {
       await expect(
         service.fichier('doc-1', { id: 'intrus', role: Role.STUDENT }),
       ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('sert le rapport de trésorerie aux postes de la trésorerie', async () => {
+      documents.findOne.mockResolvedValue(emis({ user: null }));
+
+      const { octets } = await service.fichier('doc-1', TRESORIERE);
+
+      expect(octets.toString()).toBe('%PDF-range');
+      expect(privilegesDe).toHaveBeenCalledWith(TRESORIERE.id);
+    });
+
+    it('refuse le rapport de trésorerie au reste de l’administration', async () => {
+      // Être administrateur ne suffit pas : le rapport détaille les recettes,
+      // que seuls les postes de la trésorerie ont à connaître.
+      documents.findOne.mockResolvedValue(emis({ user: null }));
+      privilegesDe.mockResolvedValue({ accedeTresorerie: false });
+
+      await expect(service.fichier('doc-1', TRESORIERE)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('refuse le rapport de trésorerie à qui n’administre pas', async () => {
+      documents.findOne.mockResolvedValue(emis({ user: null }));
+
+      await expect(service.fichier('doc-1', AWA)).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('laisse l’exploitation lire le rapport sans poste', async () => {
+      documents.findOne.mockResolvedValue(emis({ user: null }));
+
+      await service.fichier('doc-1', { id: 'ops', role: Role.SUPER_ADMIN });
+
+      expect(privilegesDe).not.toHaveBeenCalled();
     });
   });
 

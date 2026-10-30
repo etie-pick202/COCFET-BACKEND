@@ -104,6 +104,7 @@ export class SoldeController {
     return this.solde.lister(pagination);
   }
 
+  @ExigePrivilege(Privilege.RETRAIT)
   @Patch('retraits/:id')
   @ApiOperation({
     summary: 'Consigner le motif d’un retrait',

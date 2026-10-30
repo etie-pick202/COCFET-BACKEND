@@ -91,6 +91,16 @@ export class CreerPosteDto {
   @IsBoolean()
   @IsOptional()
   transfereBillets?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Le titulaire décide de qui administre : il nomme ou retire les ' +
+      'administrateurs, règle les postes et leurs droits, place les membres ' +
+      'du bureau et change de mandat. À réserver à la présidence.',
+  })
+  @IsBoolean()
+  @IsOptional()
+  gereAcces?: boolean;
 }
 
 export class MettreAJourPosteDto extends PartialType(CreerPosteDto) {}

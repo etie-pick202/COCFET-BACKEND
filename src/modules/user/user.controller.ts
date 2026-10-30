@@ -169,8 +169,8 @@ export class UserController {
     };
   }
 
-  /** Trente par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
-  @LimiteDebit({ requetes: 30, fenetreSecondes: 60 })
+  /** Vingt par minute : de quoi suivre la frappe, pas de quoi aspirer l'annuaire. */
+  @LimiteDebit({ requetes: 20, fenetreSecondes: 60 })
   @Get('recherche')
   @ApiOperation({
     summary: 'Retrouver une personne pour lui offrir un billet',

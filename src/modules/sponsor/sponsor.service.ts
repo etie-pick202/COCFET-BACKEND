@@ -27,6 +27,10 @@ import {
 import { PalierSponsor } from './entities/palier-sponsor.entity';
 import { Sponsor } from './entities/sponsor.entity';
 import { NettoyageFichiers } from '../file/nettoyage-fichiers.service';
+import {
+  exigerFichierDe,
+  exigerFichierDuDossier,
+} from '../file/propriete-fichier';
 
 const TRIS_AUTORISES = ['createdAt', 'nom'] as const;
 
@@ -230,9 +234,16 @@ export class SponsorService {
         'Vous ne pouvez modifier que votre propre fiche.',
       );
     }
+    // Le partenaire ne présente que ses propres fichiers ; le bureau, qui
+    // dépose pour lui, reste tenu au dossier des logos.
+    if (userId) {
+      exigerFichierDe(userId, 'sponsors', dto.logo, sponsor.logo);
+    } else {
+      exigerFichierDuDossier('sponsors', dto.logo, sponsor.logo);
+    }
 
     await this.sponsors.update(id, dto);
-    await this.nettoyage.remplacer(sponsor.logo, dto.logo);
+    await this.nettoyage.remplacer(sponsor.logo, dto.logo, 'sponsors');
 
     return this.trouver(id);
   }
@@ -265,7 +276,7 @@ export class SponsorService {
     }
 
     // La fiche partie, son logo n'habille plus aucune page partenaire.
-    await this.nettoyage.retirer(sponsor.logo);
+    await this.nettoyage.retirerDuDossier('sponsors', sponsor.logo);
   }
 
   // ───────────────────────────────  Paliers  ────────────────────────────

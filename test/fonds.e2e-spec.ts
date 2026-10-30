@@ -124,7 +124,11 @@ describe('Suivi des fonds (e2e)', () => {
       generations.create({ annee: ANNEE, nom: 'ATLAS', isActive: true }),
     );
     const poste = await postes.save(
-      postes.create({ nom: 'Trésorière', accedeTresorerie: true }),
+      postes.create({
+        nom: 'Trésorière',
+        accedeTresorerie: true,
+        autoriseRetrait: true,
+      }),
     );
     const posteVice = await postes.save(
       postes.create({ nom: 'Vice-trésorier', accedeTresorerie: true }),
@@ -292,6 +296,17 @@ describe('Suivi des fonds (e2e)', () => {
           initieLe: new Date(),
         }),
       );
+
+    it('réserve l’attribution d’un retrait aux postes qui gèrent les retraits', async () => {
+      // Le vice-trésorier lit les comptes sans pouvoir toucher aux retraits.
+      const { id } = await retrait();
+
+      await request(app.getHttpServer())
+        .patch(`${FONDS}/retraits/${id}`)
+        .set(vice.entetes)
+        .send({ detenteurId: vice.user.id })
+        .expect(403);
+    });
 
     it('compte un retrait non attribué à part, puis dans la poche attribuée', async () => {
       const { id } = await retrait();
