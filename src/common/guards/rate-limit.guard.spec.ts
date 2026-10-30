@@ -152,4 +152,50 @@ describe('RateLimitGuard', () => {
       expect(limiter).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('Upstash injoignable', () => {
+    // Le 30 octobre 2026, le quota mensuel épuisé a fait de chaque requête une
+    // erreur 500 : le site entier était inaccessible.
+    const quotaEpuise = new Error('ERR max requests limit exceeded');
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('laisse passer plutôt que de répondre une erreur', async () => {
+      limiter.mockRejectedValue(quotaEpuise);
+      const garde = new RateLimitGuard(config(AVEC_UPSTASH), reflector());
+
+      await expect(garde.canActivate(contexte(requete()))).resolves.toBe(true);
+    });
+
+    it('continue de limiter en mémoire', async () => {
+      limiter.mockRejectedValue(quotaEpuise);
+      const garde = new RateLimitGuard(
+        config(AVEC_UPSTASH),
+        reflector({ requetes: 2, fenetreSecondes: 60 }),
+      );
+
+      await garde.canActivate(contexte(requete()));
+      await garde.canActivate(contexte(requete()));
+
+      await expect(garde.canActivate(contexte(requete()))).rejects.toThrow(
+        HttpException,
+      );
+    });
+
+    it('laisse Upstash de côté une minute, puis le retente', async () => {
+      jest.useFakeTimers({ now: new Date('2026-10-30T12:00:00Z') });
+      limiter.mockRejectedValueOnce(quotaEpuise);
+      const garde = new RateLimitGuard(config(AVEC_UPSTASH), reflector());
+
+      await garde.canActivate(contexte(requete()));
+      await garde.canActivate(contexte(requete()));
+      expect(limiter).toHaveBeenCalledTimes(1);
+
+      jest.setSystemTime(new Date('2026-10-30T12:01:01Z'));
+      await garde.canActivate(contexte(requete()));
+      expect(limiter).toHaveBeenCalledTimes(2);
+    });
+  });
 });
