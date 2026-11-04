@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -21,6 +22,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
@@ -139,6 +141,37 @@ export class ArticleController {
       throw new NotFoundException('Cet article n’a pas d’image de couverture.');
     }
     reponse.redirect(HttpStatus.FOUND, url);
+  }
+
+  @Public()
+  @Get('slug/:slug/pdf')
+  @Header('X-Content-Type-Options', 'nosniff')
+  @ApiOperation({
+    summary: 'PDF d’un article',
+    description:
+      'Le récapitulatif joint à l’article, à lire dans la page ou, avec ' +
+      '`telecharger=true`, à enregistrer. Réservé aux articles parus.',
+  })
+  @ApiQuery({ name: 'telecharger', required: false, type: Boolean })
+  @ApiNotFoundResponse({
+    description: 'Article inconnu, non paru, ou sans PDF.',
+    type: ReponseErreurDto,
+  })
+  async pdf(
+    @Param('slug') slug: string,
+    @Query('telecharger') telecharger: string | undefined,
+    @Res() reponse: Response,
+  ): Promise<void> {
+    const { contenu, nom } = await this.articleService.pdf(slug);
+
+    reponse
+      .type('application/pdf')
+      .setHeader(
+        'Content-Disposition',
+        `${telecharger === 'true' ? 'attachment' : 'inline'}; filename="${nom}"`,
+      )
+      .setHeader('Cache-Control', 'public, max-age=300')
+      .send(contenu);
   }
 
   @Public()

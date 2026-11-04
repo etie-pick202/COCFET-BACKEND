@@ -196,6 +196,7 @@ export class ArticleService {
 
     await this.nettoyage.remplacer(avant.imageCouverture, dto.imageCouverture);
     await this.nettoyage.remplacer(avant.couvertureVideo, dto.couvertureVideo);
+    await this.nettoyage.remplacer(avant.documentPdf, dto.documentPdf);
 
     // Un média retiré du texte ne sert plus à rien : il quitte le stockage.
     if (dto.contenu !== undefined) {
@@ -313,6 +314,7 @@ export class ArticleService {
     await this.nettoyage.retirer(
       article.imageCouverture,
       article.couvertureVideo,
+      article.documentPdf,
       ...clesDeMedias(article.contenu),
     );
   }
@@ -351,6 +353,27 @@ export class ArticleService {
     return article.imageCouverture
       ? this.stockage.urlSignee(article.imageCouverture, 3600)
       : null;
+  }
+
+  /**
+   * Le PDF d'un article paru, avec le nom sous lequel il se télécharge.
+   *
+   * Servi par le serveur et non par une URL signée du stockage : le navigateur
+   * le lit avec pdf.js, qui exige que l'origine autorise la lecture, et le
+   * droit de lecture suit ainsi celui de l'article (un brouillon n'a pas de
+   * PDF public).
+   */
+  async pdf(slug: string): Promise<{ contenu: Buffer; nom: string }> {
+    const article = await this.trouverParSlug(slug);
+
+    if (!article.documentPdf) {
+      throw new NotFoundException('Cet article n’a pas de PDF.');
+    }
+
+    return {
+      contenu: await this.stockage.telecharger(article.documentPdf),
+      nom: `${article.slug}.pdf`,
+    };
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
