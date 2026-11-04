@@ -47,6 +47,13 @@ export class Article extends BaseEntity {
   @Column({ name: 'couverture_video', type: 'varchar', nullable: true })
   couvertureVideo: string | null;
 
+  /**
+   * PDF récapitulatif, feuilleté directement sur la page de l'article. Le
+   * lecteur le récupère par `GET /articles/slug/:slug/pdf`, jamais par sa clé.
+   */
+  @Column({ name: 'document_pdf', type: 'varchar', nullable: true })
+  documentPdf: string | null;
+
   @Column({ type: 'varchar', nullable: true })
   categorie: string | null;
 

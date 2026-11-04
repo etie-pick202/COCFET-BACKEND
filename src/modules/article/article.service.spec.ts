@@ -98,7 +98,10 @@ describe('ArticleService', () => {
     return faux;
   };
 
-  const stockage = { urlSignee: jest.fn().mockResolvedValue('https://cdn/x') };
+  const stockage = {
+    urlSignee: jest.fn().mockResolvedValue('https://cdn/x'),
+    telecharger: jest.fn().mockResolvedValue(Buffer.from('%PDF-1.7')),
+  };
 
   const nettoyage = {
     remplacer: jest.fn().mockResolvedValue(undefined),
@@ -418,6 +421,7 @@ describe('ArticleService', () => {
       expect(nettoyage.retirer).toHaveBeenCalledWith(
         'articles/couverture.png',
         undefined,
+        undefined,
       );
     });
 
@@ -435,8 +439,26 @@ describe('ArticleService', () => {
       expect(nettoyage.retirer).toHaveBeenCalledWith(
         undefined,
         'videos/recap.mp4',
+        undefined,
         'articles/a.png',
         'videos/b.mp4',
+      );
+    });
+
+    it('emporte aussi le PDF joint', async () => {
+      articles.findOne.mockResolvedValue(
+        article({
+          statut: StatutArticle.BROUILLON,
+          documentPdf: 'recaps/bilan.pdf',
+        }),
+      );
+
+      await service.supprimer('un-id');
+
+      expect(nettoyage.retirer).toHaveBeenCalledWith(
+        undefined,
+        undefined,
+        'recaps/bilan.pdf',
       );
     });
   });
@@ -492,6 +514,66 @@ describe('ArticleService', () => {
         'videos/avant.mp4',
         'videos/apres.mp4',
       );
+    });
+
+    it('remplace le PDF joint, et le retire sur demande', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ documentPdf: 'recaps/avant.pdf' }),
+      );
+
+      await service.mettreAJour('un-id', { documentPdf: 'recaps/apres.pdf' });
+      expect(nettoyage.remplacer).toHaveBeenCalledWith(
+        'recaps/avant.pdf',
+        'recaps/apres.pdf',
+      );
+
+      await service.mettreAJour('un-id', { documentPdf: null });
+      expect(nettoyage.remplacer).toHaveBeenCalledWith(
+        'recaps/avant.pdf',
+        null,
+      );
+    });
+  });
+
+  describe('PDF joint', () => {
+    beforeEach(() => stockage.telecharger.mockClear());
+
+    it('rend le PDF d’un article paru, nommé d’après son adresse', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ documentPdf: 'recaps/bilan.pdf' }),
+      );
+
+      const { contenu, nom } = await service.pdf('retour-sur-le-gala');
+
+      expect(stockage.telecharger).toHaveBeenCalledWith('recaps/bilan.pdf');
+      expect(contenu.toString()).toBe('%PDF-1.7');
+      expect(nom).toBe('retour-sur-le-gala.pdf');
+    });
+
+    it('répond 404 pour un article sans PDF', async () => {
+      articles.findOne.mockResolvedValue(article({ documentPdf: null }));
+
+      await expect(service.pdf('un-slug')).rejects.toThrow(NotFoundException);
+      expect(stockage.telecharger).not.toHaveBeenCalled();
+    });
+
+    it('ne livre pas le PDF d’un brouillon ni d’une parution programmée', async () => {
+      articles.findOne.mockResolvedValue(
+        article({
+          documentPdf: 'recaps/bilan.pdf',
+          statut: StatutArticle.BROUILLON,
+        }),
+      );
+      await expect(service.pdf('un-slug')).rejects.toThrow(NotFoundException);
+
+      articles.findOne.mockResolvedValue(
+        article({
+          documentPdf: 'recaps/bilan.pdf',
+          publishedAt: new Date(Date.now() + 86_400_000),
+        }),
+      );
+      await expect(service.pdf('un-slug')).rejects.toThrow(NotFoundException);
+      expect(stockage.telecharger).not.toHaveBeenCalled();
     });
   });
 
