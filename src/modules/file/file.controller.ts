@@ -49,7 +49,12 @@ import { FichierTeleverseDto, UrlSigneeDto } from './dto/fichier.dto';
 import type { Stockage } from './ports/stockage';
 import { STOCKAGE } from './ports/stockage';
 import type { Usage } from './validation-fichier';
-import { TAILLE_VIDEO_MAX, USAGES, validerFichier } from './validation-fichier';
+import {
+  TAILLE_PDF_MAX,
+  TAILLE_VIDEO_MAX,
+  USAGES,
+  validerFichier,
+} from './validation-fichier';
 
 /**
  * Plafond absolu, applique par Multer avant meme que le fichier n'arrive en
@@ -202,6 +207,11 @@ export class FileController {
         'Les vidéos s’envoient par POST /fichiers/video.',
       );
     }
+    if (usage === 'article-pdf') {
+      throw new BadRequestException(
+        'Les PDF d’actualité s’envoient par POST /fichiers/pdf.',
+      );
+    }
 
     return this.enregistrer(usage, fichier, requete.user);
   }
@@ -243,6 +253,44 @@ export class FileController {
     }
 
     return this.enregistrer('article-video', fichier, requete.user);
+  }
+
+  @ApiBearerAuth()
+  @Roles(Role.ADMIN)
+  @Post('pdf')
+  @UseInterceptors(
+    FileInterceptor('fichier', {
+      // Plafond propre aux PDF, pour la même raison que celui des vidéos.
+      limits: { fileSize: TAILLE_PDF_MAX, files: 1 },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Envoyer le PDF d’une actualité',
+    description:
+      'PDF de 20 Mo au plus, reconnu à ses premiers octets. Rangé dans le ' +
+      'dossier « recaps/ ». Réservé au bureau.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['fichier'],
+      properties: { fichier: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiCreatedResponse({
+    description: 'Clé du PDF et URL signée temporaire.',
+    type: FichierTeleverseDto,
+  })
+  async envoyerPdf(
+    @UploadedFile() fichier: Express.Multer.File | undefined,
+    @Req() requete: RequeteAuthentifiee,
+  ): Promise<FichierTeleverseDto> {
+    if (!fichier) {
+      throw new BadRequestException('Aucun fichier reçu (champ « fichier »).');
+    }
+
+    return this.enregistrer('article-pdf', fichier, requete.user);
   }
 
   private async enregistrer(

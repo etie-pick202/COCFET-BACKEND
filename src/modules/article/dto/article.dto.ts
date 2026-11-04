@@ -64,6 +64,22 @@ export class CreerArticleDto {
   couvertureVideo?: string | null;
 
   @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Clé d’un PDF déposé par POST /fichiers/pdf. Il se feuillette sur la ' +
+      'page de l’article, avec un bouton pour le télécharger. Null pour le ' +
+      'retirer.',
+  })
+  @ValidateIf((_, valeur) => valeur !== null && valeur !== undefined)
+  @IsString()
+  @MaxLength(300)
+  @Matches(/^recaps\/[A-Za-z0-9._-]+$/, {
+    message: 'La clé doit désigner un PDF déposé dans « recaps/ ».',
+  })
+  @IsOptional()
+  documentPdf?: string | null;
+
+  @ApiPropertyOptional({
     example: 'Vie du campus',
     description:
       'Normalisée à l’écriture : « sport » et « Sport » ne font qu’une ' +

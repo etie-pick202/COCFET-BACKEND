@@ -190,7 +190,7 @@ describe('validerFichier', () => {
     it('range chaque usage dans son propre dossier', () => {
       // Chaque usage reçoit un fichier du format qu'il attend.
       const entete = (usage: string): number[] => {
-        if (usage === 'cv') return ENTETES.pdf;
+        if (usage === 'cv' || usage === 'article-pdf') return ENTETES.pdf;
         if (usage === 'article-video') {
           return [0, 0, 0, 24, 0x66, 0x74, 0x79, 0x70];
         }
@@ -202,6 +202,41 @@ describe('validerFichier', () => {
       );
 
       expect(new Set(prefixes).size).toBe(prefixes.length);
+    });
+  });
+
+  describe('PDF d’actualité', () => {
+    it('accepte un PDF du bureau, rangé dans « recaps/ »', () => {
+      expect(
+        validerFichier('article-pdf', fichier(ENTETES.pdf), ADMIN),
+      ).toMatchObject({ prefixe: 'recaps', mimeReel: 'application/pdf' });
+    });
+
+    it('refuse une image déguisée en PDF, et tout compte hors bureau', () => {
+      expect(() =>
+        validerFichier('article-pdf', fichier(ENTETES.png), ADMIN),
+      ).toThrow(BadRequestException);
+      expect(() =>
+        validerFichier('article-pdf', fichier(ENTETES.pdf), Role.STUDENT),
+      ).toThrow(ForbiddenException);
+    });
+
+    it('autorise 20 Mo, pas un octet de plus', () => {
+      const limite = 20 * 1024 * 1024;
+      expect(() =>
+        validerFichier(
+          'article-pdf',
+          fichier(ENTETES.pdf, { taille: limite }),
+          ADMIN,
+        ),
+      ).not.toThrow();
+      expect(() =>
+        validerFichier(
+          'article-pdf',
+          fichier(ENTETES.pdf, { taille: limite + 1 }),
+          ADMIN,
+        ),
+      ).toThrow(/20 Mo/);
     });
   });
 
