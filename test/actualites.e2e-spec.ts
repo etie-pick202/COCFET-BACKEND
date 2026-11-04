@@ -25,6 +25,9 @@ const MP4 = Buffer.concat([
   Buffer.alloc(2048, 1),
 ]);
 
+/** « %PDF » : la signature d'un PDF, suivie d'un contenu quelconque. */
+const PDF = Buffer.concat([Buffer.from('%PDF-1.7'), Buffer.alloc(2048, 3)]);
+
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
   Buffer.alloc(64, 2),
@@ -185,6 +188,145 @@ describe('Actualités (e2e)', () => {
         expect(partiel.headers['content-range']).toMatch(/^bytes 0-9\//);
         expect(partiel.headers['content-type']).toContain('video/mp4');
       }
+    });
+  });
+
+  describe('PDF récapitulatif', () => {
+    const envoyerPdf = (compte: CompteDeTest, contenu: Buffer) =>
+      request(app.getHttpServer())
+        .post(`${FICHIERS}/pdf`)
+        .set(compte.entetes)
+        .attach('fichier', contenu, 'bilan.pdf');
+
+    const deposer = async (): Promise<string> => {
+      const envoi = await envoyerPdf(admin, PDF).expect(201);
+      const { cle, type } = envoi.body as { cle: string; type: string };
+      expect(cle).toMatch(/^recaps\/.+\.pdf$/);
+      expect(type).toBe('application/pdf');
+      return cle;
+    };
+
+    it('sert le PDF d’un article paru sans connexion, à lire dans la page', async () => {
+      const { slug } = await redigerEtPublier({ documentPdf: await deposer() });
+
+      const lu = await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}/pdf`)
+        .buffer(true)
+        .parse((reponse, fin) => {
+          const morceaux: Buffer[] = [];
+          reponse.on('data', (m: Buffer) => morceaux.push(m));
+          reponse.on('end', () => fin(null, Buffer.concat(morceaux)));
+        })
+        .expect(200);
+
+      expect(lu.headers['content-type']).toContain('application/pdf');
+      expect(lu.headers['content-disposition']).toBe(
+        `inline; filename="${slug}.pdf"`,
+      );
+      expect(lu.headers['x-content-type-options']).toBe('nosniff');
+      expect((lu.body as Buffer).equals(PDF)).toBe(true);
+    });
+
+    it('le propose en téléchargement sur demande', async () => {
+      const { slug } = await redigerEtPublier({ documentPdf: await deposer() });
+
+      const lu = await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}/pdf`)
+        .query({ telecharger: 'true' })
+        .expect(200);
+
+      expect(lu.headers['content-disposition']).toBe(
+        `attachment; filename="${slug}.pdf"`,
+      );
+    });
+
+    it('annonce l’article avec la clé de son PDF', async () => {
+      const cle = await deposer();
+      const { slug } = await redigerEtPublier({ documentPdf: cle });
+
+      const lu = await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}`)
+        .expect(200);
+      expect((lu.body as { documentPdf: string }).documentPdf).toBe(cle);
+    });
+
+    it('ne livre pas le PDF d’un brouillon', async () => {
+      const creation = await request(app.getHttpServer())
+        .post(ARTICLES)
+        .set(admin.entetes)
+        .send({
+          titre: 'Bilan en préparation',
+          contenu: 'Un contenu assez long.',
+          documentPdf: await deposer(),
+        })
+        .expect(201);
+      const { slug } = creation.body as { slug: string };
+
+      await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}/pdf`)
+        .expect(404);
+    });
+
+    it('répond 404 pour un article sans PDF', async () => {
+      const { slug } = await redigerEtPublier();
+
+      await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}/pdf`)
+        .expect(404);
+    });
+
+    it('retire le PDF quand on envoie null', async () => {
+      const { id, slug } = await redigerEtPublier({
+        documentPdf: await deposer(),
+      });
+
+      await request(app.getHttpServer())
+        .patch(`${ARTICLES}/${id}`)
+        .set(admin.entetes)
+        .send({ documentPdf: null })
+        .expect(200);
+
+      await request(app.getHttpServer())
+        .get(`${ARTICLES}/slug/${slug}/pdf`)
+        .expect(404);
+    });
+
+    it('refuse un fichier qui n’est pas un PDF', async () => {
+      await envoyerPdf(admin, PNG).expect(400);
+    });
+
+    it('réserve l’envoi de PDF au bureau', async () => {
+      await envoyerPdf(lecteur, PDF).expect(403);
+    });
+
+    it('refuse un PDF envoyé par la route générale', async () => {
+      await request(app.getHttpServer())
+        .post(FICHIERS)
+        .set(admin.entetes)
+        .field('usage', 'article-pdf')
+        .attach('fichier', PDF, 'bilan.pdf')
+        .expect(400);
+    });
+
+    it('refuse une clé hors du dossier des récapitulatifs', async () => {
+      await request(app.getHttpServer())
+        .post(ARTICLES)
+        .set(admin.entetes)
+        .send({
+          titre: 'Un titre',
+          contenu: 'Un contenu assez long.',
+          documentPdf: 'cv/secret.pdf',
+        })
+        .expect(400);
+    });
+
+    it('ne délivre pas l’adresse du PDF à un lecteur par sa clé', async () => {
+      const cle = await deposer();
+
+      await request(app.getHttpServer())
+        .get(`${FICHIERS}/url-signee`)
+        .query({ cle })
+        .expect(404);
     });
   });
 

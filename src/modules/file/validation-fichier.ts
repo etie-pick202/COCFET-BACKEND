@@ -80,6 +80,24 @@ export const USAGES = {
     mimesAutorises: null,
   },
   /**
+   * Récapitulatif d'une actualité, déposé en PDF : le compte rendu d'un
+   * événement, un bilan, un document à feuilleter sur la page.
+   *
+   * Rangé sous « recaps/ », hors des dossiers publics : la lecture passe par
+   * `GET /articles/slug/:slug/pdf`, qui ne sert le fichier qu'une fois
+   * l'article paru. Une clé qui circule ne donnerait donc pas le PDF d'un
+   * brouillon. Le plafond est celui d'un envoi tenu en mémoire par le
+   * serveur.
+   */
+  'article-pdf': {
+    prefixe: 'recaps',
+    proprietaire: false,
+    tailleMax: 20 * 1024 * 1024,
+    types: ['pdf'],
+    roles: [Role.ADMIN],
+    mimesAutorises: null,
+  },
+  /**
    * Logo du mandat, celui qui habille la plateforme.
    *
    * **PNG ou JPEG seulement**, alors que les autres visuels acceptent aussi
@@ -165,6 +183,9 @@ const SIGNATURES: Record<
 
 /** Taille maximale d'une vidéo d'actualité, en octets. */
 export const TAILLE_VIDEO_MAX = USAGES['article-video'].tailleMax;
+
+/** Taille maximale du PDF d'une actualité, en octets. */
+export const TAILLE_PDF_MAX = USAGES['article-pdf'].tailleMax;
 
 export interface FichierValide {
   prefixe: string;
