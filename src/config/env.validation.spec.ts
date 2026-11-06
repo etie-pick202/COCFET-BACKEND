@@ -106,4 +106,28 @@ describe('validateEnv', () => {
       expect(message).toContain('DATABASE_SSL');
     }
   });
+  describe('relais de secours', () => {
+    const complet = {
+      MAIL_SECOURS_HOST: 'smtp.gmail.com',
+      MAIL_SECOURS_USER: 'secours@gmail.com',
+      // eslint-disable-next-line sonarjs/no-hardcoded-passwords
+      MAIL_SECOURS_PASSWORD: 'valeur-de-test',
+    };
+
+    it('accepte un secours complet, ou aucun', () => {
+      expect(() => validateEnv(base(complet))).not.toThrow();
+      expect(() => validateEnv(base())).not.toThrow();
+    });
+
+    it.each([
+      'MAIL_SECOURS_HOST',
+      'MAIL_SECOURS_USER',
+      'MAIL_SECOURS_PASSWORD',
+    ])('refuse un secours auquel il manque %s', (manquante) => {
+      const incomplet: Record<string, string> = { ...complet };
+      delete incomplet[manquante];
+
+      expect(() => validateEnv(base(incomplet))).toThrow(/vont ensemble/);
+    });
+  });
 });
