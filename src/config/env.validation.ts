@@ -79,6 +79,41 @@ class EnvironmentVariables {
   @IsString()
   @IsOptional()
   BREVO_API_KEY?: string;
+
+  /**
+   * Relais SMTP de secours : le compte d'un autre fournisseur, essayé quand le
+   * principal n'envoie plus (quota atteint, panne). Voir `MailModule`.
+   * Hôte, identifiant et mot de passe vont ensemble ; le reste est facultatif.
+   */
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_HOST?: string;
+
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_PORT?: string;
+
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_SECURE?: string;
+
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_USER?: string;
+
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_PASSWORD?: string;
+
+  /** Expéditeur imposé aux messages partis par le secours (adresse du compte). */
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_FROM?: string;
+
+  /** `true` : le secours est essayé avant le relais principal. */
+  @IsString()
+  @IsOptional()
+  MAIL_SECOURS_PRIORITAIRE?: string;
 }
 
 /**
@@ -109,6 +144,20 @@ function verifierCoherence(
           'connue. Générez-en une avec « openssl rand -base64 48 ».',
       );
     }
+  }
+
+  const secours = [
+    'MAIL_SECOURS_HOST',
+    'MAIL_SECOURS_USER',
+    'MAIL_SECOURS_PASSWORD',
+  ].filter((cle) => Boolean(brut[cle]));
+  if (secours.length > 0 && secours.length < 3) {
+    // Un secours à moitié renseigné serait ignoré sans bruit : on découvrirait
+    // qu'il n'existe pas le jour où le relais principal tombe.
+    erreurs.push(
+      '  - MAIL_SECOURS_HOST, MAIL_SECOURS_USER et MAIL_SECOURS_PASSWORD vont ' +
+        'ensemble : renseignez les trois, ou aucun.',
+    );
   }
 
   if (production && brut.DATABASE_SSL !== 'true') {

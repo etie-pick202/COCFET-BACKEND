@@ -145,6 +145,29 @@ Choix du transport selon les variables présentes :
 - `BREVO_API_KEY` seule : API uniquement, sans images incrustées.
 - `MAIL_HOST` seul : SMTP uniquement (Mailpit en développement).
 
+**Relais de secours — quand le quota d'envoi est épuisé**
+
+Le plafond du fournisseur (par jour, ou par mois selon l'offre) est la cause la plus fréquente d'une plateforme qui n'envoie plus de mails : tant qu'il n'est pas rétabli, ni codes de connexion, ni billets, ni factures ne partent. Le relais et l'API de Brevo dépendent du même compte : ils tombent ensemble. Un **relais de secours**, sur le compte d'un autre fournisseur, évite cette impasse.
+
+Variables (toutes facultatives, mais `MAIL_SECOURS_HOST`, `MAIL_SECOURS_USER` et `MAIL_SECOURS_PASSWORD` vont ensemble — l'API refuse de démarrer si l'un manque) :
+
+| Variable | Valeur | Type |
+|---|---|---|
+| `MAIL_SECOURS_HOST` | hôte SMTP du compte de secours (`smtp.gmail.com`) | variable |
+| `MAIL_SECOURS_PORT` | `587` (défaut) | variable |
+| `MAIL_SECOURS_SECURE` | `false` — STARTTLS sur le port 587 | variable |
+| `MAIL_SECOURS_USER` | identifiant du compte de secours (l'adresse Gmail) | secret |
+| `MAIL_SECOURS_PASSWORD` | **mot de passe d'application**, pas celui de la boîte | secret |
+| `MAIL_SECOURS_FROM` | expéditeur imposé aux messages du secours, de la forme `COCFET <adresse du compte>` | variable |
+| `MAIL_SECOURS_PRIORITAIRE` | `true` pour l'essayer **avant** le relais principal (voir ci-dessous) | variable |
+
+Ordre d'essai : relais principal, puis secours, puis API Brevo. Chaque voie qui échoue passe la main à la suivante ; le message part, images incrustées si une voie SMTP le remet.
+
+- **Quota reconnu.** Quand l'erreur dit que le plafond est atteint (« daily sending limit exceeded », « quota exceeded », HTTP 402 ou 429), la voie est laissée de côté **15 minutes** : les messages partent directement par la suivante, sans attendre chaque fois un refus. Le journal l'écrit : `quota d'envoi probablement atteint ; voie laissée de côté 15 min`. Passé ce délai, la voie est retentée — le quota a pu se renouveler.
+- **Quota non signalé.** Un fournisseur peut aussi **accepter** les messages sans les remettre (courrier retenu jusqu'au renouvellement du crédit). Aucune erreur ne le signale : le secours ne se déclenche pas de lui-même. Mettre `MAIL_SECOURS_PRIORITAIRE=true`, puis redémarrer l'API : les messages partent d'abord par le secours. À retirer quand le principal est rétabli.
+- **Expéditeur.** Un fournisseur n'accepte d'ordinaire que les adresses de son domaine : `MAIL_SECOURS_FROM` doit être l'adresse du compte de secours (`COCFET <exemple@gmail.com>`). Les destinataires voient ce nom et cette adresse, et les réponses lui parviennent.
+- **Gmail comme secours.** Activer la validation en deux étapes du compte, puis créer un **mot de passe d'application** (Compte Google > Sécurité). Plafond : environ 500 messages par jour. Les messages partent classés « d'un autre expéditeur » que le domaine du mandat : c'est un dépannage, pas une solution durable.
+
 - **Où** : variables d'environnement de l'hébergeur. Inutile de renseigner Brevo dans `.env` en local, Mailpit y suffit.
 - **Nécessaire** : au déploiement en staging.
 - ⚠️ **Sans SPF ni DKIM, les emails partent en spam**, quel que soit le fournisseur — Gmail et Outlook ont durci leurs règles. Cette étape n'est pas optionnelle.
