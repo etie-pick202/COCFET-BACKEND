@@ -221,8 +221,8 @@ describe('validerFichier', () => {
       ).toThrow(ForbiddenException);
     });
 
-    it('autorise 20 Mo, pas un octet de plus', () => {
-      const limite = 20 * 1024 * 1024;
+    it('autorise 30 Mo, pas un octet de plus', () => {
+      const limite = 30 * 1024 * 1024;
       expect(() =>
         validerFichier(
           'article-pdf',
@@ -236,7 +236,7 @@ describe('validerFichier', () => {
           fichier(ENTETES.pdf, { taille: limite + 1 }),
           ADMIN,
         ),
-      ).toThrow(/20 Mo/);
+      ).toThrow(/30 Mo/);
     });
   });
 

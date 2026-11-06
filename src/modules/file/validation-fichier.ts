@@ -92,7 +92,7 @@ export const USAGES = {
   'article-pdf': {
     prefixe: 'recaps',
     proprietaire: false,
-    tailleMax: 20 * 1024 * 1024,
+    tailleMax: 30 * 1024 * 1024,
     types: ['pdf'],
     roles: [Role.ADMIN],
     mimesAutorises: null,

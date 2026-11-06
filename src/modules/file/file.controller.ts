@@ -268,7 +268,7 @@ export class FileController {
   @ApiOperation({
     summary: 'Envoyer le PDF d’une actualité',
     description:
-      'PDF de 20 Mo au plus, reconnu à ses premiers octets. Rangé dans le ' +
+      'PDF de 30 Mo au plus, reconnu à ses premiers octets. Rangé dans le ' +
       'dossier « recaps/ ». Réservé au bureau.',
   })
   @ApiBody({
