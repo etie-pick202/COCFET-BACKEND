@@ -7,7 +7,12 @@ import { createTransport } from 'nodemailer';
 import { IdentiteVisuelleModule } from '../generation/identite-visuelle.module';
 import { MailService } from './mail.service';
 import { transportBrevoApi } from './transports/brevo-api.transport';
-import { transportAvecRepli } from './transports/repli.transport';
+import {
+  transportEnCascade,
+  voieGreffon,
+  voieSmtp,
+  type Voie,
+} from './transports/cascade.transport';
 
 /**
  * Trois configurations, choisies selon les variables présentes.
@@ -19,6 +24,14 @@ import { transportAvecRepli } from './transports/repli.transport';
  * code d'un billet — et l'API prend le relais si le serveur SMTP ne répond pas.
  * Le code ne connaît pas le fournisseur du relais : tout serveur SMTP
  * authentifié convient, seul le recours est propre à Brevo.
+ *
+ * **Relais de secours** (`MAIL_SECOURS_*`, facultatif) : le compte d'un autre
+ * fournisseur — une boîte Gmail avec mot de passe d'application, par exemple —
+ * intercalé avant l'API. Quand le plafond d'envoi du relais principal est
+ * atteint, les messages partent par lui, images incluses, le temps que le
+ * principal se rétablisse. `MAIL_SECOURS_PRIORITAIRE=true` l'essaie en
+ * premier : à employer quand le principal accepte les messages sans les
+ * remettre (quota dépassé, courrier retenu), ce qu'aucune erreur ne signale.
  *
  * **Clé API seule** : l'API HTTP, sans images incrustées. C'était le mode de
  * l'hébergeur précédent, qui filtrait les ports SMTP sortants.
@@ -54,19 +67,71 @@ import { transportAvecRepli } from './transports/repli.transport';
           socketTimeout: 20_000,
         });
 
+        /**
+         * Le relais de secours, s'il est configuré. Son expéditeur est propre :
+         * un fournisseur n'accepte d'ordinaire que les adresses de son domaine,
+         * et un message qui prétend venir d'un autre est refusé ou classé en
+         * pourriel.
+         */
+        const voieDeSecours = (): Voie | null => {
+          const hoteSecours = config.get<string>('MAIL_SECOURS_HOST');
+          const userSecours = config.get<string>('MAIL_SECOURS_USER');
+          const passSecours = config.get<string>('MAIL_SECOURS_PASSWORD');
+          if (!hoteSecours || !userSecours || !passSecours) {
+            return null;
+          }
+
+          return voieSmtp(
+            `Relais de secours ${hoteSecours}`,
+            createTransport({
+              host: hoteSecours,
+              port: Number(config.get<string>('MAIL_SECOURS_PORT', '587')),
+              secure: config.get<string>('MAIL_SECOURS_SECURE') === 'true',
+              auth: { user: userSecours, pass: passSecours },
+              connectionTimeout: 10_000,
+              greetingTimeout: 10_000,
+              socketTimeout: 20_000,
+            }),
+            config.get<string>('MAIL_SECOURS_FROM') || undefined,
+          );
+        };
+
         // `object` et non `MailerOptions['transport']` : nodemailer n'a pas de
         // types dans ce projet, et ce dernier se résout en type inconnu.
         let transport: object;
 
-        if (cleApi && hote && user && pass) {
-          transport = transportAvecRepli({
+        if (
+          hote &&
+          user &&
+          pass &&
+          (cleApi || config.get('MAIL_SECOURS_HOST'))
+        ) {
+          const secours = voieDeSecours();
+          const principale = voieSmtp(
+            `Relais SMTP ${hote}`,
             // `secure: false` sur le port 587 n'est pas du texte en clair :
             // nodemailer y négocie STARTTLS, et Amazon SES l'exige.
             // eslint-disable-next-line sonarjs/no-clear-text-protocols
-            principal: createTransport(smtp()),
-            repli: transportBrevoApi({ cleApi }),
-            nomPrincipal: `Relais SMTP ${hote}`,
-          });
+            createTransport(smtp()),
+          );
+          const api = cleApi
+            ? voieGreffon('API Brevo', transportBrevoApi({ cleApi }))
+            : null;
+
+          const prioritaire =
+            config.get<string>('MAIL_SECOURS_PRIORITAIRE') === 'true';
+          const voies = [
+            ...(prioritaire ? [secours, principale] : [principale, secours]),
+            api,
+          ].filter((voie): voie is Voie => voie !== null);
+
+          if (prioritaire && secours) {
+            logger.warn(
+              `Relais de secours prioritaire : les messages partent d'abord ` +
+                `par ${secours.nom}.`,
+            );
+          }
+          transport = transportEnCascade({ voies });
         } else if (cleApi) {
           if (config.get<string>('NODE_ENV') === 'production') {
             logger.warn(
