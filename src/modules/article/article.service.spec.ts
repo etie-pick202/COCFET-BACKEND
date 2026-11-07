@@ -550,6 +550,31 @@ describe('ArticleService', () => {
       expect(nom).toBe('retour-sur-le-gala.pdf');
     });
 
+    it('ne relit pas le stockage à chaque morceau demandé par le lecteur', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ documentPdf: 'recaps/gala-2026.pdf' }),
+      );
+
+      await Promise.all([
+        service.pdf('un-slug'),
+        service.pdf('un-slug'),
+        service.pdf('un-slug'),
+      ]);
+      await service.pdf('un-slug');
+
+      expect(stockage.telecharger).toHaveBeenCalledTimes(1);
+    });
+
+    it('oublie une lecture ratée : la requête suivante retente', async () => {
+      articles.findOne.mockResolvedValue(
+        article({ documentPdf: 'recaps/rate.pdf' }),
+      );
+      stockage.telecharger.mockRejectedValueOnce(new Error('R2 injoignable'));
+
+      await expect(service.pdf('un-slug')).rejects.toThrow('R2 injoignable');
+      await expect(service.pdf('un-slug')).resolves.toBeDefined();
+    });
+
     it('répond 404 pour un article sans PDF', async () => {
       articles.findOne.mockResolvedValue(article({ documentPdf: null }));
 
