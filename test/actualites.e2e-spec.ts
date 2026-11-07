@@ -227,6 +227,71 @@ describe('Actualités (e2e)', () => {
       expect((lu.body as Buffer).equals(PDF)).toBe(true);
     });
 
+    describe('par morceaux, pour un affichage sans attendre le fichier entier', () => {
+      const publier = async (): Promise<string> =>
+        (await redigerEtPublier({ documentPdf: await deposer() })).slug;
+
+      const lireMorceau = (slug: string, entete?: string) => {
+        const requete = request(app.getHttpServer()).get(
+          `${ARTICLES}/slug/${slug}/pdf`,
+        );
+        return (entete ? requete.set('Range', entete) : requete)
+          .buffer(true)
+          .parse((reponse, fin) => {
+            const morceaux: Buffer[] = [];
+            reponse.on('data', (m: Buffer) => morceaux.push(m));
+            reponse.on('end', () => fin(null, Buffer.concat(morceaux)));
+          });
+      };
+
+      it('annonce qu’il sait servir une plage', async () => {
+        const lu = await lireMorceau(await publier()).expect(200);
+
+        expect(lu.headers['accept-ranges']).toBe('bytes');
+      });
+
+      it('rend la plage demandée en 206, avec sa position dans le fichier', async () => {
+        const lu = await lireMorceau(await publier(), 'bytes=0-7').expect(206);
+
+        expect((lu.body as Buffer).toString()).toBe('%PDF-1.7');
+        expect(lu.headers['content-range']).toBe(`bytes 0-7/${PDF.length}`);
+        expect(lu.headers['content-length']).toBe('8');
+      });
+
+      it('rend la fin du fichier, là où pdf.js lit la table des objets', async () => {
+        const lu = await lireMorceau(await publier(), 'bytes=-16').expect(206);
+
+        expect((lu.body as Buffer).equals(PDF.subarray(-16))).toBe(true);
+      });
+
+      it('refuse une plage hors du fichier en 416', async () => {
+        const lu = await lireMorceau(
+          await publier(),
+          `bytes=${PDF.length}-`,
+        ).expect(416);
+
+        expect(lu.headers['content-range']).toBe(`bytes */${PDF.length}`);
+      });
+
+      it('se garde longtemps côté navigateur quand l’adresse porte la version', async () => {
+        const { slug } = await redigerEtPublier({
+          documentPdf: await deposer(),
+        });
+
+        const sans = await request(app.getHttpServer()).get(
+          `${ARTICLES}/slug/${slug}/pdf`,
+        );
+        const avec = await request(app.getHttpServer())
+          .get(`${ARTICLES}/slug/${slug}/pdf`)
+          .query({ v: 'recaps/un-depot.pdf' });
+
+        expect(sans.headers['cache-control']).toBe('public, max-age=300');
+        expect(avec.headers['cache-control']).toBe(
+          'public, max-age=31536000, immutable',
+        );
+      });
+    });
+
     it('le propose en téléchargement sur demande', async () => {
       const { slug } = await redigerEtPublier({ documentPdf: await deposer() });
 

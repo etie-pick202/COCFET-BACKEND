@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Header,
+  Headers,
   HttpCode,
   HttpStatus,
   NotFoundException,
@@ -28,6 +29,7 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { Role } from '../../common/enums/role.enum';
+import { lirePlage } from './plage-http';
 import { ResultatPagine } from '../../common/pagination';
 import {
   ApiErreursAuthentification,
@@ -153,6 +155,11 @@ export class ArticleController {
       '`telecharger=true`, à enregistrer. Réservé aux articles parus.',
   })
   @ApiQuery({ name: 'telecharger', required: false, type: Boolean })
+  @ApiQuery({
+    name: 'v',
+    required: false,
+    description: 'Clé du fichier : autorise la mise en cache longue.',
+  })
   @ApiNotFoundResponse({
     description: 'Article inconnu, non paru, ou sans PDF.',
     type: ReponseErreurDto,
@@ -160,9 +167,12 @@ export class ArticleController {
   async pdf(
     @Param('slug') slug: string,
     @Query('telecharger') telecharger: string | undefined,
+    @Query('v') version: string | undefined,
+    @Headers('range') enteteRange: string | undefined,
     @Res() reponse: Response,
   ): Promise<void> {
     const { contenu, nom } = await this.articleService.pdf(slug);
+    const taille = contenu.length;
 
     reponse
       .type('application/pdf')
@@ -170,8 +180,35 @@ export class ArticleController {
         'Content-Disposition',
         `${telecharger === 'true' ? 'attachment' : 'inline'}; filename="${nom}"`,
       )
-      .setHeader('Cache-Control', 'public, max-age=300')
-      .send(contenu);
+      .setHeader('Accept-Ranges', 'bytes')
+      // Avec `v` (la clé du fichier, qui change à chaque dépôt), le contenu ne
+      // bouge plus : le navigateur le garde et ne le redemande pas.
+      .setHeader(
+        'Cache-Control',
+        version ? 'public, max-age=31536000, immutable' : 'public, max-age=300',
+      );
+
+    const plage = lirePlage(enteteRange, taille);
+    if (plage.genre === 'hors') {
+      reponse
+        .status(HttpStatus.REQUESTED_RANGE_NOT_SATISFIABLE)
+        .setHeader('Content-Range', `bytes */${taille}`)
+        .end();
+      return;
+    }
+    if (plage.genre === 'plage') {
+      reponse
+        .status(HttpStatus.PARTIAL_CONTENT)
+        .setHeader(
+          'Content-Range',
+          `bytes ${plage.debut}-${plage.fin}/${taille}`,
+        )
+        .setHeader('Content-Length', plage.fin - plage.debut + 1)
+        .end(contenu.subarray(plage.debut, plage.fin + 1));
+      return;
+    }
+
+    reponse.send(contenu);
   }
 
   @Public()
