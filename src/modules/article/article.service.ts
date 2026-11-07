@@ -34,12 +34,18 @@ const TRIS_AUTORISES = ['publishedAt', 'createdAt', 'titre'] as const;
 /** Longueur de l'extrait déduit du contenu, quand aucun n'est fourni. */
 const LONGUEUR_EXTRAIT = 200;
 
+/** Nombre de PDF gardés en mémoire (30 Mo au plus chacun). */
+const PDF_EN_MEMOIRE = 3;
+
 @Injectable()
 export class ArticleService {
   private readonly logger = new Logger(ArticleService.name);
 
   /** Borne un passage de la tâche : une rafale d'annonces se lisse. */
   private static readonly PAR_PASSAGE = 50;
+
+  /** Clé → lecture en cours ou faite ; une promesse, pour que des requêtes simultanées n'aillent pas toutes au stockage. */
+  private readonly pdfEnMemoire = new Map<string, Promise<Buffer>>();
 
   constructor(
     @InjectRepository(Article)
@@ -371,9 +377,38 @@ export class ArticleService {
     }
 
     return {
-      contenu: await this.stockage.telecharger(article.documentPdf),
+      contenu: await this.contenuPdf(article.documentPdf),
       nom: `${article.slug}.pdf`,
     };
+  }
+
+  /**
+   * Les octets d'un PDF, gardés en mémoire pour les lectures suivantes.
+   *
+   * pdf.js lit un document en dizaines de requêtes (une par morceau) : sans
+   * cela, chacune irait chercher les 30 Mo dans le stockage. Les clés sont
+   * uniques à chaque dépôt — remplacer un PDF crée une autre clé — donc rien
+   * à invalider. Le plus ancien est retiré au-delà de {@link PDF_EN_MEMOIRE}.
+   */
+  private contenuPdf(cle: string): Promise<Buffer> {
+    const connu = this.pdfEnMemoire.get(cle);
+    if (connu) {
+      // Réinséré : la Map garde l'ordre d'insertion, le plus ancien est en tête.
+      this.pdfEnMemoire.delete(cle);
+      this.pdfEnMemoire.set(cle, connu);
+      return connu;
+    }
+
+    const lecture = this.stockage.telecharger(cle);
+    this.pdfEnMemoire.set(cle, lecture);
+    // Une lecture ratée ne reste pas en mémoire : la requête suivante retente.
+    lecture.catch(() => this.pdfEnMemoire.delete(cle));
+    while (this.pdfEnMemoire.size > PDF_EN_MEMOIRE) {
+      const plusAncien = this.pdfEnMemoire.keys().next().value;
+      if (plusAncien === undefined) break;
+      this.pdfEnMemoire.delete(plusAncien);
+    }
+    return lecture;
   }
 
   // ─────────────────────────────  Interne  ──────────────────────────────
