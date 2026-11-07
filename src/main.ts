@@ -35,6 +35,10 @@ async function bootstrap() {
     // Sans eux, le navigateur cache à pdf.js que le serveur sait servir un
     // PDF par morceaux : il le télécharge alors en entier avant de l'afficher.
     exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
+    // L'en-tête `Range` impose une requête préalable (OPTIONS) à chaque morceau
+    // de PDF : mise en cache, elle ne coûte plus un aller-retour de plus à
+    // chaque fois sur un réseau mobile. Les navigateurs plafonnent cette durée.
+    maxAge: 86_400,
   });
   app.useGlobalPipes(
     new ValidationPipe({
