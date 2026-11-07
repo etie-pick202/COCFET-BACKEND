@@ -32,6 +32,9 @@ async function bootstrap() {
       .get<string>('CORS_ORIGIN', 'http://localhost:5173')
       .split(','),
     credentials: true,
+    // Sans eux, le navigateur cache à pdf.js que le serveur sait servir un
+    // PDF par morceaux : il le télécharge alors en entier avant de l'afficher.
+    exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
   });
   app.useGlobalPipes(
     new ValidationPipe({
